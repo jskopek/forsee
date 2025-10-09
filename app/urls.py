@@ -24,5 +24,6 @@ urlpatterns = [
     path('administrator/', include('administrator.urls')),
     path('', include('accounts.urls')),
     path('contacts/', include('contacts.urls')),
+    path('conversations/', include('conversations.urls')),
     path('', include('home.urls')),
 ]
