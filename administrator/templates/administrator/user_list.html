@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}Administrator Dashboard{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 py-8 space-y-6">
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-3xl font-semibold text-gray-900">Administrator Dashboard</h1>
+            <p class="text-gray-600 mt-2">Manage user accounts and jump into any profile for troubleshooting.</p>
+        </div>
+    </div>
+
+    <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        {% for person in users %}
+            <div class="bg-white shadow rounded-lg p-6 flex flex-col justify-between">
+                <div class="space-y-4">
+                    <div>
+                        <h2 class="text-xl font-semibold text-gray-900">{{ person.email }}</h2>
+                        <p class="text-sm text-gray-500">
+                            {% if person.is_superuser %}
+                                Superuser
+                            {% elif person.is_staff %}
+                                Staff
+                            {% else %}
+                                Standard user
+                            {% endif %}
+                        </p>
+                        {% if not person.is_active %}
+                            <span class="mt-2 inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">
+                                Inactive
+                            </span>
+                        {% endif %}
+                    </div>
+                    <dl class="space-y-3 text-sm text-gray-700">
+                        <div>
+                            <dt class="font-medium text-gray-500 uppercase tracking-wide text-xs">Location</dt>
+                            <dd class="mt-1">{{ person.location|default:"—" }}</dd>
+                        </div>
+                        <div>
+                            <dt class="font-medium text-gray-500 uppercase tracking-wide text-xs">Medical Condition</dt>
+                            <dd class="mt-1 whitespace-pre-wrap">{{ person.medical_condition|default:"—" }}</dd>
+                        </div>
+                        <div>
+                            <dt class="font-medium text-gray-500 uppercase tracking-wide text-xs">Interests</dt>
+                            <dd class="mt-1 whitespace-pre-wrap">{{ person.interests|default:"—" }}</dd>
+                        </div>
+                        <div>
+                            <dt class="font-medium text-gray-500 uppercase tracking-wide text-xs">Sports Teams</dt>
+                            <dd class="mt-1 whitespace-pre-wrap">{{ person.sports_teams|default:"—" }}</dd>
+                        </div>
+                    </dl>
+                </div>
+                <div class="mt-6 flex flex-wrap gap-3">
+                    {% if person != request.user %}
+                        <form method="post" action="{% url 'hijack:acquire' %}">
+                            {% csrf_token %}
+                            <input type="hidden" name="user_pk" value="{{ person.pk }}">
+                            <button type="submit" class="inline-flex items-center justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+                                Log in as user
+                            </button>
+                        </form>
+                    {% endif %}
+                    <a href="{% url 'administrator:user-edit' person.pk %}" class="inline-flex items-center justify-center rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+                        Edit
+                    </a>
+                    {% if person != request.user %}
+                        <a href="{% url 'administrator:user-delete' person.pk %}" class="inline-flex items-center justify-center rounded-md border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50">
+                            Delete
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        {% empty %}
+            <div class="col-span-full">
+                <div class="bg-white shadow rounded-lg p-6 text-center text-gray-500">
+                    No users available.
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

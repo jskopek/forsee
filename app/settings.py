@@ -51,8 +51,11 @@ INSTALLED_APPS = [
     'accounts',
     'home',
     'contacts',
+    'administrator',
     'crispy_forms',
     'crispy_tailwind',
+    'hijack',
+    'hijack.contrib.admin',
 ]
 
 MIDDLEWARE = [
@@ -64,6 +67,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'allauth.account.middleware.AccountMiddleware',
+    'hijack.middleware.HijackUserMiddleware',
 ]
 
 ROOT_URLCONF = 'app.urls'
@@ -170,7 +174,7 @@ ACCOUNT_USER_MODEL_USERNAME_FIELD = None
 ACCOUNT_EMAIL_VERIFICATION = 'none'
 
 # Redirect URLs
-LOGIN_REDIRECT_URL = '/'
+LOGIN_REDIRECT_URL = '/dashboard/'
 ACCOUNT_LOGOUT_REDIRECT_URL = '/'
 
 # Email backend for development (console output)
@@ -178,3 +182,7 @@ EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 CRISPY_ALLOWED_TEMPLATE_PACKS = ("tailwind",)
 CRISPY_TEMPLATE_PACK = "tailwind"
+
+HIJACK_ALLOW_GET_REQUESTS = True
+HIJACK_LOGOUT_REDIRECT_URL = '/dashboard/'
+HIJACK_LOGIN_REDIRECT_URL = '/dashboard/'

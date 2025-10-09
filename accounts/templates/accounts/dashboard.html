@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto px-4 py-8">
+    <h1 class="text-3xl font-semibold text-gray-900 mb-4">Welcome back</h1>
+    <div class="bg-white shadow rounded-lg p-6 space-y-4">
+        <p class="text-gray-700">You're signed in as <strong>{{ user_profile.email }}</strong>.</p>
+        <p class="text-gray-600">We’ll surface personalized tools for you here soon. For now, visit the <a href="{% url 'index' %}" class="text-blue-600 hover:text-blue-700">home page</a> to continue exploring.</p>
+    </div>
+</div>
+{% endblock %}
