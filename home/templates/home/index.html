@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+
+{% block title %}Home - Eye Tracking Keyboard{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="max-w-2xl mx-auto">
+        <!-- Alpine.js example -->
+        <div x-data="{ message: 'Hello World from Alpine.js!' }" class="mb-8">
+            <h1 class="text-4xl font-bold text-gray-900 mb-4" x-text="message"></h1>
+        </div>
+
+        <!-- Tailwind example -->
+        <div class="bg-white shadow-lg rounded-lg p-6 mb-8">
+            <h2 class="text-2xl font-semibold text-gray-800 mb-2">Eye Tracking Keyboard</h2>
+            <p class="text-gray-600">A communication tool for people with ALS.</p>
+        </div>
+
+        <!-- HTMX example -->
+        <button
+            hx-get="/api/test"
+            hx-target="#htmx-response"
+            class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded transition-colors"
+        >
+            Test HTMX
+        </button>
+        <div id="htmx-response" class="mt-4 text-gray-700"></div>
+    </div>
+</div>
+{% endblock %}
