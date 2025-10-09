@@ -12,6 +12,27 @@
     {% block extra_head %}{% endblock %}
 </head>
 <body class="bg-gray-50">
+    <nav class="bg-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex">
+                    <div class="flex-shrink-0 flex items-center">
+                        <a href="/" class="text-xl font-bold text-gray-800">Eye Tracking Keyboard</a>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    {% if user.is_authenticated %}
+                        <span class="text-gray-700">{{ user.email }}</span>
+                        <a href="{% url 'account_logout' %}" class="text-gray-700 hover:text-gray-900">Logout</a>
+                    {% else %}
+                        <a href="{% url 'account_login' %}" class="text-gray-700 hover:text-gray-900">Login</a>
+                        <a href="{% url 'account_signup' %}" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">Sign Up</a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </nav>
+
     <main>
         {% block content %}{% endblock %}
     </main>
