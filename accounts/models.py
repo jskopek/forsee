@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.db import models
+from django.forms.models import model_to_dict
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -24,3 +25,10 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.full_name or self.email
+
+    @property
+    def profile_data(self) -> dict:
+        return model_to_dict(
+            self,
+            fields=["id", "email", "full_name", "location", "medical_condition", "interests", "sports_teams"],
+        )

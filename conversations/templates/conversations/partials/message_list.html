@@ -1,6 +1,6 @@
 <div id="conversation-messages"
-     hx-get="{% url 'conversations:messages-partial' conversation.pk %}"
-     hx-trigger="load, every 5s"
+     hx-get="{% url 'conversations:detail' conversation.pk %}"
+     hx-trigger="every 5s, message-sent from:body"
      hx-target="this"
      hx-swap="outerHTML"
      class="space-y-4">

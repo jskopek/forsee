@@ -14,11 +14,6 @@ urlpatterns = [
     ),
     path("<uuid:pk>/", views.ConversationDetailView.as_view(), name="detail"),
     path(
-        "<uuid:pk>/partials/messages/",
-        views.ConversationMessagesPartialView.as_view(),
-        name="messages-partial",
-    ),
-    path(
         "<uuid:pk>/messages/send/",
         views.ConversationMessageCreateView.as_view(),
         name="message-send",

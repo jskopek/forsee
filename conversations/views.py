@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from contacts.models import Contact
@@ -11,10 +12,9 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views import View, generic
 
+from .utils import generate_contact_greeting, generate_contact_reply
 from .forms import ConversationCreateForm, MessageForm
 from .models import Conversation, Message
-# from .services import create_conversation, create_user_message
-# from .tasks import enqueue_contact_reply, enqueue_initial_contact_greeting
 
 
 class ConversationListView(LoginRequiredMixin, generic.ListView):
@@ -48,12 +48,15 @@ class ConversationCreateView(LoginRequiredMixin, generic.FormView):
         return kwargs
 
     def form_valid(self, form: ConversationCreateForm) -> HttpResponse:
-        # conversation = create_conversation(
-        #     owner=self.request.user,
-        #     contact=form.cleaned_data["contact"],
-        #     title=form.cleaned_data.get("title") or None,
-        # )
-        # enqueue_initial_contact_greeting(conversation)
+        contact = form.cleaned_data["contact"]
+        conversation = Conversation.objects.create(
+            owner=self.request.user,
+            contact=contact,
+            title=form.cleaned_data.get("title") or contact.name,
+            user_snapshot=self.request.user.profile_data,
+            contact_snapshot=contact.profile_data,
+        )
+        generate_contact_greeting(conversation)
         return HttpResponseRedirect(conversation.get_absolute_url())
 
 
@@ -64,17 +67,21 @@ class ConversationQuickStartView(LoginRequiredMixin, View):
             pk=contact_pk,
             user=request.user,
         )
-        conversation = create_conversation(
+        conversation = Conversation.objects.create(
             owner=request.user,
             contact=contact,
+            title=contact.name,
+            user_snapshot=request.user.profile_data,
+            contact_snapshot=contact.profile_data,
         )
-        # enqueue_initial_contact_greeting(conversation)
+        generate_contact_greeting(conversation)
         return redirect(conversation.get_absolute_url())
 
 
 class ConversationDetailView(LoginRequiredMixin, generic.DetailView):
     model = Conversation
     template_name = "conversations/conversation_detail.html"
+    partial_template_name = "conversations/partials/message_list.html"
     context_object_name = "conversation"
 
     def get_queryset(self):
@@ -83,31 +90,24 @@ class ConversationDetailView(LoginRequiredMixin, generic.DetailView):
             .select_related("contact")
         )
 
+    def get_template_names(self):
+        if _is_htmx(self.request) and self.partial_template_name:
+            return [self.partial_template_name]
+        return super().get_template_names()
+
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         context["message_form"] = MessageForm()
         context["messages"] = self.object.messages.order_by("created_at", "id")
+        if self.object.contact_snapshot:
+            snapshot = dict(self.object.contact_snapshot)
+            snapshot["interests"] = _normalize_interests(snapshot.get("interests"))
+            self.object.contact_snapshot = snapshot
+        if self.object.user_snapshot:
+            snapshot = dict(self.object.user_snapshot)
+            snapshot["interests"] = _normalize_interests(snapshot.get("interests"))
+            self.object.user_snapshot = snapshot
         return context
-
-
-class ConversationMessagesPartialView(LoginRequiredMixin, View):
-    template_name = "conversations/partials/message_list.html"
-
-    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        conversation = get_object_or_404(
-            Conversation.objects.select_related("contact").prefetch_related("messages"),
-            pk=kwargs["pk"],
-            owner=request.user,
-        )
-        messages = conversation.messages.order_by("created_at", "id")
-        return render(
-            request,
-            self.template_name,
-            {
-                "conversation": conversation,
-                "messages": messages,
-            },
-        )
 
 
 class ConversationMessageCreateView(LoginRequiredMixin, View):
@@ -124,11 +124,11 @@ class ConversationMessageCreateView(LoginRequiredMixin, View):
             error_text = form.errors.get("body", ["Unable to send your message."])[0]
             return HttpResponseBadRequest(error_text)
 
-        # user_message = create_user_message(
-        #     conversation=conversation,
-        #     body=form.cleaned_data["body"],
-        # )
-        # enqueue_contact_reply(conversation, trigger_message=user_message)
+        user_message = conversation.messages.create(
+            sender=Message.Sender.USER,
+            body=form.cleaned_data["body"],
+        )
+        generate_contact_reply(conversation, trigger_message=user_message)
 
         if _is_htmx(request):
             messages_qs = conversation.messages.order_by("created_at", "id")
@@ -145,3 +145,26 @@ class ConversationMessageCreateView(LoginRequiredMixin, View):
 
 def _is_htmx(request: HttpRequest) -> bool:
     return request.headers.get("HX-Request", "").lower() == "true"
+
+
+def _normalize_interests(raw: Any) -> list[str]:
+    if not raw:
+        return []
+    if isinstance(raw, (list, tuple)):
+        return [str(item).strip() for item in raw if str(item).strip()]
+    if isinstance(raw, str):
+        cleaned = raw.replace("\r", "")
+        if not cleaned.strip():
+            return []
+        parts = re.split(r"[\n;,]", cleaned)
+        if len(parts) == 1:
+            text = parts[0].strip()
+            return [text] if text else []
+        normalized: list[str] = []
+        for part in parts:
+            text = part.strip(" \t•*-")
+            if text:
+                normalized.append(text)
+        return normalized
+    text = str(raw).strip()
+    return [text] if text else []
