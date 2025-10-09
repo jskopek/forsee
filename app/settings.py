@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'django.contrib.sites',
     'compressor',
+    'django_rq',
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
@@ -187,3 +188,12 @@ HIJACK_ALLOW_GET_REQUESTS = True
 HIJACK_LOGOUT_REDIRECT_URL = '/dashboard/'
 HIJACK_LOGIN_REDIRECT_URL = '/dashboard/'
 HIJACK_INSERT_BEFORE = None
+
+RQ_QUEUES = {
+    "default": {
+        "URL": os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"),
+        "DEFAULT_TIMEOUT": int(os.getenv("RQ_DEFAULT_TIMEOUT", "300")),
+    },
+}
+
+RQ_EXCEPTION_HANDLERS = ("django_rq.utils.push_exception_handler",)
