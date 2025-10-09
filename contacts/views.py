@@ -11,6 +11,8 @@ class ContactMixin(LoginRequiredMixin):
     model = Contact
 
     def get_queryset(self):
+        if self.request.user.is_superuser:
+            return Contact.objects.all()
         return Contact.objects.filter(user=self.request.user)
 
 

@@ -9,14 +9,24 @@
             <h1 class="text-3xl font-semibold text-gray-900">Administrator Dashboard</h1>
             <p class="text-gray-600 mt-2">Manage user accounts and jump into any profile for troubleshooting.</p>
         </div>
+        <form method="post" action="{% url 'administrator:generate-users' %}">
+            {% csrf_token %}
+            <button type="submit" class="inline-flex items-center justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+                Generate User
+            </button>
+        </form>
     </div>
 
     <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {% for person in users %}
-            <div class="bg-white shadow rounded-lg p-6 flex flex-col justify-between">
+            <div class="bg-white shadow rounded-lg p-6 flex flex-col justify-between cursor-pointer" x-data @click="$refs.link.click()">
                 <div class="space-y-4">
                     <div>
-                        <h2 class="text-xl font-semibold text-gray-900">{{ person.email }}</h2>
+                        <h2 class="text-xl font-semibold text-gray-900">
+                            <a href="{% url 'administrator:user-detail' person.pk %}" class="hover:text-indigo-600" x-ref="link">
+                                {{ person }}
+                            </a>
+                        </h2>
                         <p class="text-sm text-gray-500">
                             {% if person.is_superuser %}
                                 Superuser

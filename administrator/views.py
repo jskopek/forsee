@@ -3,8 +3,11 @@ from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.core.exceptions import PermissionDenied
-from django.urls import reverse_lazy
-from django.views.generic import DeleteView, ListView, UpdateView
+from django.shortcuts import redirect
+from django.urls import reverse, reverse_lazy
+from django.views.generic import DeleteView, DetailView, ListView, UpdateView, View
+from accounts.services.mock_user_profiles import MockUserProfileError, MockUserProfileGenerator
+from accounts.utils.mock_users import create_mock_user
 
 User = get_user_model()
 
@@ -36,7 +39,19 @@ class DashboardView(SuperuserRequiredMixin, ListView):
     context_object_name = "users"
 
     def get_queryset(self):
-        return User.objects.order_by("email")
+        return User.objects.order_by("email").exclude(pk=self.request.user.pk)
+
+class UserDetailView(SuperuserRequiredMixin, DetailView):
+    model = User
+    template_name = "administrator/user_detail.html"
+    context_object_name = "person"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["contacts"] = self.object.contacts.order_by("name")
+        context["edit_url"] = reverse("administrator:user-edit", args=[self.object.pk])
+        context["delete_url"] = reverse("administrator:user-delete", args=[self.object.pk])
+        return context
 
 
 class UserUpdateView(AdminFormMixin, SuperuserRequiredMixin, UpdateView):
@@ -69,3 +84,12 @@ class UserDeleteView(SuperuserRequiredMixin, DeleteView):
         context = super().get_context_data(**kwargs)
         context["cancel_url"] = reverse_lazy("administrator:dashboard")
         return context
+
+
+class GenerateUsersView(SuperuserRequiredMixin, View):
+    def post(self, request):
+        try:
+            user, _ = create_mock_user(generator=MockUserProfileGenerator())
+        except MockUserProfileError as error:
+            return redirect("administrator:dashboard")
+        return redirect("administrator:user-detail", pk=user.pk)

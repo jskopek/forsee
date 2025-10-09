@@ -10,6 +10,9 @@
             {% if object.relationship %}
                 <p class="text-gray-500 mt-1">{{ object.relationship }}</p>
             {% endif %}
+            {% if user.is_superuser %}
+                <p class="text-sm text-gray-400 mt-1">Owner: {{ object.user.email }}</p>
+            {% endif %}
         </div>
         <div class="space-x-2">
             <a href="{% url 'contacts:update' object.pk %}" class="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">Edit</a>
