@@ -19,6 +19,11 @@
                     <div class="flex-shrink-0 flex items-center">
                         <a href="/" class="text-xl font-bold text-gray-800">Eye Tracking Keyboard</a>
                     </div>
+                    {% if user.is_authenticated %}
+                    <div class="ml-6 flex items-center space-x-4">
+                        <a href="{% url 'contacts:list' %}" class="text-gray-700 hover:text-gray-900">Contacts</a>
+                    </div>
+                    {% endif %}
                 </div>
                 <div class="flex items-center space-x-4">
                     {% if user.is_authenticated %}

@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+
+{% block title %}Contacts - Eye Tracking Keyboard{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto px-4 py-8">
+    <div class="flex items-center justify-between mb-6">
+        <h1 class="text-3xl font-semibold text-gray-900">Contacts</h1>
+        <a href="{% url 'contacts:create' %}" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
+            New Contact
+        </a>
+    </div>
+
+    {% if contacts %}
+        <div class="bg-white shadow rounded-lg divide-y">
+            {% for contact in contacts %}
+                <a href="{{ contact.get_absolute_url }}" class="block px-6 py-4 hover:bg-gray-50">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-lg font-medium text-gray-900">{{ contact.name }}</p>
+                            {% if contact.relationship %}
+                                <p class="text-sm text-gray-500 mt-1">{{ contact.relationship }}</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </a>
+            {% endfor %}
+        </div>
+        {% include 'components/pagination.html' with page_obj=page_obj %}
+    {% else %}
+        <div class="bg-white shadow rounded-lg p-6 text-center text-gray-500">
+            No contacts yet. <a href="{% url 'contacts:create' %}" class="text-blue-600 hover:text-blue-700">Add your first contact.</a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% load crispy_forms_tags %}
+
+{% block title %}
+    {% if object %}
+        Edit {{ object.name }} - Contacts
+    {% else %}
+        New Contact - Contacts
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto px-4 py-8">
+    <h1 class="text-3xl font-semibold text-gray-900 mb-6">
+        {% if object %}Edit {{ object.name }}{% else %}New Contact{% endif %}
+    </h1>
+
+    <div class="bg-white shadow rounded-lg p-6">
+        <form method="post" class="space-y-5">
+            {% csrf_token %}
+            {{ form|crispy }}
+            <div class="flex items-center justify-end space-x-3">
+                <a href="{% if object %}{{ object.get_absolute_url }}{% else %}{% url 'contacts:list' %}{% endif %}" class="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
+                    Cancel
+                </a>
+                <button type="submit" class="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700">
+                    Save
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

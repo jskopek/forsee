@@ -50,6 +50,9 @@ INSTALLED_APPS = [
     'allauth.socialaccount',
     'accounts',
     'home',
+    'contacts',
+    'crispy_forms',
+    'crispy_tailwind',
 ]
 
 MIDDLEWARE = [
@@ -172,3 +175,6 @@ ACCOUNT_LOGOUT_REDIRECT_URL = '/'
 
 # Email backend for development (console output)
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+CRISPY_ALLOWED_TEMPLATE_PACKS = ("tailwind",)
+CRISPY_TEMPLATE_PACK = "tailwind"

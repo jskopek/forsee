@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ object.name }} - Contacts{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto px-4 py-8 space-y-6">
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-3xl font-semibold text-gray-900">{{ object.name }}</h1>
+            {% if object.relationship %}
+                <p class="text-gray-500 mt-1">{{ object.relationship }}</p>
+            {% endif %}
+        </div>
+        <div class="space-x-2">
+            <a href="{% url 'contacts:update' object.pk %}" class="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">Edit</a>
+            <a href="{% url 'contacts:delete' object.pk %}" class="px-4 py-2 rounded-md bg-red-600 text-white hover:bg-red-700">Delete</a>
+        </div>
+    </div>
+
+    <div class="bg-white shadow rounded-lg p-6 space-y-4">
+        {% if object.notes %}
+            <div>
+                <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide">Notes</h2>
+                <p class="mt-1 text-gray-800 whitespace-pre-wrap">{{ object.notes }}</p>
+            </div>
+        {% endif %}
+    </div>
+
+    <div>
+        <a href="{% url 'contacts:list' %}" class="text-blue-600 hover:text-blue-700">Back to contacts</a>
+    </div>
+</div>
+{% endblock %}
