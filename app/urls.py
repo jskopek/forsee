@@ -25,5 +25,6 @@ urlpatterns = [
     path('', include('accounts.urls')),
     path('contacts/', include('contacts.urls')),
     path('conversations/', include('conversations.urls')),
+    path('django-rq/', include('django_rq.urls')),
     path('', include('home.urls')),
 ]

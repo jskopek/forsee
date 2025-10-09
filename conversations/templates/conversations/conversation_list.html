@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Conversations · Eye Tracking Keyboard{% endblock %}
+
+{% block content %}
+<section class="max-w-5xl mx-auto px-4 py-10">
+    <div class="flex items-center justify-between mb-8">
+        <div>
+            <h1 class="text-3xl font-semibold text-gray-900">Conversations</h1>
+            <p class="text-gray-600 mt-1">Pick up where you left off or start a chat with one of your contacts.</p>
+        </div>
+        <a href="{% url 'conversations:create' %}"
+           class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring focus:ring-blue-200">
+            Start Conversation
+        </a>
+    </div>
+
+    {% if conversations %}
+        <div class="bg-white shadow rounded-lg divide-y divide-gray-100">
+            {% for conversation in conversations %}
+                <a href="{{ conversation.get_absolute_url }}"
+                   class="block px-6 py-5 hover:bg-blue-50 focus:outline-none focus:ring focus:ring-blue-200 transition">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-xl font-semibold text-gray-900">
+                                {{ conversation.title|default:conversation.contact.name }}
+                            </h2>
+                            <p class="text-sm text-gray-500">
+                                Started on {{ conversation.created_at|date:"M j, Y g:i a" }}
+                            </p>
+                        </div>
+                        <span class="text-sm text-gray-500">
+                            Updated {{ conversation.updated_at|timesince }} ago
+                        </span>
+                    </div>
+                    {% with latest=conversation.latest_messages.0 %}
+                        {% if latest %}
+                            <p class="mt-3 text-gray-700">
+                                {% if latest.sender == latest.Sender.USER %}
+                                    You:
+                                {% elif latest.sender == latest.Sender.CONTACT %}
+                                    {{ conversation.contact.name }}:
+                                {% else %}
+                                    System:
+                                {% endif %}
+                                {{ latest.body }}
+                            </p>
+                        {% endif %}
+                    {% endwith %}
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="text-center bg-white shadow rounded-lg p-10">
+            <h2 class="text-xl font-semibold text-gray-900 mb-2">No conversations yet</h2>
+            <p class="text-gray-600 mb-6">
+                When you start a conversation with one of your contacts, it will show up here.
+            </p>
+            <a href="{% url 'conversations:create' %}"
+               class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring focus:ring-blue-200">
+                Start your first conversation
+            </a>
+        </div>
+    {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block title %}Conversation with {{ conversation.contact.name }} · Eye Tracking Keyboard{% endblock %}
+
+{% block content %}
+<section class="max-w-6xl mx-auto px-4 py-10">
+    <div class="grid gap-8 lg:grid-cols-[2fr,1fr]">
+        <div class="bg-white shadow rounded-lg flex flex-col">
+            <div class="px-6 py-5 border-b border-gray-100">
+                <p class="text-sm text-gray-500 uppercase tracking-wide">Chatting with</p>
+                <h1 class="text-3xl font-semibold text-gray-900">
+                    {{ conversation.title|default:conversation.contact.name }}
+                </h1>
+                <p class="text-gray-600 mt-2">
+                    Started {{ conversation.created_at|date:"M j, Y g:i a" }}
+                </p>
+            </div>
+
+            <div class="flex-1 overflow-y-auto px-6 py-6 space-y-6 bg-gray-50 pb-32">
+                {% include "conversations/partials/message_list.html" with conversation=conversation messages=messages %}
+            </div>
+
+            <div class="px-6 py-5 border-t border-gray-100 bg-white sticky bottom-0 z-10">
+                <div x-data="chatComposer()" x-init="init()" x-on:message-sent.window="handleMessageSent()">
+                    <form method="post"
+                          hx-post="{% url 'conversations:message-send' conversation.pk %}"
+                          hx-target="#conversation-messages"
+                          hx-swap="outerHTML"
+                          hx-headers='{"X-Requested-With": "XMLHttpRequest"}'
+                          hx-on::after-request="handleAfterRequest(event)">
+                        {% csrf_token %}
+                        <div>
+                            {{ message_form.body }}
+                        </div>
+                        <template x-if="error">
+                            <p class="mt-2 text-sm text-red-600" x-text="error"></p>
+                        </template>
+                        <div class="mt-4 flex justify-end">
+                            <button type="submit"
+                                    x-ref="submitButton"
+                                    class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring focus:ring-blue-200">
+                                Send
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <aside class="bg-white shadow rounded-lg p-6 space-y-6 h-fit">
+            <div>
+                <h2 class="text-xl font-semibold text-gray-900 mb-2">Contact snapshot</h2>
+                <dl class="space-y-2 text-gray-700">
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Name</dt>
+                        <dd>{{ conversation.contact_snapshot.name|default:conversation.contact.name }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Relationship</dt>
+                        <dd>{{ conversation.contact_snapshot.relationship|default:"Not specified" }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Personality</dt>
+                        <dd>{{ conversation.contact_snapshot.personality|default:"Not captured" }}</dd>
+                    </div>
+                </dl>
+            </div>
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Shared context</h3>
+                <div>
+                    <h4 class="text-sm font-medium text-gray-500 uppercase">Contact interests</h4>
+                    <ul class="mt-2 space-y-1 text-gray-700 list-disc list-inside">
+                        {% for interest in conversation.contact_snapshot.interests %}
+                            <li>{{ interest }}</li>
+                        {% empty %}
+                            <li class="list-none text-gray-500">No interests recorded.</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                <div class="mt-4">
+                    <h4 class="text-sm font-medium text-gray-500 uppercase">Notes</h4>
+                    <p class="mt-1 text-gray-700 whitespace-pre-line">
+                        {{ conversation.contact_snapshot.notes|default:"No notes yet." }}
+                    </p>
+                </div>
+            </div>
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">About you</h3>
+                <dl class="space-y-2 text-gray-700">
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Name</dt>
+                        <dd>{{ conversation.user_snapshot.full_name|default:user.full_name|default:user.email }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Location</dt>
+                        <dd>{{ conversation.user_snapshot.location|default:"Not specified" }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Medical context</dt>
+                        <dd>{{ conversation.user_snapshot.medical_condition|default:"Not captured" }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Interests</dt>
+                        <ul class="mt-1 space-y-1 list-disc list-inside">
+                            {% for interest in conversation.user_snapshot.interests %}
+                                <li>{{ interest }}</li>
+                            {% empty %}
+                                <li class="list-none text-gray-500">No interests recorded.</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </dl>
+            </div>
+        </aside>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function chatComposer() {
+        return {
+            message: '',
+            error: '',
+            maxRows: 5,
+            init() {
+                const input = this.$refs.messageInput;
+                if (!input) {
+                    return;
+                }
+                this.message = input.value;
+                this.$nextTick(() => this.resize());
+            },
+            handleAfterRequest(event) {
+                const xhr = event.detail.xhr;
+                const wasSuccessful = event.detail.successful ?? (xhr && xhr.status >= 200 && xhr.status < 400);
+                if (wasSuccessful) {
+                    this.error = '';
+                } else {
+                    this.error = (xhr && xhr.responseText) || 'Unable to send your message right now.';
+                }
+            },
+            handleInput(event) {
+                this.message = event.target.value;
+                this.resize();
+            },
+            resize() {
+                const el = this.$refs.messageInput;
+                if (!el) {
+                    return;
+                }
+                el.style.height = 'auto';
+                const lineHeight = parseInt(window.getComputedStyle(el).lineHeight, 10) || 20;
+                const maxHeight = lineHeight * this.maxRows;
+                const minRows = parseInt(el.getAttribute('rows'), 10) || 1;
+                const minHeight = lineHeight * minRows;
+                const contentHeight = el.scrollHeight;
+                const nextHeight = Math.max(Math.min(contentHeight, maxHeight), minHeight);
+                el.style.height = nextHeight + 'px';
+                el.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden';
+            },
+            submitOnEnter(event) {
+                if (event && event.shiftKey) {
+                    return;
+                }
+                event?.preventDefault();
+                const input = this.$refs.messageInput;
+                if (!input) {
+                    return;
+                }
+                const form = input.form;
+                if (!form) {
+                    return;
+                }
+                if (typeof form.requestSubmit === 'function') {
+                    form.requestSubmit();
+                    return;
+                }
+                if (this.$refs.submitButton) {
+                    this.$refs.submitButton.click();
+                    return;
+                }
+                const submitButton = form.querySelector('[type="submit"]');
+                if (submitButton) {
+                    submitButton.click();
+                    return;
+                }
+                form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+            },
+            handleMessageSent() {
+                const input = this.$refs.messageInput;
+                if (input) {
+                    input.value = '';
+                    input.focus();
+                }
+                this.message = '';
+                this.$nextTick(() => this.resize());
+            }
+        };
+    }
+</script>
+{% endblock %}

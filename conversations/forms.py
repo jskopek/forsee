@@ -43,7 +43,7 @@ class MessageForm(forms.ModelForm):
                     "x-ref": "messageInput",
                     "x-model": "message",
                     "@input": "handleInput($event)",
-                    "@keydown.enter": "submitOnEnter($event)",
+                    "@keydown.enter.exact": "submitOnEnter($event)",
                     "data-autosize": "true",
                 }
             )

@@ -1,0 +1,31 @@
+<div id="conversation-messages"
+     hx-get="{% url 'conversations:messages-partial' conversation.pk %}"
+     hx-trigger="load, every 5s"
+     hx-target="this"
+     hx-swap="outerHTML"
+     class="space-y-4">
+    {% if messages %}
+        {% for message in messages %}
+            <div class="flex {% if message.sender == message.Sender.USER %}justify-end{% else %}justify-start{% endif %}">
+                <div class="max-w-xl px-4 py-3 rounded-lg shadow {% if message.sender == message.Sender.USER %}bg-blue-600 text-white{% elif message.sender == message.Sender.CONTACT %}bg-white text-gray-900 border border-gray-200{% else %}bg-gray-200 text-gray-700{% endif %}">
+                    <p class="whitespace-pre-line">{{ message.body }}</p>
+                    <p class="mt-2 text-xs {% if message.sender == message.Sender.USER %}text-blue-100{% else %}text-gray-500{% endif %}">
+                        {{ message.created_at|date:"M j, Y g:i a" }}
+                    </p>
+                </div>
+            </div>
+        {% endfor %}
+    {% else %}
+        <div class="text-center py-10 text-gray-500 bg-white border border-dashed border-gray-300 rounded-lg">
+            No messages yet. Your contact will open the conversation shortly.
+        </div>
+    {% endif %}
+
+    {% if conversation.last_response_job_id %}
+        <div class="flex justify-start">
+            <div class="max-w-xl px-4 py-2 bg-yellow-100 text-yellow-800 rounded-lg border border-yellow-200">
+                Generating a response… this usually takes a few seconds.
+            </div>
+        </div>
+    {% endif %}
+</div>

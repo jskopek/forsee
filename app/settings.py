@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'home',
     'contacts',
     'administrator',
+    'conversations',
     'crispy_forms',
     'crispy_tailwind',
     'hijack',

@@ -14,7 +14,15 @@
                 <p class="text-sm text-gray-400 mt-1">Owner: {{ object.user.email }}</p>
             {% endif %}
         </div>
-        <div class="space-x-2">
+        <div class="flex items-center space-x-2">
+            {% if object.user == user %}
+                <form action="{% url 'conversations:quick-start' object.pk %}" method="post">
+                    {% csrf_token %}
+                    <button type="submit" class="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700">
+                        Start conversation
+                    </button>
+                </form>
+            {% endif %}
             <a href="{% url 'contacts:update' object.pk %}" class="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">Edit</a>
             <a href="{% url 'contacts:delete' object.pk %}" class="px-4 py-2 rounded-md bg-red-600 text-white hover:bg-red-700">Delete</a>
         </div>
