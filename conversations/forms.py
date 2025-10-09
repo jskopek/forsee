@@ -37,14 +37,14 @@ class MessageForm(forms.ModelForm):
         widgets = {
             "body": forms.Textarea(
                 attrs={
-                    "rows": 2,
+                    "rows": 5,
                     "placeholder": "Type your message…",
-                    "class": "w-full border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring focus:ring-blue-200",
+                    "class": "w-full border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring focus:ring-blue-200 resize-none",
                     "x-ref": "messageInput",
                     "x-model": "message",
                     "@input": "handleInput($event)",
-                    "@keydown.enter.exact": "submitOnEnter($event)",
-                    "data-autosize": "true",
+                    "@keydown.enter": "submitOnEnter($event)",
+                    "x-bind:disabled": "isSubmitting",
                 }
             )
         }

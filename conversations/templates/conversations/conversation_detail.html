@@ -9,16 +9,20 @@
             return {
                 message: '',
                 error: '',
-                maxRows: 5,
+                isSubmitting: false,
                 init() {
                     const input = this.$refs.messageInput;
                     if (!input) {
                         return;
                     }
                     this.message = input.value;
-                    this.$nextTick(() => this.resize());
+                    input.rows = input.rows || 5;
                 },
                 handleAfterRequest(event) {
+                    if (event.target !== this.$refs.form) {
+                        return;
+                    }
+                    this.isSubmitting = false;
                     const xhr = event.detail.xhr;
                     const wasSuccessful = event.detail.successful ?? (xhr && xhr.status >= 200 && xhr.status < 400);
                     if (wasSuccessful) {
@@ -29,25 +33,13 @@
                 },
                 handleInput(event) {
                     this.message = event.target.value;
-                    this.resize();
-                },
-                resize() {
-                    const el = this.$refs.messageInput;
-                    if (!el) {
-                        return;
-                    }
-                    el.style.height = 'auto';
-                    const lineHeight = parseInt(window.getComputedStyle(el).lineHeight, 10) || 20;
-                    const maxHeight = lineHeight * this.maxRows;
-                    const minRows = parseInt(el.getAttribute('rows'), 10) || 1;
-                    const minHeight = lineHeight * minRows;
-                    const contentHeight = el.scrollHeight;
-                    const nextHeight = Math.max(Math.min(contentHeight, maxHeight), minHeight);
-                    el.style.height = nextHeight + 'px';
-                    el.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden';
                 },
                 submitOnEnter(event) {
                     if (event && event.shiftKey) {
+                        return;
+                    }
+                    if (this.isSubmitting) {
+                        event?.preventDefault();
                         return;
                     }
                     event?.preventDefault();
@@ -60,46 +52,66 @@
                         return;
                     }
                     if (typeof form.requestSubmit === 'function') {
+                        this.isSubmitting = true;
                         form.requestSubmit();
-                        return;
-                    }
-                    if (this.$refs.submitButton) {
-                        this.$refs.submitButton.click();
                         return;
                     }
                     const submitButton = form.querySelector('[type="submit"]');
                     if (submitButton) {
+                        this.isSubmitting = true;
                         submitButton.click();
                         return;
                     }
+                    this.isSubmitting = true;
                     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
                 },
                 handleMessageSent() {
+                    this.isSubmitting = false;
                     const input = this.$refs.messageInput;
                     if (input) {
                         input.value = '';
                         input.focus();
                     }
                     this.message = '';
-                    this.$nextTick(() => this.resize());
                 }
             };
         };
     </script>
+    <style>
+        [x-cloak] {
+            display: none !important;
+        }
+    </style>
 {% endblock %}
 
 {% block content %}
-<section class="max-w-6xl mx-auto px-4 py-10">
-    <div class="grid gap-8 lg:grid-cols-[2fr,1fr]">
+<section class="max-w-4xl mx-auto px-4 py-10">
+    <div x-data="{ showDetails: false, openPanel: 'contact' }" x-on:keydown.escape.window="showDetails = false">
         <div class="bg-white shadow rounded-lg flex flex-col">
             <div class="px-6 py-5 border-b border-gray-100">
-                <p class="text-sm text-gray-500 uppercase tracking-wide">Chatting with</p>
-                <h1 class="text-3xl font-semibold text-gray-900">
-                    {{ conversation.title|default:conversation.contact.name }}
-                </h1>
-                <p class="text-gray-600 mt-2">
-                    Started {{ conversation.created_at|date:"M j, Y g:i a" }}
-                </p>
+                <div class="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                        <p class="text-sm text-gray-500 uppercase tracking-wide">Chatting with</p>
+                        <h1 class="text-3xl font-semibold text-gray-900">
+                            {{ conversation.title|default:conversation.contact.name }}
+                        </h1>
+                        <p class="text-gray-600 mt-2">
+                            Started {{ conversation.created_at|date:"M j, Y g:i a" }}
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        class="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                        x-on:click="showDetails = true; openPanel = 'contact'"
+                        aria-haspopup="dialog"
+                        :aria-expanded="showDetails.toString()"
+                    >
+                        <svg class="h-5 w-5 text-gray-500" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-.75-11.5a.75.75 0 111.5 0 .75.75 0 01-1.5 0zm0 2.25a.75.75 0 000 1.5h.25v3a.75.75 0 001.5 0v-3A1.75 1.75 0 0010 8.75h-.75z" clip-rule="evenodd" />
+                        </svg>
+                        Conversation info
+                    </button>
+                </div>
             </div>
 
             <div class="flex-1 overflow-y-auto px-6 py-6 space-y-6 bg-gray-50 pb-32">
@@ -107,13 +119,13 @@
             </div>
 
             <div class="px-6 py-5 border-t border-gray-100 bg-white sticky bottom-0 z-10">
-                <div x-data="chatComposer()" x-init="init()" x-on:message-sent.window="handleMessageSent()">
+                <div x-data="chatComposer()" x-init="init()" x-on:message-sent.window="handleMessageSent()" x-on:htmx:afterRequest="handleAfterRequest($event)">
                     <form method="post"
+                          x-ref="form"
                           hx-post="{% url 'conversations:message-send' conversation.pk %}"
                           hx-target="#conversation-messages"
                           hx-swap="outerHTML"
-                          hx-headers='{"X-Requested-With": "XMLHttpRequest"}'
-                          hx-on::after-request="handleAfterRequest(event)">
+                          hx-headers='{"X-Requested-With": "XMLHttpRequest"}'>
                         {% csrf_token %}
                         <div>
                             {{ message_form.body }}
@@ -121,83 +133,155 @@
                         <template x-if="error">
                             <p class="mt-2 text-sm text-red-600" x-text="error"></p>
                         </template>
-                        <div class="mt-4 flex justify-end">
-                            <button type="submit"
-                                    x-ref="submitButton"
-                                    class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring focus:ring-blue-200">
-                                Send
-                            </button>
-                        </div>
                     </form>
                 </div>
             </div>
         </div>
 
-        <aside class="bg-white shadow rounded-lg p-6 space-y-6 h-fit">
-            <div>
-                <h2 class="text-xl font-semibold text-gray-900 mb-2">Contact snapshot</h2>
-                <dl class="space-y-2 text-gray-700">
-                    <div>
-                        <dt class="text-sm font-medium text-gray-500">Name</dt>
-                        <dd>{{ conversation.contact_snapshot.name|default:conversation.contact.name }}</dd>
-                    </div>
-                    <div>
-                        <dt class="text-sm font-medium text-gray-500">Relationship</dt>
-                        <dd>{{ conversation.contact_snapshot.relationship|default:"Not specified" }}</dd>
-                    </div>
-                    <div>
-                        <dt class="text-sm font-medium text-gray-500">Personality</dt>
-                        <dd>{{ conversation.contact_snapshot.personality|default:"Not captured" }}</dd>
-                    </div>
-                </dl>
-            </div>
-            <div>
-                <h3 class="text-lg font-semibold text-gray-900 mb-2">Shared context</h3>
-                <div>
-                    <h4 class="text-sm font-medium text-gray-500 uppercase">Contact interests</h4>
-                    <ul class="mt-2 space-y-1 text-gray-700 list-disc list-inside">
-                        {% for interest in conversation.contact_snapshot.interests %}
-                            <li>{{ interest }}</li>
-                        {% empty %}
-                            <li class="list-none text-gray-500">No interests recorded.</li>
-                        {% endfor %}
-                    </ul>
+        <div
+            x-cloak
+            x-show="showDetails"
+            x-transition.opacity
+            class="fixed inset-0 z-40 flex items-center justify-center px-4"
+            role="dialog"
+            aria-modal="true"
+        >
+            <div class="absolute inset-0 bg-gray-900/60" x-on:click="showDetails = false; openPanel = 'contact'"></div>
+            <div
+                x-transition
+                class="relative z-50 w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl"
+            >
+                <div class="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+                    <h2 class="text-lg font-semibold text-gray-900">Conversation info</h2>
+                    <button
+                        type="button"
+                        class="rounded-full p-2 text-gray-500 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                        x-on:click="showDetails = false; openPanel = 'contact'"
+                    >
+                        <span class="sr-only">Close</span>
+                        <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path fill-rule="evenodd" d="M4.22 4.22a.75.75 0 011.06 0L10 8.94l4.72-4.72a.75.75 0 111.06 1.06L11.06 10l4.72 4.72a.75.75 0 11-1.06 1.06L10 11.06l-4.72 4.72a.75.75 0 11-1.06-1.06L8.94 10 4.22 5.28a.75.75 0 010-1.06z" clip-rule="evenodd" />
+                        </svg>
+                    </button>
                 </div>
-                <div class="mt-4">
-                    <h4 class="text-sm font-medium text-gray-500 uppercase">Notes</h4>
-                    <p class="mt-1 text-gray-700 whitespace-pre-line">
-                        {{ conversation.contact_snapshot.notes|default:"No notes yet." }}
-                    </p>
+                <div class="px-6 py-6 space-y-4">
+                    <div class="rounded-xl border border-gray-200">
+                        <button
+                            type="button"
+                            class="flex w-full items-center justify-between gap-4 px-4 py-3 text-left text-base font-medium text-gray-900 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                            x-on:click="openPanel = openPanel === 'contact' ? null : 'contact'"
+                            aria-controls="conversation-info-contact"
+                            :aria-expanded="(openPanel === 'contact').toString()"
+                        >
+                            <span>Contact info</span>
+                            <svg
+                                class="h-5 w-5 text-gray-500 transition-transform"
+                                :class="{ 'rotate-180': openPanel === 'contact' }"
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                                aria-hidden="true"
+                            >
+                                <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.19l3.71-3.96a.75.75 0 111.08 1.04l-4.25 4.54a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                        <div
+                            id="conversation-info-contact"
+                            x-show="openPanel === 'contact'"
+                            x-transition
+                            class="border-t border-gray-200 px-4 py-4 space-y-4 text-gray-700"
+                        >
+                            <div>
+                                <h3 class="text-sm font-semibold text-gray-900 uppercase tracking-wide">Snapshot</h3>
+                                <dl class="mt-3 space-y-2">
+                                    <div>
+                                        <dt class="text-sm font-medium text-gray-500">Name</dt>
+                                        <dd>{{ conversation.contact_snapshot.name|default:conversation.contact.name }}</dd>
+                                    </div>
+                                    <div>
+                                        <dt class="text-sm font-medium text-gray-500">Relationship</dt>
+                                        <dd>{{ conversation.contact_snapshot.relationship|default:"Not specified" }}</dd>
+                                    </div>
+                                    <div>
+                                        <dt class="text-sm font-medium text-gray-500">Personality</dt>
+                                        <dd>{{ conversation.contact_snapshot.personality|default:"Not captured" }}</dd>
+                                    </div>
+                                </dl>
+                            </div>
+                            <div>
+                                <h3 class="text-sm font-semibold text-gray-900 uppercase tracking-wide">Shared context</h3>
+                                <div class="mt-3">
+                                    <h4 class="text-sm font-medium text-gray-500 uppercase">Contact interests</h4>
+                                    <ul class="mt-2 space-y-1 text-gray-700 list-disc list-inside">
+                                        {% for interest in conversation.contact_snapshot.interests %}
+                                            <li>{{ interest }}</li>
+                                        {% empty %}
+                                            <li class="list-none text-gray-500">No interests recorded.</li>
+                                        {% endfor %}
+                                    </ul>
+                                </div>
+                                <div class="mt-4">
+                                    <h4 class="text-sm font-medium text-gray-500 uppercase">Notes</h4>
+                                    <p class="mt-1 text-gray-700 whitespace-pre-line">
+                                        {{ conversation.contact_snapshot.notes|default:"No notes yet." }}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="rounded-xl border border-gray-200">
+                        <button
+                            type="button"
+                            class="flex w-full items-center justify-between gap-4 px-4 py-3 text-left text-base font-medium text-gray-900 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                            x-on:click="openPanel = openPanel === 'about' ? null : 'about'"
+                            aria-controls="conversation-info-about"
+                            :aria-expanded="(openPanel === 'about').toString()"
+                        >
+                            <span>About you</span>
+                            <svg
+                                class="h-5 w-5 text-gray-500 transition-transform"
+                                :class="{ 'rotate-180': openPanel === 'about' }"
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                                aria-hidden="true"
+                            >
+                                <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.19l3.71-3.96a.75.75 0 111.08 1.04l-4.25 4.54a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                        <div
+                            id="conversation-info-about"
+                            x-show="openPanel === 'about'"
+                            x-transition
+                            class="border-t border-gray-200 px-4 py-4 space-y-3 text-gray-700"
+                        >
+                            <dl class="space-y-2">
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500">Name</dt>
+                                    <dd>{{ conversation.user_snapshot.full_name|default:user.full_name|default:user.email }}</dd>
+                                </div>
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500">Location</dt>
+                                    <dd>{{ conversation.user_snapshot.location|default:"Not specified" }}</dd>
+                                </div>
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500">Medical context</dt>
+                                    <dd>{{ conversation.user_snapshot.medical_condition|default:"Not captured" }}</dd>
+                                </div>
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500">Interests</dt>
+                                    <ul class="mt-1 space-y-1 list-disc list-inside">
+                                        {% for interest in conversation.user_snapshot.interests %}
+                                            <li>{{ interest }}</li>
+                                        {% empty %}
+                                            <li class="list-none text-gray-500">No interests recorded.</li>
+                                        {% endfor %}
+                                    </ul>
+                                </div>
+                            </dl>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div>
-                <h3 class="text-lg font-semibold text-gray-900 mb-2">About you</h3>
-                <dl class="space-y-2 text-gray-700">
-                    <div>
-                        <dt class="text-sm font-medium text-gray-500">Name</dt>
-                        <dd>{{ conversation.user_snapshot.full_name|default:user.full_name|default:user.email }}</dd>
-                    </div>
-                    <div>
-                        <dt class="text-sm font-medium text-gray-500">Location</dt>
-                        <dd>{{ conversation.user_snapshot.location|default:"Not specified" }}</dd>
-                    </div>
-                    <div>
-                        <dt class="text-sm font-medium text-gray-500">Medical context</dt>
-                        <dd>{{ conversation.user_snapshot.medical_condition|default:"Not captured" }}</dd>
-                    </div>
-                    <div>
-                        <dt class="text-sm font-medium text-gray-500">Interests</dt>
-                        <ul class="mt-1 space-y-1 list-disc list-inside">
-                            {% for interest in conversation.user_snapshot.interests %}
-                                <li>{{ interest }}</li>
-                            {% empty %}
-                                <li class="list-none text-gray-500">No interests recorded.</li>
-                            {% endfor %}
-                        </ul>
-                    </div>
-                </dl>
-            </div>
-        </aside>
+        </div>
     </div>
 </section>
 {% endblock %}
