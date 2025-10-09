@@ -2,9 +2,17 @@ import json
 import os
 import random
 from dataclasses import dataclass
-from typing import List, Sequence
+from typing import TYPE_CHECKING, Any, List, Sequence
 
-from openai import OpenAI
+try:
+    from openai import OpenAI as _OpenAIClient
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    _OpenAIClient = None
+
+if TYPE_CHECKING:  # pragma: no cover - typing aid
+    from openai import OpenAI
+else:
+    OpenAI = Any
 
 
 DEFAULT_MODEL = os.getenv("OPENAI_MOCK_USER_MODEL", "gpt-4.1-mini")
@@ -154,7 +162,14 @@ class MockUserProfileGenerator:
         temperature: float = DEFAULT_TEMPERATURE,
         max_output_tokens: int = 600,
     ):
-        self.client = client or OpenAI()
+        if client is not None:
+            self.client = client
+        else:
+            if _OpenAIClient is None:
+                raise MockUserProfileError(
+                    "OpenAI client is not available. Install the 'openai' package or pass an explicit client."
+                )
+            self.client = _OpenAIClient()
         self.model = model
         self.temperature = temperature
         self.max_output_tokens = max_output_tokens
