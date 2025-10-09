@@ -20,10 +20,11 @@ class CrispyFormMixin:
         form.helper = FormHelper()
         form.helper.template_pack = "tailwind"
         form.helper.form_tag = False
-        if "notes" in form.fields:
-            form.fields["notes"].widget = forms.Textarea(
-                attrs={"rows": 4, "placeholder": "Additional context"}
-            )
+        for field_name in ("notes", "interests", "personality"):
+            if field_name in form.fields:
+                form.fields[field_name].widget = forms.Textarea(
+                    attrs={"rows": 4, "placeholder": "Add context"}
+                )
         return form
 
 
@@ -37,7 +38,7 @@ class ContactDetailView(ContactMixin, DetailView):
 
 
 class ContactCreateView(CrispyFormMixin, ContactMixin, CreateView):
-    fields = ["name", "relationship", "notes"]
+    fields = ["name", "relationship", "interests", "personality", "notes"]
 
     def form_valid(self, form):
         form.instance.user = self.request.user
@@ -45,7 +46,7 @@ class ContactCreateView(CrispyFormMixin, ContactMixin, CreateView):
 
 
 class ContactUpdateView(CrispyFormMixin, ContactMixin, UpdateView):
-    fields = ["name", "relationship", "notes"]
+    fields = ["name", "relationship", "interests", "personality", "notes"]
 
 
 class ContactDeleteView(ContactMixin, DeleteView):

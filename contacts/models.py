@@ -17,6 +17,8 @@ class Contact(models.Model):
     name = models.CharField(max_length=200)
     relationship = models.CharField(max_length=100, blank=True)
     notes = models.TextField(blank=True)
+    interests = models.TextField(blank=True)
+    personality = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -5,6 +5,14 @@ from .models import Contact
 
 @admin.register(Contact)
 class ContactAdmin(admin.ModelAdmin):
-    list_display = ("name", "relationship", "user")
-    list_filter = ("relationship",)
-    search_fields = ("name", "relationship", "notes", "user__email")
+    list_display = ("name", "relationship", "user", "updated_at")
+    list_filter = ("relationship", "user")
+    search_fields = (
+        "name",
+        "relationship",
+        "interests",
+        "personality",
+        "notes",
+        "user__email",
+    )
+    ordering = ("name",)

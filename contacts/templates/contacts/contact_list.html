@@ -21,6 +21,16 @@
                             {% if contact.relationship %}
                                 <p class="text-sm text-gray-500 mt-1">{{ contact.relationship }}</p>
                             {% endif %}
+                            {% if contact.interests %}
+                                <p class="text-sm text-gray-500 mt-1">
+                                    Interests: {{ contact.interests|truncatechars:80 }}
+                                </p>
+                            {% endif %}
+                            {% if contact.personality %}
+                                <p class="text-sm text-gray-500 mt-1">
+                                    Personality: {{ contact.personality|truncatechars:80 }}
+                                </p>
+                            {% endif %}
                         </div>
                     </div>
                 </a>
