@@ -1,8 +1,11 @@
 from crispy_forms.helper import FormHelper
 from django import forms
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import Count, OuterRef, Subquery
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
+
+from conversations.models import Message
 
 from .models import Contact
 
@@ -36,7 +39,20 @@ class ContactListView(ContactMixin, ListView):
 
 
 class ContactDetailView(ContactMixin, DetailView):
-    pass
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        contact = self.object
+        latest_message = (
+            Message.objects.filter(conversation=OuterRef("pk"))
+            .order_by("-created_at")
+        )
+        context["conversations"] = contact.conversations.annotate(
+            message_count=Count("messages"),
+            latest_message_body=Subquery(latest_message.values("body")[:1]),
+            latest_message_sender=Subquery(latest_message.values("sender")[:1]),
+            latest_message_at=Subquery(latest_message.values("created_at")[:1]),
+        ).order_by("-updated_at", "-created_at")[:5]
+        return context
 
 
 class ContactCreateView(CrispyFormMixin, ContactMixin, CreateView):

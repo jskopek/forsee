@@ -12,6 +12,11 @@ urlpatterns = [
         views.ConversationQuickStartView.as_view(),
         name="quick-start",
     ),
+    path(
+        "with-contact/<uuid:contact_pk>/generate/",
+        views.ConversationGenerateView.as_view(),
+        name="generate",
+    ),
     path("<uuid:pk>/", views.ConversationDetailView.as_view(), name="detail"),
     path(
         "<uuid:pk>/messages/send/",

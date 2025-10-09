@@ -2,11 +2,19 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Iterable
+from typing import Iterable, Tuple
 
+from django.db import transaction
 from django.utils import timezone
 
 from .models import Conversation, Message
+from .services.mock_conversations import (
+    DEFAULT_MAX_TURNS,
+    DEFAULT_MAX_WORDS,
+    DEFAULT_MIN_TURNS,
+    MockConversationGenerator,
+    MockConversationTranscript,
+)
 
 try:
     from openai import OpenAI
@@ -54,6 +62,71 @@ def generate_contact_reply(
     )
     _touch_conversation(conversation_obj)
     return message
+
+
+# Conversation generation ------------------------------------------------------
+
+
+def generate_mock_conversation_transcript(
+    *,
+    user,
+    contact,
+    generator: MockConversationGenerator | None = None,
+    min_turns: int | None = None,
+    max_turns: int | None = None,
+    max_words: int | None = None,
+) -> MockConversationTranscript:
+    """
+    Produce a synthetic yet human-feeling transcript for the given user/contact pair.
+    """
+    generator = generator or MockConversationGenerator()
+    kwargs = {
+        "user": user,
+        "contact": contact,
+        "min_turns": min_turns or DEFAULT_MIN_TURNS,
+        "max_turns": max_turns or DEFAULT_MAX_TURNS,
+        "max_words": max_words or DEFAULT_MAX_WORDS,
+    }
+    return generator.generate(**kwargs)
+
+
+@transaction.atomic
+def create_mock_conversation(
+    *,
+    user,
+    contact,
+    generator: MockConversationGenerator | None = None,
+    min_turns: int | None = None,
+    max_turns: int | None = None,
+    max_words: int | None = None,
+) -> Tuple[Conversation, MockConversationTranscript]:
+    """
+    Persist a newly generated conversation along with its transcript.
+    """
+    transcript = generate_mock_conversation_transcript(
+        user=user,
+        contact=contact,
+        generator=generator,
+        min_turns=min_turns,
+        max_turns=max_turns,
+        max_words=max_words,
+    )
+    trimmed = transcript.trimmed(
+        max_messages=(max_turns or DEFAULT_MAX_TURNS),
+        max_words=max_words or DEFAULT_MAX_WORDS,
+    )
+    conversation = Conversation.objects.create(
+        owner=user,
+        contact=contact,
+        title=(trimmed.title or contact.name)[:255],
+        user_snapshot=user.profile_data,
+        contact_snapshot=contact.profile_data,
+    )
+    for message in trimmed.messages:
+        sender = Message.Sender.USER if message.sender == "user" else Message.Sender.CONTACT
+        conversation.messages.create(sender=sender, body=message.body)
+    _touch_conversation(conversation)
+    return conversation, trimmed
 
 
 def ask_openai(system_prompt: str, user_prompt: str) -> str:

@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from contacts.models import Contact
+from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Prefetch
 from django.http import HttpRequest, HttpResponse, HttpResponseBadRequest, HttpResponseRedirect
@@ -12,7 +13,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views import View, generic
 
-from .utils import generate_contact_greeting, generate_contact_reply
+from .services.mock_conversations import MockConversationError
+from .utils import create_mock_conversation, generate_contact_greeting, generate_contact_reply
 from .forms import ConversationCreateForm, MessageForm
 from .models import Conversation, Message
 
@@ -75,6 +77,25 @@ class ConversationQuickStartView(LoginRequiredMixin, View):
             contact_snapshot=contact.profile_data,
         )
         generate_contact_greeting(conversation)
+        return redirect(conversation.get_absolute_url())
+
+
+class ConversationGenerateView(LoginRequiredMixin, View):
+    def post(self, request: HttpRequest, contact_pk: str, *args: Any, **kwargs: Any) -> HttpResponse:
+        contact = get_object_or_404(
+            Contact.objects.select_related("user"),
+            pk=contact_pk,
+            user=request.user,
+        )
+        try:
+            conversation, transcript = create_mock_conversation(user=request.user, contact=contact)
+        except MockConversationError as error:
+            messages.error(request, f"Unable to generate conversation: {error}")
+            return redirect(contact.get_absolute_url())
+        messages.success(
+            request,
+            f"Generated conversation with {contact.name} ({len(transcript.messages)} messages).",
+        )
         return redirect(conversation.get_absolute_url())
 
 
