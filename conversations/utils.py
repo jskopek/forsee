@@ -64,6 +64,57 @@ def generate_contact_reply(
     return message
 
 
+def generate_reply_suggestions(
+    conversation: Conversation | str,
+    *,
+    hint: str | None = None,
+    count: int = 3,
+) -> list[str]:
+    """
+    Produce a handful of short, ready-to-send reply options for the user.
+    """
+    conversation_obj = _get_conversation(conversation)
+    messages = list(conversation_obj.messages.order_by("created_at", "id"))
+    normalized_hint = (hint or "").strip()
+    if len(normalized_hint) > 160:
+        normalized_hint = normalized_hint[:160]
+    profiles = _conversation_profiles(conversation_obj)
+    history = _format_history(messages[-12:])
+    system_prompt = (
+        "You help the user choose their next message in a warm, supportive conversation. "
+        "Return a JSON array of complete sentence suggestions that the user could send. "
+        "Each suggestion must feel natural, compassionate, and specific to the situation. "
+        "Keep suggestions under 40 words each."
+    )
+    prompt_payload = {
+        "user_profile": profiles["user"],
+        "contact_profile": profiles["contact"],
+        "conversation_history": history,
+        "desired_suggestion_count": count,
+    }
+    if normalized_hint:
+        prompt_payload["user_hint"] = normalized_hint
+        prompt_payload["hint_importance"] = (
+            "The hint reflects what the user wants to talk about next. Heavily prioritize it."
+        )
+
+    suggestions: list[str] = []
+    try:
+        response_text = ask_openai(system_prompt, json.dumps(prompt_payload, indent=2))
+        suggestions = _parse_suggestion_response(response_text)
+    except Exception:
+        suggestions = []
+
+    suggestions = _clean_suggestions(suggestions)
+    fallback = _fallback_suggestions(conversation_obj, messages, normalized_hint, count)
+    for idea in fallback:
+        if len(suggestions) >= count:
+            break
+        if idea not in suggestions:
+            suggestions.append(idea)
+    return suggestions[:count]
+
+
 # Conversation generation ------------------------------------------------------
 
 
@@ -198,6 +249,94 @@ def _conversation_profiles(conversation: Conversation) -> dict[str, dict]:
     user_profile = conversation.user_snapshot or getattr(conversation.owner, "profile_data", {})
     contact_profile = conversation.contact_snapshot or getattr(conversation.contact, "profile_data", {})
     return {"user": user_profile, "contact": contact_profile}
+
+
+def _parse_suggestion_response(raw: str) -> list[str]:
+    cleaned = raw.strip()
+    if not cleaned:
+        return []
+    candidates = [cleaned]
+    if cleaned.startswith("```"):
+        without_ticks = cleaned.strip("`")
+        if without_ticks.lower().startswith("json"):
+            without_ticks = without_ticks[4:]
+        candidates.append(without_ticks.strip())
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, list):
+            return [str(item) for item in data]
+        if isinstance(data, dict):
+            suggestions = data.get("suggestions")
+            if isinstance(suggestions, list):
+                return [str(item) for item in suggestions]
+    fallback_lines: list[str] = []
+    for line in raw.splitlines():
+        candidate = line.strip()
+        if not candidate:
+            continue
+        candidate = candidate.lstrip("-•0123456789. ").strip()
+        if candidate:
+            fallback_lines.append(candidate)
+    return fallback_lines
+
+
+def _clean_suggestions(values: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    for value in values:
+        text = str(value).strip()
+        if not text:
+            continue
+        normalized = " ".join(text.split())
+        if normalized and normalized not in cleaned:
+            cleaned.append(normalized)
+    return cleaned
+
+
+def _fallback_suggestions(
+    conversation: Conversation,
+    messages: list[Message],
+    hint: str,
+    count: int,
+) -> list[str]:
+    contact_name = (
+        conversation.contact_snapshot.get("name")
+        if conversation.contact_snapshot
+        else conversation.contact.name
+    ) or ""
+    greeting_name = contact_name or "there"
+    latest_contact = None
+    for message in reversed(messages):
+        if message.sender == Message.Sender.CONTACT:
+            latest_contact = message
+            break
+    suggestions: list[str] = []
+    if hint:
+        suggestions.append(
+            f"{contact_name or 'Hey'}, I'd really like to talk about {hint}. Can we focus on that together?"
+        )
+    if latest_contact:
+        snippet = latest_contact.body.strip().splitlines()[0] if latest_contact.body else ""
+        snippet = snippet.replace('"', "").strip()
+        if snippet:
+            snippet_display = snippet[:110] + ("..." if len(snippet) > 110 else "")
+            suggestions.append(
+                f"Thanks for sharing that. When you said \"{snippet_display}\", it meant a lot—how are you feeling about it now?"
+            )
+    suggestions.append(
+        f"I'm grateful we're talking, {greeting_name}. What would feel most helpful for us to cover next?"
+    )
+    filler = [
+        f"I appreciate you being here with me, {greeting_name}. Could we walk through that one more time?",
+        f"Let me know what you need right now, {greeting_name}, and I'll do my best to help.",
+    ]
+    for option in filler:
+        if len(suggestions) >= count:
+            break
+        suggestions.append(option)
+    return suggestions[:count]
 
 
 def _format_history(messages: Iterable[Message]) -> list[dict[str, str]]:

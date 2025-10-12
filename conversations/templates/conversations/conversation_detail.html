@@ -7,19 +7,17 @@
     <script>
         window.chatComposer = function chatComposer() {
             return {
-                message: '',
                 error: '',
                 isSubmitting: false,
-                init() {
-                    const input = this.$refs.messageInput;
-                    if (!input) {
+                handleBeforeRequest(event) {
+                    if (!this._ownsEvent(event)) {
                         return;
                     }
-                    this.message = input.value;
-                    input.rows = input.rows || 5;
+                    this.isSubmitting = true;
+                    this.error = '';
                 },
                 handleAfterRequest(event) {
-                    if (event.target !== this.$refs.form) {
+                    if (!this._ownsEvent(event)) {
                         return;
                     }
                     this.isSubmitting = false;
@@ -31,49 +29,17 @@
                         this.error = (xhr && xhr.responseText) || 'Unable to send your message right now.';
                     }
                 },
-                handleInput(event) {
-                    this.message = event.target.value;
-                },
-                submitOnEnter(event) {
-                    if (event && event.shiftKey) {
-                        return;
-                    }
-                    if (this.isSubmitting) {
-                        event?.preventDefault();
-                        return;
-                    }
-                    event?.preventDefault();
-                    const input = this.$refs.messageInput;
-                    if (!input) {
-                        return;
-                    }
-                    const form = input.form;
-                    if (!form) {
-                        return;
-                    }
-                    if (typeof form.requestSubmit === 'function') {
-                        this.isSubmitting = true;
-                        form.requestSubmit();
-                        return;
-                    }
-                    const submitButton = form.querySelector('[type="submit"]');
-                    if (submitButton) {
-                        this.isSubmitting = true;
-                        submitButton.click();
-                        return;
-                    }
-                    this.isSubmitting = true;
-                    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-                },
                 handleMessageSent() {
                     this.isSubmitting = false;
-                    const input = this.$refs.messageInput;
-                    if (input) {
-                        input.value = '';
-                        input.focus();
+                    this.error = '';
+                },
+                _ownsEvent(event) {
+                    const target = event?.target;
+                    if (!target) {
+                        return false;
                     }
-                    this.message = '';
-                }
+                    return Boolean(target.closest('[data-chat-composer]'));
+                },
             };
         };
     </script>
@@ -119,21 +85,14 @@
             </div>
 
             <div class="px-6 py-5 border-t border-gray-100 bg-white sticky bottom-0 z-10">
-                <div x-data="chatComposer()" x-init="init()" x-on:message-sent.window="handleMessageSent()" x-on:htmx:afterRequest="handleAfterRequest($event)">
-                    <form method="post"
-                          x-ref="form"
-                          hx-post="{% url 'conversations:message-send' conversation.pk %}"
-                          hx-target="#conversation-messages"
-                          hx-swap="outerHTML"
-                          hx-headers='{"X-Requested-With": "XMLHttpRequest"}'>
-                        {% csrf_token %}
-                        <div>
-                            {{ message_form.body }}
-                        </div>
-                        <template x-if="error">
-                            <p class="mt-2 text-sm text-red-600" x-text="error"></p>
-                        </template>
-                    </form>
+                <div
+                    x-data="chatComposer()"
+                    x-on:message-sent.window="handleMessageSent()"
+                    x-on:htmx:beforeRequest="handleBeforeRequest($event)"
+                    x-on:htmx:afterRequest="handleAfterRequest($event)"
+                    data-chat-composer
+                >
+                    {% include "conversations/partials/suggestion_panel.html" with conversation=conversation suggestions=suggestions suggestion_hint=suggestion_hint %}
                 </div>
             </div>
         </div>

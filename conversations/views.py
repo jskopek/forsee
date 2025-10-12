@@ -14,7 +14,12 @@ from django.urls import reverse_lazy
 from django.views import View, generic
 
 from .services.mock_conversations import MockConversationError
-from .utils import create_mock_conversation, generate_contact_greeting, generate_contact_reply
+from .utils import (
+    create_mock_conversation,
+    generate_contact_greeting,
+    generate_contact_reply,
+    generate_reply_suggestions,
+)
 from .forms import ConversationCreateForm, MessageForm
 from .models import Conversation, Message
 
@@ -120,6 +125,8 @@ class ConversationDetailView(LoginRequiredMixin, generic.DetailView):
         context = super().get_context_data(**kwargs)
         context["message_form"] = MessageForm()
         context["messages"] = self.object.messages.order_by("created_at", "id")
+        context["suggestions"] = generate_reply_suggestions(self.object)
+        context["suggestion_hint"] = ""
         if self.object.contact_snapshot:
             snapshot = dict(self.object.contact_snapshot)
             snapshot["interests"] = _normalize_interests(snapshot.get("interests"))
@@ -162,6 +169,31 @@ class ConversationMessageCreateView(LoginRequiredMixin, View):
             return response
 
         return redirect(conversation.get_absolute_url())
+
+
+class ConversationSuggestionsView(LoginRequiredMixin, View):
+    template_name = "conversations/partials/suggestion_panel.html"
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        return self._render(request, kwargs["pk"], hint=request.GET.get("hint", ""))
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        return self._render(request, kwargs["pk"], hint=request.POST.get("hint", ""))
+
+    def _render(self, request: HttpRequest, conversation_pk: str, hint: str | None) -> HttpResponse:
+        conversation = get_object_or_404(
+            Conversation.objects.select_related("contact"),
+            pk=conversation_pk,
+            owner=request.user,
+        )
+        hint_text = (hint or "").strip()
+        suggestions = generate_reply_suggestions(conversation, hint=hint_text or None)
+        context = {
+            "conversation": conversation,
+            "suggestions": suggestions,
+            "suggestion_hint": hint_text,
+        }
+        return render(request, self.template_name, context)
 
 
 def _is_htmx(request: HttpRequest) -> bool:
