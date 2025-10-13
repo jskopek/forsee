@@ -7,25 +7,9 @@ app_name = "conversations"
 urlpatterns = [
     path("", views.ConversationListView.as_view(), name="list"),
     path("new/", views.ConversationCreateView.as_view(), name="create"),
-    path(
-        "with-contact/<uuid:contact_pk>/start/",
-        views.ConversationQuickStartView.as_view(),
-        name="quick-start",
-    ),
-    path(
-        "with-contact/<uuid:contact_pk>/generate/",
-        views.ConversationGenerateView.as_view(),
-        name="generate",
-    ),
+    path("with-contact/<uuid:pk>/start/", views.ConversationQuickStartView.as_view(), name="quick-start"),
+    path("with-contact/<uuid:pk>/generate/", views.ConversationGenerateView.as_view(), name="generate"),
     path("<uuid:pk>/", views.ConversationDetailView.as_view(), name="detail"),
-    path(
-        "<uuid:pk>/messages/send/",
-        views.ConversationMessageCreateView.as_view(),
-        name="message-send",
-    ),
-    path(
-        "<uuid:pk>/suggestions/",
-        views.ConversationSuggestionsView.as_view(),
-        name="suggestions",
-    ),
+    path("<uuid:pk>/messages/send/", views.ConversationMessageCreateView.as_view(), name="message-send"),
+    path("<uuid:pk>/suggestions/", views.ConversationSuggestionsView.as_view(), name="suggestions"),
 ]

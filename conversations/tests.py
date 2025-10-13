@@ -69,7 +69,7 @@ class ConversationViewTests(TestCase):
     def test_quick_start_creates_conversation(self) -> None:
         with patch("conversations.views.generate_contact_greeting") as greeting_mock:
             response = self.client.post(
-                reverse("conversations:quick-start", kwargs={"contact_pk": self.contact.pk}),
+                reverse("conversations:quick-start", kwargs={"pk": self.contact.pk}),
             )
 
         self.assertEqual(response.status_code, 302)

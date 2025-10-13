@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Iterable, Tuple
+import re
+from typing import Any, Iterable, Tuple
+from django.http import HttpRequest
 
 from django.conf import settings
 from django.db import transaction
@@ -401,3 +403,33 @@ def _default_reply(latest_user_message: Message) -> str:
     if not body:
         return "I'm here and ready whenever you want to share more."
     return f"Thanks for sharing that. I'm right here with you—tell me more about \"{body[:120]}\"."
+
+
+# General utilities -------------------------------------------------------------
+
+
+def is_htmx(request: HttpRequest) -> bool:
+    return request.headers.get("HX-Request", "").lower() == "true"
+
+
+def normalize_interests(raw: Any) -> list[str]:
+    if not raw:
+        return []
+    if isinstance(raw, (list, tuple)):
+        return [str(item).strip() for item in raw if str(item).strip()]
+    if isinstance(raw, str):
+        cleaned = raw.replace("\r", "")
+        if not cleaned.strip():
+            return []
+        parts = re.split(r"[\n;,]", cleaned)
+        if len(parts) == 1:
+            text = parts[0].strip()
+            return [text] if text else []
+        normalized: list[str] = []
+        for part in parts:
+            text = part.strip(" \t•*-")
+            if text:
+                normalized.append(text)
+        return normalized
+    text = str(raw).strip()
+    return [text] if text else []

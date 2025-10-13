@@ -26,7 +26,7 @@
                 <h2 class="text-xl font-semibold text-gray-900">Recent conversations</h2>
                 <p class="text-sm text-gray-500">Showing up to five of your latest chats with {{ object.name }}.</p>
             </div>
-            {% if object.user == user %}
+            {% if object.user == user or user.is_superuser %}
                 <form action="{% url 'conversations:quick-start' object.pk %}" method="post" class="shrink-0">
                     {% csrf_token %}
                     <button type="submit" class="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
@@ -75,7 +75,7 @@
                 <p class="text-sm text-gray-500">No conversations yet. Use the actions here to get started.</p>
             {% endif %}
         </div>
-        {% if object.user == user %}
+        {% if object.user == user or user.is_superuser %}
             <div class="border-t border-gray-100 px-6 py-4">
                 <form action="{% url 'conversations:generate' object.pk %}" method="post">
                     {% csrf_token %}
