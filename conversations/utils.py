@@ -4,6 +4,7 @@ import json
 import os
 from typing import Iterable, Tuple
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -21,7 +22,6 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     OpenAI = None  # type: ignore[misc,assignment]
 
-OPENAI_MODEL = "gpt-4o-mini"
 OPENAI_TEMPERATURE = 0.7
 OPENAI_MAX_OUTPUT_TOKENS = 400
 
@@ -189,7 +189,7 @@ def ask_openai(system_prompt: str, user_prompt: str) -> str:
             raise RuntimeError("OPENAI_API_KEY is not set.")
         _client = OpenAI()
     response = _client.responses.create(
-        model=OPENAI_MODEL,
+        model=settings.OPENAI_RESPONSES_MODEL,
         temperature=OPENAI_TEMPERATURE,
         max_output_tokens=OPENAI_MAX_OUTPUT_TOKENS,
         input=[
