@@ -128,7 +128,8 @@ class ConversationDetailView(UserPassesTestMixin, LoginRequiredMixin, generic.De
         context = super().get_context_data(**kwargs)
         context["message_form"] = MessageForm()
         context["messages"] = self.object.messages.order_by("created_at", "id")
-        context["suggestions"] = generate_reply_suggestions(self.object)
+        # Don't generate suggestions on page load - will be loaded via HTMX
+        context["suggestions"] = []
         context["suggestion_hint"] = ""
         if self.object.contact_snapshot:
             snapshot = dict(self.object.contact_snapshot)
@@ -181,21 +182,14 @@ class ConversationSuggestionsView(UserPassesTestMixin, LoginRequiredMixin, Singl
     def test_func(self):
         return self.get_object().owner == self.request.user or self.request.user.is_superuser
 
-    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        return self._render(request, kwargs["pk"], hint=request.GET.get("hint", ""))
-
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        return self._render(request, kwargs["pk"], hint=request.POST.get("hint", ""))
-
-    def _render(self, request: HttpRequest, conversation_pk: str, hint: str | None) -> HttpResponse:
         conversation = self.get_object()
-        hint_text = (hint or "").strip()
-        suggestions = generate_reply_suggestions(conversation, hint=hint_text or None)
-        context = {
-            "conversation": conversation,
-            "suggestions": suggestions,
-            "suggestion_hint": hint_text,
-        }
-        return render(request, self.template_name, context)
+        hint_text = request.POST.get('hint', '').strip()
+        suggestions = generate_reply_suggestions(conversation, hint_text)
+        return render(request, self.template_name, {
+            'conversation': conversation,
+            'suggestions': suggestions,
+            'suggestion_hint': hint_text,
+        })
 
 

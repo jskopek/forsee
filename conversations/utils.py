@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any, Iterable, Tuple
+from typing import Any, Iterable, Tuple, TYPE_CHECKING
 from django.http import HttpRequest
 
 from django.conf import settings
@@ -18,6 +18,10 @@ from .services.mock_conversations import (
     MockConversationGenerator,
     MockConversationTranscript,
 )
+
+if TYPE_CHECKING:
+    from pydantic import BaseModel
+    from .schemas import ReplySuggestions
 
 try:
     from openai import OpenAI
@@ -66,55 +70,80 @@ def generate_contact_reply(
     return message
 
 
-def generate_reply_suggestions(
-    conversation: Conversation | str,
-    *,
-    hint: str | None = None,
-    count: int = 3,
-) -> list[str]:
+def generate_reply_suggestions(conversation: Conversation, *, hint: str | None = None, count: int = 3) -> list[str]:
     """
     Produce a handful of short, ready-to-send reply options for the user.
     """
-    conversation_obj = _get_conversation(conversation)
-    messages = list(conversation_obj.messages.order_by("created_at", "id"))
-    normalized_hint = (hint or "").strip()
-    if len(normalized_hint) > 160:
-        normalized_hint = normalized_hint[:160]
-    profiles = _conversation_profiles(conversation_obj)
+    messages = list(conversation.messages.order_by("created_at", "id"))
+    normalized_hint = (hint or "").strip()[:160]
+    profiles = _conversation_profiles(conversation)
     history = _format_history(messages[-12:])
+    latest_contact_message = ""
+    latest_user_message = ""
+    for message in reversed(messages):
+        if not latest_contact_message and message.sender == Message.Sender.CONTACT:
+            latest_contact_message = message.body
+        if not latest_user_message and message.sender == Message.Sender.USER:
+            latest_user_message = message.body
+        if latest_contact_message and latest_user_message:
+            break
     system_prompt = (
-        "You help the user choose their next message in a warm, supportive conversation. "
-        "Return a JSON array of complete sentence suggestions that the user could send. "
-        "Each suggestion must feel natural, compassionate, and specific to the situation. "
-        "Keep suggestions under 40 words each."
+        "You are crafting next-line dialogue options for an eye-tracking keyboard user who is speaking in person with their contact. "
+        "Think of this like dialogue choices in a role-playing game: each suggestion should represent a DIFFERENT DIRECTION the conversation could go. "
+        "The three suggestions should feel like distinct branching paths, not three similar ways to say the same thing.\n\n"
+        "Requirements:\n"
+        "- Return a JSON array containing exactly the requested number of suggestions.\n"
+        "- Each suggestion must be a single string under 40 words that can be spoken aloud naturally (no texting shorthand, no quotes, no emoji).\n"
+        "- CRITICAL: Maximize diversity between suggestions. They should cover fundamentally different conversational intentions, such as:\n"
+        "  * Expressing a feeling or personal reflection\n"
+        "  * Asking a question to deepen understanding or get help\n"
+        "  * Proposing a concrete action or next step\n"
+        "  * Shifting to a related but different topic\n"
+        "  * Offering support or acknowledgment to the contact\n"
+        "  * Adding humor or lightness to the exchange\n"
+        "- If a user hint is provided, use it as the TOPIC or THEME, but still create three DIFFERENT WAYS to engage with that topic. "
+        "Don't make all three suggestions say the same thing about the hint—instead, show three distinct approaches (e.g., ask about it, share a feeling about it, propose action on it).\n"
+        "- Keep the tone grounded in the existing relationship dynamic and the most recent turns."
     )
     prompt_payload = {
         "user_profile": profiles["user"],
         "contact_profile": profiles["contact"],
         "conversation_history": history,
         "desired_suggestion_count": count,
+        "latest_contact_message": latest_contact_message,
+        "latest_user_message": latest_user_message,
+        "summary": _summarise_conversation(messages[-8:]),
     }
     if normalized_hint:
         prompt_payload["user_hint"] = normalized_hint
         prompt_payload["hint_importance"] = (
-            "The hint reflects what the user wants to talk about next. Heavily prioritize it."
+            "The hint reflects what the user wants to talk about next. Use it as the central theme, "
+            "but create THREE DIFFERENT WAYS to engage with this theme across your suggestions. "
+            "For example, if the hint is 'cats', one suggestion might express a feeling about cats, "
+            "another might ask a question about cats, and the third might propose doing something related to cats. "
+            "The goal is maximum diversity of approach while respecting the hint as the topic."
         )
 
-    suggestions: list[str] = []
     try:
-        response_text = ask_openai(system_prompt, json.dumps(prompt_payload, indent=2))
-        suggestions = _parse_suggestion_response(response_text)
-    except Exception:
-        suggestions = []
-
-    suggestions = _clean_suggestions(suggestions)
-    fallback = _fallback_suggestions(conversation_obj, messages, normalized_hint, count)
-    for idea in fallback:
-        if len(suggestions) >= count:
-            break
-        if idea not in suggestions:
-            suggestions.append(idea)
-    return suggestions[:count]
+        from .schemas import REPLY_SUGGESTIONS_SCHEMA
+        result = ask_openai_structured(
+            system_prompt,
+            f"Return exactly {count} suggestions.\n\n" + json.dumps(prompt_payload, indent=2, ensure_ascii=False),
+            schema=REPLY_SUGGESTIONS_SCHEMA
+        )
+        # result is a dict when schema is used
+        if isinstance(result, dict):
+            suggestions = result.get("suggestions", [])
+        else:
+            suggestions = result
+        return [s.strip() for s in suggestions[:count] if isinstance(s, str) and s.strip()]
+    except Exception as e:
+        # Log the error for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to generate suggestions: {type(e).__name__}: {e}")
+        # If OpenAI fails, return empty - no fallbacks
+        return []
 
 
 # Conversation generation ------------------------------------------------------
@@ -182,6 +211,98 @@ def create_mock_conversation(
     return conversation, trimmed
 
 
+def ask_openai_structured(
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    schema: dict | None = None,
+) -> dict | list:
+    """
+    Request structured JSON output from OpenAI with optional JSON schema validation.
+    
+    Args:
+        system_prompt: The system instruction
+        user_prompt: The user query/request
+        schema: Optional JSON schema dict for OpenAI to validate against
+                If provided, response will be guaranteed to conform
+    
+    Returns:
+        Parsed JSON as dict or list (no Pydantic overhead)
+    
+    Example:
+        # Simple array of strings
+        result = ask_openai_structured(
+            system_prompt="You are a helpful assistant.",
+            user_prompt="Generate 3 topic suggestions",
+            schema={
+                "name": "suggestions",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of suggestions"
+                        }
+                    },
+                    "required": ["items"],
+                    "additionalProperties": False
+                },
+                "strict": True
+            }
+        )
+        suggestions = result["items"]
+    """
+    if OpenAI is None:
+        raise RuntimeError("OpenAI client is not available.")
+    
+    global _client  # noqa: PLW0603 - simple cache
+    if _client is None:
+        if not os.getenv("OPENAI_API_KEY"):
+            raise RuntimeError("OPENAI_API_KEY is not set.")
+        _client = OpenAI()
+
+    model_name = settings.OPENAI_RESPONSES_MODEL
+    
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    
+    kwargs = {
+        "model": model_name,
+        "messages": messages,
+    }
+    
+    # Add response format if schema provided
+    if schema:
+        kwargs["response_format"] = {"type": "json_schema", "json_schema": schema}
+    
+    # Adjust token limits based on model
+    if "nano" in model_name.lower():
+        kwargs["max_completion_tokens"] = 3000  # reasoning tokens need more space
+    else:
+        kwargs["max_completion_tokens"] = OPENAI_MAX_OUTPUT_TOKENS
+        kwargs["temperature"] = OPENAI_TEMPERATURE
+    
+    response = _client.chat.completions.create(**kwargs)
+    
+    if not response.choices or len(response.choices) == 0:
+        raise RuntimeError("No choices in API response")
+    
+    raw_content = response.choices[0].message.content or ""
+    if not raw_content:
+        raise RuntimeError("Empty response from API")
+    
+    try:
+        return json.loads(raw_content)
+    except json.JSONDecodeError as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to parse JSON: {e}\nContent: {raw_content[:500]}")
+        raise
+
+
 def ask_openai(system_prompt: str, user_prompt: str) -> str:
     if OpenAI is None:
         raise RuntimeError("OpenAI client is not available.")
@@ -190,15 +311,38 @@ def ask_openai(system_prompt: str, user_prompt: str) -> str:
         if not os.getenv("OPENAI_API_KEY"):
             raise RuntimeError("OPENAI_API_KEY is not set.")
         _client = OpenAI()
-    response = _client.responses.create(
-        model=settings.OPENAI_RESPONSES_MODEL,
-        temperature=OPENAI_TEMPERATURE,
-        max_output_tokens=OPENAI_MAX_OUTPUT_TOKENS,
-        input=[
+
+    model_name = settings.OPENAI_RESPONSES_MODEL
+
+    # Use chat completions API for gpt-5-nano since responses API doesn't work well
+    if "nano" in model_name.lower():
+        # gpt-5-nano uses reasoning tokens, so we need much higher max_completion_tokens
+        # to account for internal reasoning before the actual output
+        response = _client.chat.completions.create(
+            model=model_name,
+            max_completion_tokens=2000,  # Higher limit for reasoning models
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        # Extract text from chat completion
+        if response.choices and len(response.choices) > 0:
+            return response.choices[0].message.content or ""
+        return ""
+
+    # Use responses API for other models
+    params = {
+        "model": model_name,
+        "max_output_tokens": OPENAI_MAX_OUTPUT_TOKENS,
+        "temperature": OPENAI_TEMPERATURE,
+        "input": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-    )
+    }
+
+    response = _client.responses.create(**params)
     return _extract_text(response)
 
 
@@ -253,93 +397,6 @@ def _conversation_profiles(conversation: Conversation) -> dict[str, dict]:
     return {"user": user_profile, "contact": contact_profile}
 
 
-def _parse_suggestion_response(raw: str) -> list[str]:
-    cleaned = raw.strip()
-    if not cleaned:
-        return []
-    candidates = [cleaned]
-    if cleaned.startswith("```"):
-        without_ticks = cleaned.strip("`")
-        if without_ticks.lower().startswith("json"):
-            without_ticks = without_ticks[4:]
-        candidates.append(without_ticks.strip())
-    for candidate in candidates:
-        try:
-            data = json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(data, list):
-            return [str(item) for item in data]
-        if isinstance(data, dict):
-            suggestions = data.get("suggestions")
-            if isinstance(suggestions, list):
-                return [str(item) for item in suggestions]
-    fallback_lines: list[str] = []
-    for line in raw.splitlines():
-        candidate = line.strip()
-        if not candidate:
-            continue
-        candidate = candidate.lstrip("-•0123456789. ").strip()
-        if candidate:
-            fallback_lines.append(candidate)
-    return fallback_lines
-
-
-def _clean_suggestions(values: list[str]) -> list[str]:
-    cleaned: list[str] = []
-    for value in values:
-        text = str(value).strip()
-        if not text:
-            continue
-        normalized = " ".join(text.split())
-        if normalized and normalized not in cleaned:
-            cleaned.append(normalized)
-    return cleaned
-
-
-def _fallback_suggestions(
-    conversation: Conversation,
-    messages: list[Message],
-    hint: str,
-    count: int,
-) -> list[str]:
-    contact_name = (
-        conversation.contact_snapshot.get("name")
-        if conversation.contact_snapshot
-        else conversation.contact.name
-    ) or ""
-    greeting_name = contact_name or "there"
-    latest_contact = None
-    for message in reversed(messages):
-        if message.sender == Message.Sender.CONTACT:
-            latest_contact = message
-            break
-    suggestions: list[str] = []
-    if hint:
-        suggestions.append(
-            f"{contact_name or 'Hey'}, I'd really like to talk about {hint}. Can we focus on that together?"
-        )
-    if latest_contact:
-        snippet = latest_contact.body.strip().splitlines()[0] if latest_contact.body else ""
-        snippet = snippet.replace('"', "").strip()
-        if snippet:
-            snippet_display = snippet[:110] + ("..." if len(snippet) > 110 else "")
-            suggestions.append(
-                f"Thanks for sharing that. When you said \"{snippet_display}\", it meant a lot—how are you feeling about it now?"
-            )
-    suggestions.append(
-        f"I'm grateful we're talking, {greeting_name}. What would feel most helpful for us to cover next?"
-    )
-    filler = [
-        f"I appreciate you being here with me, {greeting_name}. Could we walk through that one more time?",
-        f"Let me know what you need right now, {greeting_name}, and I'll do my best to help.",
-    ]
-    for option in filler:
-        if len(suggestions) >= count:
-            break
-        suggestions.append(option)
-    return suggestions[:count]
-
 
 def _format_history(messages: Iterable[Message]) -> list[dict[str, str]]:
     history = []
@@ -352,6 +409,19 @@ def _format_history(messages: Iterable[Message]) -> list[dict[str, str]]:
             }
         )
     return history
+
+
+def _summarise_conversation(messages: Iterable[Message]) -> str:
+    snippets: list[str] = []
+    for message in messages:
+        sender = "user" if message.sender == Message.Sender.USER else "contact"
+        body = " ".join(message.body.strip().split())
+        if not body:
+            continue
+        snippet = f"{sender}: {body}"
+        snippets.append(snippet)
+    summary = " | ".join(snippets[-6:])
+    return summary[:600]
 
 
 def _find_user_message(messages: list[Message], trigger: Message | str | None) -> Message | None:
@@ -382,13 +452,15 @@ def _extract_text(response: object) -> str:
     output = getattr(response, "output", None) or getattr(response, "outputs", None) or []
     texts = []
     for item in output:
-        content = getattr(item, "content", None)
-        if not content:
-            continue
-        for chunk in content:
-            text = getattr(chunk, "text", None)
-            if text:
-                texts.append(text)
+        # Handle ResponseOutputMessage items (type='message')
+        item_type = getattr(item, "type", None)
+        if item_type == "message":
+            content = getattr(item, "content", None)
+            if content:
+                for chunk in content:
+                    text = getattr(chunk, "text", None)
+                    if text:
+                        texts.append(text)
     return "\n".join(texts).strip()
 
 
@@ -412,24 +484,115 @@ def is_htmx(request: HttpRequest) -> bool:
     return request.headers.get("HX-Request", "").lower() == "true"
 
 
-def normalize_interests(raw: Any) -> list[str]:
+def normalize_text_list(
+    raw: Any,
+    *,
+    separators: str | Iterable[str] = r"[\n;,]",
+    strip_chars: str = " \t•*-",
+    allow_empty: bool = False,
+    dedupe: bool = False,
+    lowercase: bool = False,
+) -> list[str]:
+    """
+    Convert a variety of list-like inputs into a list of clean strings.
+
+    This helper is useful for normalizing fields like tags, interests, or skills
+    that may come in as a delimited string, a list/tuple, or other primitive types.
+
+    Behavior by input type:
+    - Falsy values (None, "", [], etc.) -> []
+    - list/tuple -> stringify each item, strip boundary characters, optionally lowercase,
+      drop empty strings (unless allow_empty=True)
+    - string -> split by provided separators, trim boundary characters, optionally lowercase,
+      drop empty strings (unless allow_empty=True)
+    - anything else -> stringify and trim; return [value] if non-empty (or allow_empty=True), else []
+
+    Args:
+        raw: The input value to normalize (str | list | tuple | Any).
+        separators: Either a regex pattern string used with re.split, or an iterable
+            of literal separator strings. Defaults to split on newlines, semicolons, or commas.
+        strip_chars: Characters to strip from both ends of each item. Defaults to space,
+            tab and common bullet characters (• * -).
+        allow_empty: If True, keep empty strings that result from normalization.
+        dedupe: If True, remove duplicate items while preserving order.
+        lowercase: If True, lowercase each item after trimming.
+
+    Returns:
+        list[str]: A list of cleaned strings.
+    """
     if not raw:
         return []
+
+    def _maybe_add(target: list[str], value: str) -> None:
+        if value or allow_empty:
+            if dedupe:
+                if value not in target:
+                    target.append(value)
+            else:
+                target.append(value)
+
+    def _clean(text: str) -> str:
+        cleaned = text.strip(strip_chars)
+        return cleaned.lower() if lowercase else cleaned
+
+    # Precompute splitter
+    splitter_pattern: str | None
+    if isinstance(separators, str):
+        splitter_pattern = separators
+    else:
+        escaped = [re.escape(sep) for sep in separators]
+        splitter_pattern = "|".join(escaped) if escaped else None
+
+    # Handle list/tuple
     if isinstance(raw, (list, tuple)):
-        return [str(item).strip() for item in raw if str(item).strip()]
+        results: list[str] = []
+        for item in raw:
+            text = _clean(str(item))
+            _maybe_add(results, text)
+        return results
+
+    # Handle string
     if isinstance(raw, str):
-        cleaned = raw.replace("\r", "")
-        if not cleaned.strip():
-            return []
-        parts = re.split(r"[\n;,]", cleaned)
+        cleaned_raw = raw.replace("\r", "")
+        if not cleaned_raw.strip():
+            return [""] if allow_empty else []
+        parts: list[str]
+        if splitter_pattern:
+            parts = re.split(splitter_pattern, cleaned_raw)
+        else:
+            parts = [cleaned_raw]
         if len(parts) == 1:
-            text = parts[0].strip()
-            return [text] if text else []
-        normalized: list[str] = []
+            text = _clean(parts[0])
+            return [text] if (text or allow_empty) else []
+        results: list[str] = []
         for part in parts:
-            text = part.strip(" \t•*-")
-            if text:
-                normalized.append(text)
-        return normalized
-    text = str(raw).strip()
-    return [text] if text else []
+            text = _clean(part)
+            if text or allow_empty:
+                _maybe_add(results, text)
+        return results
+
+    # Fallback: stringify other types
+    text = _clean(str(raw))
+    return [text] if (text or allow_empty) else []
+
+
+def normalize_interests(raw: Any) -> list[str]:
+    """
+    Normalize an "interests" field into a list of strings.
+
+    This is a thin wrapper around normalize_text_list with defaults tuned for
+    human-entered interest lists. It exists for backward compatibility and
+    clarity at call sites.
+
+    Examples:
+        "music, hiking; chess" -> ["music", "hiking", "chess"]
+        ["golf", " art "] -> ["golf", "art"]
+    """
+    return normalize_text_list(
+        raw,
+        separators=r"[\n;,]",
+        strip_chars=" \t•*-",
+        allow_empty=False,
+        dedupe=False,
+        lowercase=False,
+    )
