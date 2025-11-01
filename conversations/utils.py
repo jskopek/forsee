@@ -70,21 +70,24 @@ def generate_contact_reply(
     return message
 
 
-def generate_reply_suggestions(conversation: Conversation, *, hint: str | None = None, count: int = 3) -> list[str]:
+def generate_reply_suggestions(conversation: Conversation, hint: str | None = None, count: int = 3) -> list[str]:
     """
     Produce a handful of short, ready-to-send reply options for the user.
     """
-    messages = list(conversation.messages.order_by("created_at", "id"))
     normalized_hint = (hint or "").strip()[:160]
     profiles = _conversation_profiles(conversation)
-    history = _format_history(messages[-12:])
+    # Fetch only what we need for history and latest messages
+    recent_min = list(
+        conversation.messages.order_by("-created_at", "-id").values("sender", "body")[:12]
+    )
+    history = [{"sender": m["sender"], "body": m["body"]} for m in reversed(recent_min)]
     latest_contact_message = ""
     latest_user_message = ""
-    for message in reversed(messages):
-        if not latest_contact_message and message.sender == Message.Sender.CONTACT:
-            latest_contact_message = message.body
-        if not latest_user_message and message.sender == Message.Sender.USER:
-            latest_user_message = message.body
+    for m in recent_min:  # already newest-first
+        if not latest_contact_message and m["sender"] == Message.Sender.CONTACT:
+            latest_contact_message = m["body"]
+        if not latest_user_message and m["sender"] == Message.Sender.USER:
+            latest_user_message = m["body"]
         if latest_contact_message and latest_user_message:
             break
     system_prompt = (
@@ -112,7 +115,6 @@ def generate_reply_suggestions(conversation: Conversation, *, hint: str | None =
         "desired_suggestion_count": count,
         "latest_contact_message": latest_contact_message,
         "latest_user_message": latest_user_message,
-        "summary": _summarise_conversation(messages[-8:]),
     }
     if normalized_hint:
         prompt_payload["user_hint"] = normalized_hint
@@ -129,13 +131,9 @@ def generate_reply_suggestions(conversation: Conversation, *, hint: str | None =
         result = ask_openai_structured(
             system_prompt,
             f"Return exactly {count} suggestions.\n\n" + json.dumps(prompt_payload, indent=2, ensure_ascii=False),
-            schema=REPLY_SUGGESTIONS_SCHEMA
+            schema=REPLY_SUGGESTIONS_SCHEMA,
         )
-        # result is a dict when schema is used
-        if isinstance(result, dict):
-            suggestions = result.get("suggestions", [])
-        else:
-            suggestions = result
+        suggestions = result["suggestions"]  # guaranteed by schema
         return [s.strip() for s in suggestions[:count] if isinstance(s, str) and s.strip()]
     except Exception as e:
         # Log the error for debugging
@@ -350,7 +348,7 @@ def ask_openai(system_prompt: str, user_prompt: str) -> str:
 
 def _build_greeting(conversation: Conversation, messages: list[Message]) -> str:
     profiles = _conversation_profiles(conversation)
-    history = _format_history(messages)
+    history = [{"sender": m.sender, "body": m.body} for m in messages]
     system_prompt = (
         f"You are {profiles['contact'].get('name') or 'a trusted friend'} sending a short opening message to "
         f"{profiles['user'].get('full_name') or 'the user'}. Keep it warm and no more than three sentences."
@@ -371,7 +369,7 @@ def _build_greeting(conversation: Conversation, messages: list[Message]) -> str:
 
 def _build_reply(conversation: Conversation, messages: list[Message], latest_user_message: Message) -> str:
     profiles = _conversation_profiles(conversation)
-    history = _format_history(messages)
+    history = [{"sender": m.sender, "body": m.body} for m in messages]
     system_prompt = (
         f"You are {profiles['contact'].get('name') or 'a trusted friend'} replying to "
         f"{profiles['user'].get('full_name') or 'the user'}. Respond kindly and keep it under four sentences."
@@ -395,34 +393,6 @@ def _conversation_profiles(conversation: Conversation) -> dict[str, dict]:
     user_profile = conversation.user_snapshot or getattr(conversation.owner, "profile_data", {})
     contact_profile = conversation.contact_snapshot or getattr(conversation.contact, "profile_data", {})
     return {"user": user_profile, "contact": contact_profile}
-
-
-
-def _format_history(messages: Iterable[Message]) -> list[dict[str, str]]:
-    history = []
-    for message in messages:
-        history.append(
-            {
-                "sender": message.sender,
-                "body": message.body,
-                "created_at": timezone.localtime(message.created_at).isoformat(),
-            }
-        )
-    return history
-
-
-def _summarise_conversation(messages: Iterable[Message]) -> str:
-    snippets: list[str] = []
-    for message in messages:
-        sender = "user" if message.sender == Message.Sender.USER else "contact"
-        body = " ".join(message.body.strip().split())
-        if not body:
-            continue
-        snippet = f"{sender}: {body}"
-        snippets.append(snippet)
-    summary = " | ".join(snippets[-6:])
-    return summary[:600]
-
 
 def _find_user_message(messages: list[Message], trigger: Message | str | None) -> Message | None:
     trigger_id = str(trigger.pk) if isinstance(trigger, Message) else (str(trigger) if trigger else None)
