@@ -10,6 +10,7 @@ const App = () => {
   const suggestionWords = ['hello', 'help', 'how'];
 
   const keyPressTimer = useRef(null);
+  const backspaceIntervalRef = useRef(null);
 
   useEffect(() => {
     const savedDwellTime = localStorage.getItem('dwellTime');
@@ -28,10 +29,14 @@ const App = () => {
     }
   };
 
-  const handleDwell = (key) => {
+  const handleDwell = (keyOrAction) => {
     clearTimeout(keyPressTimer.current);
     keyPressTimer.current = setTimeout(() => {
-      handleKeyPress(key);
+      if (typeof keyOrAction === 'function') {
+        keyOrAction();
+      } else {
+        handleKeyPress(keyOrAction);
+      }
     }, dwellTime);
   };
 
@@ -39,9 +44,20 @@ const App = () => {
     clearTimeout(keyPressTimer.current);
   };
 
+  useEffect(() => {
+    return () => {
+      if (backspaceIntervalRef.current) {
+        clearInterval(backspaceIntervalRef.current);
+      }
+    };
+  }, []);
+
   const handleSpeak = () => {
-    const utterance = new SpeechSynthesisUtterance(text);
+    const phrase = (text || '').trim();
+    if (!phrase) return;
+    const utterance = new SpeechSynthesisUtterance(phrase);
     speechSynthesis.speak(utterance);
+    setText('');
   };
 
   const handleDwellTimeChange = (newDwellTime) => {
@@ -60,8 +76,20 @@ const App = () => {
         <button
           className="btn btn-danger"
           onClick={() => handleKeyPress('backspace')}
-          onMouseEnter={() => handleDwell('backspace')}
-          onMouseLeave={handleDwellLeave}
+          onMouseEnter={() => {
+            if (backspaceIntervalRef.current) {
+              clearInterval(backspaceIntervalRef.current);
+            }
+            backspaceIntervalRef.current = setInterval(() => {
+              handleKeyPress('backspace');
+            }, dwellTime);
+          }}
+          onMouseLeave={() => {
+            if (backspaceIntervalRef.current) {
+              clearInterval(backspaceIntervalRef.current);
+              backspaceIntervalRef.current = null;
+            }
+          }}
         >
           <span className="btn-label">⌫ Backspace</span>
         </button>
@@ -71,8 +99,29 @@ const App = () => {
         <button
           className="btn btn-primary"
           onClick={handleSpeak}
+          onMouseEnter={() => handleDwell(() => handleSpeak())}
+          onMouseLeave={handleDwellLeave}
         >
-          <span className="btn-label">✈ Send</span>
+          <span className="btn-label">
+            <svg
+              className="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              stroke="currentColor"
+              strokeWidth="2.25"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              {/* Head */}
+              <circle cx="9" cy="12" r="5" />
+              {/* Voice waves */}
+              <path d="M17 10c1.75 1.75 1.75 3.5 0 5" />
+              <path d="M20 8c2.75 2.75 2.75 7.25 0 10" />
+            </svg>
+            Speak
+          </span>
         </button>
       </div>
 
@@ -99,9 +148,6 @@ const App = () => {
             </button>
           ))}
         </div>
-        <button className="btn btn-neutral" onClick={() => {}}>
-          <span className="btn-label">← Back</span>
-        </button>
         <button className="btn btn-neutral" onClick={toggleSettings}>
           <span className="btn-label">{isSettingsOpen ? 'Close Settings' : 'Settings'}</span>
         </button>

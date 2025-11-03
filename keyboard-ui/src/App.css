@@ -26,6 +26,7 @@
   border: 1px solid #e2e5e9;
   border-radius: 6px;
   font-size: 1.1rem;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
   padding: 0 12px;
   overflow: hidden;
   white-space: nowrap;
@@ -35,7 +36,7 @@
 /* Secondary bar */
 .secondary-bar {
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: auto 1fr auto;
   gap: 0;
   padding: 0;
   background: #ffffff;
@@ -46,12 +47,12 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 0;
-  align-items: center;
+  align-items: stretch; /* fill full bar height */
 }
 
 .suggestion {
   position: relative;
-  height: 48px;
+  height: 56px; /* match .btn height to avoid vertical whitespace */
   border: none;
   background: transparent;
   cursor: pointer;
@@ -159,7 +160,7 @@
   position: relative;
   height: 56px;
   padding: 0 16px;
-  border-radius: 6px;
+  border-radius: 0; /* outer tap target should square off to edges */
   border: none;
   background: transparent;
   font-size: 1rem;
@@ -191,6 +192,19 @@
   border-color: var(--btn-border-hover, #c3cdd9);
 }
 .btn > * { position: relative; z-index: 1; }
+
+/* Align icon + text nicely inside button labels */
+.btn-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1;
+}
+.icon {
+  width: 24px;
+  height: 24px;
+  display: block; /* removes baseline dip that can look off-center */
+}
 
 /* Variants */
 .btn-danger { color: #ffffff; --btn-back: #9b1f1f; --btn-front: #d32f2f; --btn-border: #ab1b1b; --btn-back-hover: #b42525; --btn-front-hover: #e14646; --btn-border-hover: #b72b2b; }
