@@ -1,13 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Keyboard from './components/Keyboard';
 import Settings from './components/Settings';
 import './App.css';
+import { createDefaultAutocompleteEngine } from './autocomplete';
 
 const App = () => {
   const [text, setText] = useState('');
   const [dwellTime, setDwellTime] = useState(1000);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const suggestionWords = ['hello', 'help', 'how'];
+  const [suggestions, setSuggestions] = useState([]);
+  const requestSeq = useRef(0);
+
+  const autocompleteEngine = useMemo(() => createDefaultAutocompleteEngine(), []);
 
   const keyPressTimer = useRef(null);
   const backspaceIntervalRef = useRef(null);
@@ -27,6 +31,43 @@ const App = () => {
     } else {
       setText((prevText) => prevText + key);
     }
+  };
+
+  const getCurrentPrefix = (t) => {
+    const uptoCaret = t; // textarea is readOnly; we always append, so use full text
+    const match = uptoCaret.match(/([a-zA-Z]+)$/);
+    return match ? match[1].toLowerCase() : '';
+  };
+
+  useEffect(() => {
+    const prefix = getCurrentPrefix(text);
+    if (!prefix) {
+      setSuggestions([]);
+      return;
+    }
+    const seq = requestSeq.current + 1;
+    requestSeq.current = seq;
+    autocompleteEngine
+      .suggest(prefix, { limit: 3 })
+      .then((result) => {
+        if (requestSeq.current === seq) {
+          setSuggestions(Array.isArray(result) ? result : []);
+        }
+      })
+      .catch(() => {
+        if (requestSeq.current === seq) setSuggestions([]);
+      });
+  }, [text, autocompleteEngine]);
+
+  const applySuggestion = (word) => {
+    setText((prevText) => {
+      const prefix = getCurrentPrefix(prevText);
+      if (!prefix) {
+        return (prevText ? prevText + ' ' : '') + word + ' ';
+      }
+      // Replace the trailing prefix with the full word + space
+      return prevText.replace(new RegExp(`${prefix}$`), word) + ' ';
+    });
   };
 
   const handleDwell = (keyOrAction) => {
@@ -139,12 +180,12 @@ const App = () => {
           <span className="btn-label">Space</span>
         </button>
         <div className="suggestions">
-          {suggestionWords.map((word) => (
+          {suggestions.map((word) => (
             <button
               key={word}
               className="suggestion dwellable"
-              onClick={() => handleKeyPress(word + ' ')}
-              onMouseEnter={() => handleDwell(word + ' ')}
+              onClick={() => applySuggestion(word)}
+              onMouseEnter={() => handleDwell(() => applySuggestion(word))}
               onMouseLeave={handleDwellLeave}
             >
               <span className="dwell-progress" aria-hidden="true" />
