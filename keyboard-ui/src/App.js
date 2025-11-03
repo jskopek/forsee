@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Keyboard from './components/Keyboard';
-import TextInput from './components/TextInput';
 import Settings from './components/Settings';
 import './App.css';
 
@@ -39,10 +38,6 @@ const App = () => {
     clearTimeout(keyPressTimer.current);
   };
 
-  const handleClear = () => {
-    setText('');
-  };
-
   const handleSpeak = () => {
     const utterance = new SpeechSynthesisUtterance(text);
     speechSynthesis.speak(utterance);
@@ -59,20 +54,59 @@ const App = () => {
 
   return (
     <div className="App">
-      <header className="App-header">
-        <h1>Eye-Tracking Keyboard</h1>
-        <button onClick={toggleSettings}>
-          {isSettingsOpen ? 'Close Settings' : 'Open Settings'}
+      {/* Top bar */}
+      <div className="top-bar">
+        <button
+          className="btn btn-danger"
+          onClick={() => handleKeyPress('backspace')}
+          onMouseEnter={() => handleDwell('backspace')}
+          onMouseLeave={handleDwellLeave}
+        >
+          ⌫ Backspace
         </button>
-      </header>
+        <div className="typed-display" title={text || 'Start typing...'}>
+          {text || 'Start typing...'}
+        </div>
+        <button
+          className="btn btn-primary"
+          onClick={handleSpeak}
+        >
+          ✈ Send
+        </button>
+      </div>
+
+      {/* Secondary bar */}
+      <div className="secondary-bar">
+        <button
+          className="btn btn-space"
+          onClick={() => handleKeyPress('space')}
+          onMouseEnter={() => handleDwell('space')}
+          onMouseLeave={handleDwellLeave}
+        >
+          Space
+        </button>
+        <div className="suggestions" />
+        <button className="btn btn-neutral" onClick={() => {}}>
+          ← Back
+        </button>
+        <button className="btn btn-neutral" onClick={toggleSettings}>
+          {isSettingsOpen ? 'Close Settings' : 'Settings'}
+        </button>
+      </div>
+
       {isSettingsOpen && (
         <Settings
           initialDwellTime={dwellTime}
           onDwellTimeChange={handleDwellTimeChange}
         />
       )}
-      <TextInput text={text} onClear={handleClear} onSpeak={handleSpeak} />
-      <Keyboard onDwell={handleDwell} onDwellLeave={handleDwellLeave} />
+
+      {/* Keyboard area fills the remaining space */}
+      <div className="keyboard-wrapper">
+        <Keyboard onDwell={handleDwell} onDwellLeave={handleDwellLeave} />
+      </div>
+
+      {/* no bottom utility row */}
     </div>
   );
 };

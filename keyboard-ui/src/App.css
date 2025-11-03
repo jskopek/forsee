@@ -1,70 +1,172 @@
 .App {
   text-align: center;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #f3f5f7;
 }
 
-.App-header {
-  background-color: #282c34;
-  padding: 20px;
-  color: white;
-  display: flex;
-  justify-content: space-between;
+/* Top bar */
+.top-bar {
+  display: grid;
+  grid-template-columns: 1fr 2fr 1fr;
+  gap: 12px;
+  padding: 8px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e5e9;
   align-items: center;
+}
+
+.typed-display {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+  border: 1px solid #e2e5e9;
+  border-radius: 6px;
+  font-size: 1.1rem;
+  padding: 0 12px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Secondary bar */
+.secondary-bar {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 12px;
+  padding: 8px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e5e9;
+}
+
+.suggestions {
+  /* Placeholder area for future suggestions */
+}
+
+.keyboard-wrapper {
+  flex: 1;
+  display: flex;
+  padding: 0;
 }
 
 .keyboard {
-  margin-top: 20px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
 }
 
 .keyboard-row {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 10px;
+  display: grid;
+  gap: 0;
+  flex: 1;
 }
 
 .key {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: #ffffff;
   font-size: 1.5rem;
-  padding: 20px;
-  margin: 5px;
-  min-width: 60px;
-  text-align: center;
-  border: 1px solid #ccc;
-  border-radius: 5px;
+  letter-spacing: 1px;
   cursor: pointer;
 }
 
-.text-input-container {
-  margin: 20px auto;
-  width: 80%;
+/* Back plate (fills full cell) */
+.key::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #0a7f46; /* darker green back */
+  transition: background 120ms ease;
 }
 
-.text-input {
-  width: 100%;
-  height: 100px;
-  font-size: 1.2rem;
-  padding: 10px;
+/* Front face (rounded, inset) */
+.key::after {
+  content: '';
+  position: absolute;
+  inset: 4px; /* creates the back-plate reveal while keeping full tap target */
+  background: #0f9d58; /* green */
+  border: 1px solid #0c7a43;
+  border-radius: 8px;
+  transition: background 120ms ease, border-color 120ms ease;
 }
 
-.text-input-buttons {
-  margin-top: 10px;
+.key .key-label {
+  position: relative;
+  z-index: 1;
+  font-weight: 600;
+}
+
+.key-letter {}
+
+.btn {
+  height: 56px;
+  padding: 0 16px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.btn-danger {
+  background: #d32f2f;
+  color: #ffffff;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #2a78ff, #1857e6);
+  color: #ffffff;
+}
+
+.btn-neutral {
+  background: #e9edf2;
+  color: #1a1f2b;
+  border-color: #d0d7e2;
+}
+
+.btn-space {
+  background: #0f9d58;
+  color: #ffffff;
+  border-color: #0c7a43;
+  min-width: 120px;
+}
+
+/* Hover states – lighten both back and front */
+.key:hover::before {
+  background: #109e58;
+}
+.key:hover::after {
+  background: #25b269;
+  border-color: #15995a;
+}
+
+.utility-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
+  padding: 8px;
 }
 
-.text-input-buttons button {
-  margin-left: 10px;
+.btn-secondary {
+  background: #ffffff;
+  border: 1px solid #d0d7e2;
 }
 
 .settings {
-  margin: 20px auto;
-  width: 80%;
+  margin: 8px auto;
+  width: 90%;
   display: flex;
   align-items: center;
-}
-
-.settings label {
-  margin-right: 10px;
+  gap: 8px;
 }
 
 .settings input {
-  width: 100px;
+  width: 120px;
 }
