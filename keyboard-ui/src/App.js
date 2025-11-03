@@ -7,6 +7,7 @@ const App = () => {
   const [text, setText] = useState('');
   const [dwellTime, setDwellTime] = useState(1000);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const suggestionWords = ['hello', 'help', 'how'];
 
   const keyPressTimer = useRef(null);
 
@@ -62,7 +63,7 @@ const App = () => {
           onMouseEnter={() => handleDwell('backspace')}
           onMouseLeave={handleDwellLeave}
         >
-          ⌫ Backspace
+          <span className="btn-label">⌫ Backspace</span>
         </button>
         <div className="typed-display" title={text || 'Start typing...'}>
           {text || 'Start typing...'}
@@ -71,7 +72,7 @@ const App = () => {
           className="btn btn-primary"
           onClick={handleSpeak}
         >
-          ✈ Send
+          <span className="btn-label">✈ Send</span>
         </button>
       </div>
 
@@ -83,14 +84,26 @@ const App = () => {
           onMouseEnter={() => handleDwell('space')}
           onMouseLeave={handleDwellLeave}
         >
-          Space
+          <span className="btn-label">Space</span>
         </button>
-        <div className="suggestions" />
+        <div className="suggestions">
+          {suggestionWords.map((word) => (
+            <button
+              key={word}
+              className="suggestion"
+              onClick={() => handleKeyPress(word + ' ')}
+              onMouseEnter={() => handleDwell(word + ' ')}
+              onMouseLeave={handleDwellLeave}
+            >
+              <span className="suggestion-label">{word}</span>
+            </button>
+          ))}
+        </div>
         <button className="btn btn-neutral" onClick={() => {}}>
-          ← Back
+          <span className="btn-label">← Back</span>
         </button>
         <button className="btn btn-neutral" onClick={toggleSettings}>
-          {isSettingsOpen ? 'Close Settings' : 'Settings'}
+          <span className="btn-label">{isSettingsOpen ? 'Close Settings' : 'Settings'}</span>
         </button>
       </div>
 

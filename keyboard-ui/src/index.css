@@ -1,0 +1,12 @@
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0; /* remove default body margin to allow edge-to-edge UI */
+}
+
+* {
+  box-sizing: border-box;
+}
+
