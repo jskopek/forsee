@@ -70,11 +70,11 @@ const App = () => {
   };
 
   return (
-    <div className="App">
+    <div className="App" style={{ '--dwell-time': `${dwellTime}ms` }}>
       {/* Top bar */}
       <div className="top-bar">
         <button
-          className="btn btn-danger"
+          className="btn btn-danger dwellable repeat"
           onClick={() => handleKeyPress('backspace')}
           onMouseEnter={() => {
             if (backspaceIntervalRef.current) {
@@ -91,17 +91,19 @@ const App = () => {
             }
           }}
         >
+          <span className="dwell-progress" aria-hidden="true" />
           <span className="btn-label">⌫ Backspace</span>
         </button>
         <div className="typed-display" title={text || 'Start typing...'}>
           {text || 'Start typing...'}
         </div>
         <button
-          className="btn btn-primary"
+          className="btn btn-primary dwellable"
           onClick={handleSpeak}
           onMouseEnter={() => handleDwell(() => handleSpeak())}
           onMouseLeave={handleDwellLeave}
         >
+          <span className="dwell-progress" aria-hidden="true" />
           <span className="btn-label">
             <svg
               className="icon"
@@ -128,22 +130,24 @@ const App = () => {
       {/* Secondary bar */}
       <div className="secondary-bar">
         <button
-          className="btn btn-space"
+          className="btn btn-space dwellable"
           onClick={() => handleKeyPress('space')}
           onMouseEnter={() => handleDwell('space')}
           onMouseLeave={handleDwellLeave}
         >
+          <span className="dwell-progress" aria-hidden="true" />
           <span className="btn-label">Space</span>
         </button>
         <div className="suggestions">
           {suggestionWords.map((word) => (
             <button
               key={word}
-              className="suggestion"
+              className="suggestion dwellable"
               onClick={() => handleKeyPress(word + ' ')}
               onMouseEnter={() => handleDwell(word + ' ')}
               onMouseLeave={handleDwellLeave}
             >
+              <span className="dwell-progress" aria-hidden="true" />
               <span className="suggestion-label">{word}</span>
             </button>
           ))}

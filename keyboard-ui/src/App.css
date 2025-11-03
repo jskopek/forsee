@@ -81,7 +81,7 @@
 
 .suggestion .suggestion-label {
   position: relative;
-  z-index: 1;
+  z-index: 3;
   font-weight: 600;
 }
 
@@ -151,7 +151,7 @@
 
 .key .key-label {
   position: relative;
-  z-index: 1;
+  z-index: 3;
   font-weight: 600;
 }
 
@@ -186,12 +186,38 @@
   border-radius: 8px;
   transition: background 120ms ease, border-color 120ms ease;
 }
+.btn::before, .btn::after, .key::before, .key::after, .suggestion::before, .suggestion::after { z-index: 1; }
 .btn:hover::before { background: var(--btn-back-hover, #eef2f7); }
 .btn:hover::after {
   background: var(--btn-front-hover, #ffffff);
   border-color: var(--btn-border-hover, #c3cdd9);
 }
-.btn > * { position: relative; z-index: 1; }
+.btn > * { position: relative; z-index: 3; }
+
+/* Dwell progress overlay */
+.dwellable { position: relative; overflow: hidden; }
+.dwellable .dwell-progress {
+  position: absolute;
+  inset: 4px;
+  border-radius: 8px;
+  background: var(--dwell-progress-bg, rgba(0, 0, 0, 0.18));
+  transform-origin: left center;
+  transform: scaleX(0);
+  z-index: 2;
+  pointer-events: none;
+}
+.dwellable:hover .dwell-progress {
+  animation: dwell-fill var(--dwell-time, 1000ms) linear forwards;
+}
+.dwellable.repeat:hover .dwell-progress { animation-iteration-count: infinite; }
+
+@keyframes dwell-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* Make overlay lighter on dark surfaces */
+.btn-primary, .btn-space, .btn-danger, .key { --dwell-progress-bg: rgba(255, 255, 255, 0.28); }
 
 /* Align icon + text nicely inside button labels */
 .btn-label {

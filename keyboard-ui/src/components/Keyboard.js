@@ -21,8 +21,9 @@ const Keyboard = ({ onDwell, onDwellLeave }) => {
               key={key}
               onMouseEnter={() => onDwell(key)}
               onMouseLeave={onDwellLeave}
-              className="key key-letter"
+              className="key key-letter dwellable"
             >
+              <span className="dwell-progress" aria-hidden="true" />
               <span className="key-label">{key.toUpperCase()}</span>
             </button>
           ))}
