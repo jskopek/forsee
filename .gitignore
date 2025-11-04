@@ -180,7 +180,6 @@ dist
 
 # Gatsby
 .cache/
-public
 
 # vuepress
 .vuepress/dist
