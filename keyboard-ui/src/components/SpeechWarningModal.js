@@ -97,22 +97,55 @@ const SpeechWarningModal = forwardRef(({ onSpeechEnabled }, ref) => {
   }));
 
   useEffect(() => {
-    if (showWarning && pendingText) {
-      // Add click listener to enable speech synthesis on any click
-      const handleClick = () => {
-        // If there's pending text and speech synthesis isn't enabled yet, enable it and speak
-        if (!speechSynthesisUsed.current) {
+    // Listen for any click on the page to try to enable speech synthesis
+    const handleClick = () => {
+      if (!speechSynthesisUsed.current && 'speechSynthesis' in window) {
+        // If there's pending text, try to speak it directly (we're in a user gesture handler)
+        if (pendingText && showWarning) {
+          // Directly speak the pending text - this will enable speech synthesis
           handleSpeak(pendingText);
+        } else {
+          // No pending text, just try to enable speech synthesis with a test utterance
+          try {
+            speechSynthesis.cancel();
+            const testUtterance = new SpeechSynthesisUtterance('');
+            testUtterance.volume = 0;
+            testUtterance.rate = 10; // Very fast
+            
+            let testStarted = false;
+            
+            testUtterance.onstart = () => {
+              testStarted = true;
+              speechSynthesisUsed.current = true;
+              setShowWarning(false);
+              // Cancel the test utterance after a short delay
+              setTimeout(() => speechSynthesis.cancel(), 20);
+            };
+            
+            testUtterance.onerror = (event) => {
+              if (!testStarted && event.error !== 'interrupted') {
+                // Speech synthesis not available yet
+                speechSynthesisUsed.current = false;
+              }
+            };
+            
+            speechSynthesis.speak(testUtterance);
+          } catch (e) {
+            // Ignore errors during test
+          }
         }
-      };
-      
-      document.addEventListener('click', handleClick);
-      return () => {
-        document.removeEventListener('click', handleClick);
-      };
-    }
+      } else if (speechSynthesisUsed.current && pendingText && showWarning) {
+        // Speech synthesis is already enabled, speak the pending text directly
+        handleSpeak(pendingText);
+      }
+    };
+    
+    document.addEventListener('click', handleClick);
+    return () => {
+      document.removeEventListener('click', handleClick);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showWarning, pendingText]);
+  }, [pendingText, showWarning]);
 
   if (!showWarning) return null;
 

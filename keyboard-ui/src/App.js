@@ -94,16 +94,12 @@ const App = () => {
     // Check if speech synthesis is available using the modal's method
     if (speechWarningModalRef.current) {
       const isAvailable = speechWarningModalRef.current.checkAndShowWarning(phrase);
-      if (!isAvailable) {
-        // Warning is shown, don't proceed with speaking
-        return;
+      if (isAvailable) {
+        // Speech synthesis is available, proceed with speaking
+        speechWarningModalRef.current.speak(phrase);
+        setText('');
       }
-    }
-    
-    // Speech synthesis is available, proceed with speaking
-    if (speechWarningModalRef.current) {
-      speechWarningModalRef.current.speak(phrase);
-      setText('');
+      // Otherwise, Warning is shown, don't proceed with speaking
     }
   };
 
