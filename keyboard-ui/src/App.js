@@ -91,42 +91,20 @@ const App = () => {
     const phrase = (text || '').trim();
     if (!phrase) return;
     
-    // Use the modal's speak method, which handles speech synthesis availability
-    if (speechWarningModalRef.current) {
-      speechWarningModalRef.current.speak(phrase);
-      setText('');
-    }
-  };
-
-  const handleSpeechEnabled = (spokenText) => {
-    // Callback when speech synthesis is enabled and text is spoken
-    // Clear the text since it was spoken
-    setText('');
-  };
-
-  const handleSpeakHover = () => {
-    const phrase = (text || '').trim();
-    if (!phrase) {
-      handleDwell(() => handleSpeak());
-      return;
-    }
-    
     // Check if speech synthesis is available using the modal's method
     if (speechWarningModalRef.current) {
       const isAvailable = speechWarningModalRef.current.checkAndShowWarning(phrase);
       if (!isAvailable) {
-        // Warning is shown, don't start dwell timer
+        // Warning is shown, don't proceed with speaking
         return;
       }
     }
     
-    // Speech synthesis is available, proceed with normal dwell
-    handleDwell(() => handleSpeak());
-  };
-
-  const handleSpeakHoverLeave = () => {
-    handleDwellLeave();
-    // Don't hide warning on hover leave - keep it persistent until speech synthesis is enabled
+    // Speech synthesis is available, proceed with speaking
+    if (speechWarningModalRef.current) {
+      speechWarningModalRef.current.speak(phrase);
+      setText('');
+    }
   };
 
   const handleDwellTimeChange = (newDwellTime) => {
@@ -169,8 +147,8 @@ const App = () => {
         <button
           className="btn btn-primary dwellable"
           onClick={handleSpeak}
-          onMouseEnter={handleSpeakHover}
-          onMouseLeave={handleSpeakHoverLeave}
+          onMouseEnter={() => handleDwell(() => handleSpeak())}
+          onMouseLeave={handleDwellLeave}
         >
           <span className="dwell-progress" aria-hidden="true" />
           <span className="btn-label">
@@ -239,7 +217,7 @@ const App = () => {
       </div>
 
       {/* Speech warning modal */}
-      <SpeechWarningModal ref={speechWarningModalRef} onSpeechEnabled={handleSpeechEnabled} />
+      <SpeechWarningModal ref={speechWarningModalRef} onSpeechEnabled={(spokenText) => setText('')} />
 
       {/* no bottom utility row */}
     </div>
