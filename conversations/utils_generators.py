@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+from django.forms import model_to_dict
+
 from .models import Conversation, Message
 from .utils_prompt_openai import prompt_openai, prompt_openai_structured
 
@@ -41,63 +43,59 @@ def generate_contact_reply(conversation: Conversation, trigger_message: Message)
         return message
 
 
-def generate_reply_suggestions(conversation: Conversation, hint: str | None = None, count: int = 3) -> list[str]:
+def generate_reply_suggestions(conversation: Conversation, hint: str | None = None) -> list[str]:
     """
-    Produce a handful of short, ready-to-send reply options for the user.
+    Produce a handful of short, ready-to-speak reply options for in-person conversation.
+    Prioritizes brevity, natural speech, and the user's hint.
     """
+    MAX_WORDS = 12
     normalized_hint = (hint or "").strip()[:160]
-    # Fetch only what we need for history and latest messages
-    recent_min = list(
-        conversation.messages.order_by("-created_at", "-id").values("sender", "body")[:12]
-    )
-    history = [{"sender": m["sender"], "body": m["body"]} for m in reversed(recent_min)]
-    latest_contact_message = ""
-    latest_user_message = ""
-    for m in recent_min:  # already newest-first
-        if not latest_contact_message and m["sender"] == Message.Sender.CONTACT:
-            latest_contact_message = m["body"]
-        if not latest_user_message and m["sender"] == Message.Sender.USER:
-            latest_user_message = m["body"]
-        if latest_contact_message and latest_user_message:
-            break
+
+
     system_prompt = (
-        "You are crafting next-line dialogue options for an eye-tracking keyboard user who is speaking in person with their contact. "
-        "Think of this like dialogue choices in a role-playing game: each suggestion should represent a DIFFERENT DIRECTION the conversation could go. "
-        "The three suggestions should feel like distinct branching paths, not three similar ways to say the same thing.\n\n"
-        "Requirements:\n"
-        "- Return a JSON array containing exactly the requested number of suggestions.\n"
-        "- Each suggestion must be a single string under 40 words that can be spoken aloud naturally (no texting shorthand, no quotes, no emoji).\n"
-        "- CRITICAL: Maximize diversity between suggestions. They should cover fundamentally different conversational intentions, such as:\n"
-        "  * Expressing a feeling or personal reflection\n"
-        "  * Asking a question to deepen understanding or get help\n"
-        "  * Proposing a concrete action or next step\n"
-        "  * Shifting to a related but different topic\n"
-        "  * Offering support or acknowledgment to the contact\n"
-        "  * Adding humor or lightness to the exchange\n"
-        "- If a user hint is provided, use it as the TOPIC or THEME, but still create three DIFFERENT WAYS to engage with that topic. "
-        "Don't make all three suggestions say the same thing about the hint—instead, show three distinct approaches (e.g., ask about it, share a feeling about it, propose action on it).\n"
-        "- Keep the tone grounded in the existing relationship dynamic and the most recent turns."
+        "You generate brief, natural spoken replies for an in-person conversation.\n"
+        "These are quick things someone would actually say aloud.\n\n"
+        "Hard rules:\n"
+        f"- Keep each suggestion under {MAX_WORDS} words.\n"
+        "- Sound casual and natural; contractions are fine.\n"
+        "- No quotes, no emoji, no hashtags.\n"
+        "- Do NOT do emotional processing, therapy talk, or self-reflection.\n"
+        "- Do NOT propose activities, ask for help, or expand the topic unless the hint explicitly asks.\n"
+        "- Respond directly to the most recent exchange. If a user hint is present, treat it as the primary intent.\n"
+        "- Address the contact by first name only if contact.name is provided.\n"
+        "- Return EXACTLY the requested number of suggestions as a JSON array of strings.\n\n"
+        "Formality guide (match contact.formality):\n"
+        "- casual → relaxed and friendly.\n"
+        "- polite → soft edges, complete sentences.\n"
+        "- professional → clear and neutral, avoid slang.\n"
+        "- warm → gentle, caring, slightly affectionate.\n"
+        "- blunt → minimal wording, direct.\n\n"
+        "Examples of correct tone for hint='busy':\n"
+        "- casual:  Hey, great to see you — I'm a bit busy right now.\n"
+        "- polite:  Hello! I'm a little busy at the moment; can we chat soon?\n"
+        "- professional:  Good to see you. I'm currently occupied but will follow up shortly.\n"
+        "- warm:  Hey you — I'm tied up for a moment, but I’ll be right back.\n"
+        "- blunt:  Busy right now. One minute.\n"
     )
+
+    desired_suggestion_count = 3
+    recent_messages = [{"sender": m["sender"], "body": m["body"]} for m in conversation.messages.order_by("-created_at").values("sender", "body")[:12]]
     prompt_payload = {
-        "user_profile": conversation.owner.get_profile_data(),
-        "contact_profile": conversation.contact.get_profile_data(),
-        "conversation_history": history,
-        "desired_suggestion_count": count,
-        "latest_contact_message": latest_contact_message,
-        "latest_user_message": latest_user_message,
+        "desired_suggestion_count": desired_suggestion_count,
+        "contact": model_to_dict(conversation.contact, fields=["name", "relationship", "formality"]),
+        "conversation_history": recent_messages,
+        "latest_contact_message": _get_latest_message(recent_messages, from_sender=Message.Sender.CONTACT),
+        "latest_user_message": _get_latest_message(recent_messages, from_sender=Message.Sender.USER),
     }
     if normalized_hint:
         prompt_payload["user_hint"] = normalized_hint
-        prompt_payload["hint_importance"] = (
-            "The hint reflects what the user wants to talk about next. Use it as the central theme, "
-            "but create THREE DIFFERENT WAYS to engage with this theme across your suggestions. "
-            "For example, if the hint is 'cats', one suggestion might express a feeling about cats, "
-            "another might ask a question about cats, and the third might propose doing something related to cats. "
-            "The goal is maximum diversity of approach while respecting the hint as the topic."
+        prompt_payload["hint_policy"] = (
+            "Use the hint as the main intent for the reply. "
+            "Keep replies short and directly aligned to the hint. "
+            "Do not broaden the topic or add reflective language."
         )
 
     try:
-        # JSON Schema for OpenAI structured output
         schema = {
             "name": "reply_suggestions",
             "schema": {
@@ -117,16 +115,42 @@ def generate_reply_suggestions(conversation: Conversation, hint: str | None = No
         }
         result = prompt_openai_structured(
             system_prompt,
-            f"Return exactly {count} suggestions.\n\n" + json.dumps(prompt_payload, indent=2, ensure_ascii=False),
+            f"Return exactly {desired_suggestion_count} suggestions.\n\n" + json.dumps(prompt_payload, indent=2, ensure_ascii=False),
             schema=schema,
         )
-        suggestions = result["suggestions"]  # guaranteed by schema
-        return [s.strip() for s in suggestions[:count] if isinstance(s, str) and s.strip()]
+        suggestions = result["suggestions"]
+        # Final sanitize: trim, enforce non-empty, drop anything too long
+        out = []
+        for s in suggestions:
+            if isinstance(s, str):
+                s = s.strip()
+                if s and len(s.split()) <= MAX_WORDS:
+                    out.append(s)
+            if len(out) == desired_suggestion_count:
+                break
+        return out
     except Exception as e:
-        # Log the error for debugging
         import logging
         logger = logging.getLogger(__name__)
         logger.error(f"Failed to generate suggestions: {type(e).__name__}: {e}")
-        # If OpenAI fails, return empty - no fallbacks
         return []
+
+
+# Helpers
+def _get_latest_message(message_history: list[dict], from_sender: Message.Sender | None = None) -> str:
+    """
+    Get the latest message body from message history, optionally filtered by sender.
+    
+    Args:
+        message_history: List of message dicts with 'sender' and 'body' keys, ordered newest-first
+        from_sender: Optional Message.Sender to filter by (e.g., Message.Sender.CONTACT, Message.Sender.USER)
+    
+    Returns:
+        The body of the latest matching message, or empty string if none found
+    """
+    for message in message_history:
+        if from_sender is None or message.get("sender") == from_sender:
+            return message.get("body", "")
+    return ""
+
 
