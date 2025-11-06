@@ -125,10 +125,7 @@ class ConversationGenerateView(UserPassesTestMixin, LoginRequiredMixin, SingleOb
         except MockConversationError as error:
             messages.error(self.request, f"Unable to generate conversation: {error}")
             return redirect(contact.get_absolute_url())
-        messages.success(
-            self.request,
-            f"Generated conversation with {contact.name} ({len(transcript.messages)} messages).",
-        )
+        messages.success(self.request, f"Generated conversation with {contact.name} ({len(transcript.messages)} messages).")
         return redirect(conversation.get_absolute_url())
 
 

@@ -2,54 +2,6 @@
 
 {% block title %}Conversation with {{ conversation.contact.name }} · Eye Tracking Keyboard{% endblock %}
 
-{% block extra_head %}
-    {{ block.super }}
-    <script>
-        window.chatComposer = function chatComposer() {
-            return {
-                error: '',
-                isSubmitting: false,
-                handleBeforeRequest(event) {
-                    if (!this._ownsEvent(event)) {
-                        return;
-                    }
-                    this.isSubmitting = true;
-                    this.error = '';
-                },
-                handleAfterRequest(event) {
-                    if (!this._ownsEvent(event)) {
-                        return;
-                    }
-                    this.isSubmitting = false;
-                    const xhr = event.detail.xhr;
-                    const wasSuccessful = event.detail.successful ?? (xhr && xhr.status >= 200 && xhr.status < 400);
-                    if (wasSuccessful) {
-                        this.error = '';
-                    } else {
-                        this.error = (xhr && xhr.responseText) || 'Unable to send your message right now.';
-                    }
-                },
-                handleMessageSent() {
-                    this.isSubmitting = false;
-                    this.error = '';
-                },
-                _ownsEvent(event) {
-                    const target = event?.target;
-                    if (!target) {
-                        return false;
-                    }
-                    return Boolean(target.closest('[data-chat-composer]'));
-                },
-            };
-        };
-    </script>
-    <style>
-        [x-cloak] {
-            display: none !important;
-        }
-    </style>
-{% endblock %}
-
 {% block content %}
 <section class="max-w-4xl mx-auto px-4 py-10">
     <div x-data="{ showDetails: false, openPanel: 'contact' }" x-on:keydown.escape.window="showDetails = false">
@@ -86,11 +38,10 @@
 
             <div class="px-6 py-5 border-t border-gray-100 bg-white sticky bottom-0 z-10">
                 <div
-                    x-data="chatComposer()"
-                    x-on:message-sent.window="handleMessageSent()"
-                    x-on:htmx:beforeRequest="handleBeforeRequest($event)"
-                    x-on:htmx:afterRequest="handleAfterRequest($event)"
-                    data-chat-composer
+                    x-data="{ isSubmitting: false }"
+                    x-on:htmx:beforeRequest="isSubmitting = true"
+                    x-on:htmx:afterRequest="isSubmitting = false"
+                    x-on:message-sent.window="isSubmitting = false"
                 >
                     {% include "conversations/partials/suggestion_panel.html" with conversation=conversation suggestions=suggestions suggestion_hint=suggestion_hint %}
                 </div>
