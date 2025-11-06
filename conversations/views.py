@@ -144,7 +144,6 @@ class ConversationDetailView(UserPassesTestMixin, LoginRequiredMixin, generic.De
 
 class ConversationMessageCreateView(UserPassesTestMixin, LoginRequiredMixin, SingleObjectMixin, View):
     model = Conversation
-    template_name = "conversations/partials/message_list.html"
 
     def test_func(self):
         return self.get_object().owner == self.request.user or self.request.user.is_superuser
@@ -156,23 +155,19 @@ class ConversationMessageCreateView(UserPassesTestMixin, LoginRequiredMixin, Sin
             error_text = form.errors.get("body", ["Unable to send your message."])[0]
             return HttpResponseBadRequest(error_text)
 
-        user_message = conversation.messages.create(
-            sender=Message.Sender.USER,
-            body=form.cleaned_data["body"],
-        )
+        user_message: Message = conversation.messages.create(sender=Message.Sender.USER, body=form.cleaned_data["body"])
         generate_contact_reply(conversation, trigger_message=user_message)
 
         if is_htmx(request):
             messages_qs = conversation.messages.order_by("created_at", "id")
-            response = render(
-                request,
-                self.template_name,
-                {"conversation": conversation, "messages": messages_qs},
-            )
+            response = render(request, "conversations/partials/message_list.html", {
+                "conversation": conversation,
+                "messages": messages_qs
+            })
             response["HX-Trigger"] = json.dumps({"message-sent": True})
             return response
-
-        return redirect(conversation.get_absolute_url())
+        else:
+            return redirect(conversation.get_absolute_url())
 
 
 class ConversationSuggestionsView(UserPassesTestMixin, LoginRequiredMixin, SingleObjectMixin, View):

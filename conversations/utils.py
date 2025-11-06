@@ -34,39 +34,30 @@ OPENAI_MAX_OUTPUT_TOKENS = 400
 _client = None
 
 
-def generate_contact_greeting(conversation: Conversation | str) -> Message:
-    conversation_obj = _get_conversation(conversation)
-    messages = list(conversation_obj.messages.order_by("created_at", "id"))
-    text = _build_greeting(conversation_obj, messages)
-    message = conversation_obj.messages.create(
+def generate_contact_greeting(conversation: Conversation) -> Message:
+    messages = list(conversation.messages.order_by("created_at", "id"))
+    text = _build_greeting(conversation, messages)
+    message = conversation.messages.create(
         sender=Message.Sender.CONTACT,
-        body=text.strip() or _default_greeting(conversation_obj),
+        body=text.strip()
     )
-    _touch_conversation(conversation_obj)
     return message
 
 
-def generate_contact_reply(
-    conversation: Conversation | str,
-    *,
-    trigger_message: Message | str | None = None,
-) -> Message:
-    conversation_obj = _get_conversation(conversation)
-    messages = list(conversation_obj.messages.order_by("created_at", "id"))
+def generate_contact_reply(conversation: Conversation, trigger_message: Message) -> Message:
+    messages = list(conversation.messages.order_by("created_at", "id"))
     latest_user_message = _find_user_message(messages, trigger_message)
     if latest_user_message is None:
-        message = conversation_obj.messages.create(
+        message = conversation.messages.create(
             sender=Message.Sender.CONTACT,
             body="I'm here whenever you're ready to continue the chat.",
         )
-        _touch_conversation(conversation_obj)
         return message
-    text = _build_reply(conversation_obj, messages, latest_user_message)
-    message = conversation_obj.messages.create(
+    text = _build_reply(conversation, messages, latest_user_message)
+    message = conversation.messages.create(
         sender=Message.Sender.CONTACT,
         body=text.strip() or _default_reply(latest_user_message),
     )
-    _touch_conversation(conversation_obj)
     return message
 
 
@@ -205,7 +196,6 @@ def create_mock_conversation(
     for message in trimmed.messages:
         sender = Message.Sender.USER if message.sender == "user" else Message.Sender.CONTACT
         conversation.messages.create(sender=sender, body=message.body)
-    _touch_conversation(conversation)
     return conversation, trimmed
 
 
@@ -346,7 +336,7 @@ def ask_openai(system_prompt: str, user_prompt: str) -> str:
 
 # Internal helpers -------------------------------------------------------------
 
-def _build_greeting(conversation: Conversation, messages: list[Message]) -> str:
+def _build_greeting(conversation: Conversation, messages: list[Message]) -> str | None:
     profiles = _conversation_profiles(conversation)
     history = [{"sender": m.sender, "body": m.body} for m in messages]
     system_prompt = (
@@ -364,7 +354,7 @@ def _build_greeting(conversation: Conversation, messages: list[Message]) -> str:
     try:
         return ask_openai(system_prompt, user_prompt)
     except Exception:
-        return _default_greeting(conversation)
+        return None
 
 
 def _build_reply(conversation: Conversation, messages: list[Message], latest_user_message: Message) -> str:
@@ -406,18 +396,6 @@ def _find_user_message(messages: list[Message], trigger: Message | str | None) -
     return None
 
 
-def _get_conversation(conversation: Conversation | str) -> Conversation:
-    if isinstance(conversation, Conversation):
-        return conversation
-    return Conversation.objects.select_related("owner", "contact").get(pk=conversation)
-
-
-def _touch_conversation(conversation: Conversation) -> None:
-    conversation.last_response_job_id = ""
-    conversation.updated_at = timezone.now()
-    conversation.save(update_fields=["last_response_job_id", "updated_at"])
-
-
 def _extract_text(response: object) -> str:
     output = getattr(response, "output", None) or getattr(response, "outputs", None) or []
     texts = []
@@ -433,11 +411,6 @@ def _extract_text(response: object) -> str:
                         texts.append(text)
     return "\n".join(texts).strip()
 
-
-def _default_greeting(conversation: Conversation) -> str:
-    contact_name = conversation.contact_snapshot.get("name") if conversation.contact_snapshot else ""
-    user_name = conversation.user_snapshot.get("full_name") if conversation.user_snapshot else ""
-    return f"Hi {user_name or 'there'}, it's {contact_name or 'me'}. I wanted to check in and see how you're doing today."
 
 
 def _default_reply(latest_user_message: Message) -> str:
