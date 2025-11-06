@@ -9,7 +9,6 @@ from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db.models import Prefetch
 from django.http import HttpRequest, HttpResponse, HttpResponseBadRequest, HttpResponseForbidden, HttpResponseRedirect
 from django.shortcuts import redirect, render
-from django.urls import reverse_lazy
 from django.views import View, generic
 from django.views.generic.detail import SingleObjectMixin
 
@@ -20,7 +19,6 @@ from .utils_generators import (
     generate_reply_suggestions,
 )
 from .utils_mock_conversations import MockConversationError, create_mock_conversation
-from .forms import ConversationCreateForm, MessageForm
 from .models import Conversation, Message
 
 
@@ -44,22 +42,52 @@ class ConversationListView(LoginRequiredMixin, generic.ListView):
         )
 
 
-class ConversationCreateView(LoginRequiredMixin, generic.FormView):
+class ConversationCreateView(LoginRequiredMixin, View):
     template_name = "conversations/conversation_form.html"
-    form_class = ConversationCreateForm
-    success_url = reverse_lazy("conversations:list")  # fallback
 
-    def get_form_kwargs(self) -> dict[str, Any]:
-        kwargs = super().get_form_kwargs()
-        kwargs["user"] = self.request.user
-        return kwargs
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        contacts = Contact.objects.filter(user=request.user).order_by("name")
+        return render(request, self.template_name, {"contacts": contacts})
 
-    def form_valid(self, form: ConversationCreateForm) -> HttpResponse:
-        contact = form.cleaned_data["contact"]
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        contact_id = request.POST.get("contact")
+        title = request.POST.get("title", "").strip()
+
+        # Simple validation
+        if not contact_id:
+            contacts = Contact.objects.filter(user=request.user).order_by("name")
+            return render(
+                request,
+                self.template_name,
+                {"contacts": contacts, "error": "Please select a contact."},
+                status=400,
+            )
+
+        try:
+            contact = Contact.objects.get(id=contact_id, user=request.user)
+        except Contact.DoesNotExist:
+            contacts = Contact.objects.filter(user=request.user).order_by("name")
+            return render(
+                request,
+                self.template_name,
+                {"contacts": contacts, "error": "Invalid contact selected."},
+                status=400,
+            )
+
+        # Validate title length
+        if title and len(title) > 255:
+            contacts = Contact.objects.filter(user=request.user).order_by("name")
+            return render(
+                request,
+                self.template_name,
+                {"contacts": contacts, "error": "Title must be 255 characters or less."},
+                status=400,
+            )
+
         conversation = Conversation.objects.create(
             owner=contact.user,
             contact=contact,
-            title=form.cleaned_data.get("title") or contact.name,
+            title=title or contact.name,
         )
         generate_contact_greeting(conversation)
         return HttpResponseRedirect(conversation.get_absolute_url())
@@ -120,7 +148,6 @@ class ConversationDetailView(UserPassesTestMixin, LoginRequiredMixin, generic.De
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
-        context["message_form"] = MessageForm()
         context["messages"] = self.object.messages.order_by("created_at", "id")
         # Don't generate suggestions on page load - will be loaded via HTMX
         context["suggestions"] = []
@@ -136,12 +163,13 @@ class ConversationMessageCreateView(UserPassesTestMixin, LoginRequiredMixin, Sin
 
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         conversation = self.get_object()
-        form = MessageForm(request.POST)
-        if not form.is_valid():
-            error_text = form.errors.get("body", ["Unable to send your message."])[0]
-            return HttpResponseBadRequest(error_text)
+        body = request.POST.get("body", "").strip()
 
-        user_message: Message = conversation.messages.create(sender=Message.Sender.USER, body=form.cleaned_data["body"])
+        # Simple validation
+        if not body:
+            return HttpResponseBadRequest("Please enter a message before sending.")
+
+        user_message: Message = conversation.messages.create(sender=Message.Sender.USER, body=body)
         generate_contact_reply(conversation, trigger_message=user_message)
 
         if is_htmx(request):
