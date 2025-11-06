@@ -149,42 +149,34 @@
                             x-transition
                             class="border-t border-gray-200 px-4 py-4 space-y-4 text-gray-700"
                         >
-                            <div>
-                                <h3 class="text-sm font-semibold text-gray-900 uppercase tracking-wide">Snapshot</h3>
-                                <dl class="mt-3 space-y-2">
-                                    <div>
-                                        <dt class="text-sm font-medium text-gray-500">Name</dt>
-                                        <dd>{{ conversation.contact_snapshot.name|default:conversation.contact.name }}</dd>
-                                    </div>
-                                    <div>
-                                        <dt class="text-sm font-medium text-gray-500">Relationship</dt>
-                                        <dd>{{ conversation.contact_snapshot.relationship|default:"Not specified" }}</dd>
-                                    </div>
-                                    <div>
-                                        <dt class="text-sm font-medium text-gray-500">Personality</dt>
-                                        <dd>{{ conversation.contact_snapshot.personality|default:"Not captured" }}</dd>
-                                    </div>
-                                </dl>
-                            </div>
-                            <div>
-                                <h3 class="text-sm font-semibold text-gray-900 uppercase tracking-wide">Shared context</h3>
-                                <div class="mt-3">
-                                    <h4 class="text-sm font-medium text-gray-500 uppercase">Contact interests</h4>
-                                    <ul class="mt-2 space-y-1 text-gray-700 list-disc list-inside">
-                                        {% for interest in conversation.contact_snapshot.interests %}
+                            <dl class="space-y-2">
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500">Name</dt>
+                                    <dd>{{ conversation.contact.name }}</dd>
+                                </div>
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500">Relationship</dt>
+                                    <dd>{{ conversation.contact.relationship|default:"Not specified" }}</dd>
+                                </div>
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500">Personality</dt>
+                                    <dd>{{ conversation.contact.personality|default:"Not captured" }}</dd>
+                                </div>
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500">Interests</dt>
+                                    <ul class="mt-1 space-y-1 list-disc list-inside">
+                                        {% for interest in conversation.contact.interests %}
                                             <li>{{ interest }}</li>
                                         {% empty %}
                                             <li class="list-none text-gray-500">No interests recorded.</li>
                                         {% endfor %}
                                     </ul>
                                 </div>
-                                <div class="mt-4">
-                                    <h4 class="text-sm font-medium text-gray-500 uppercase">Notes</h4>
-                                    <p class="mt-1 text-gray-700 whitespace-pre-line">
-                                        {{ conversation.contact_snapshot.notes|default:"No notes yet." }}
-                                    </p>
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500">Notes</dt>
+                                    <dd class="whitespace-pre-line">{{ conversation.contact.notes|default:"No notes yet." }}</dd>
                                 </div>
-                            </div>
+                            </dl>
                         </div>
                     </div>
                     <div class="rounded-xl border border-gray-200">
@@ -215,20 +207,20 @@
                             <dl class="space-y-2">
                                 <div>
                                     <dt class="text-sm font-medium text-gray-500">Name</dt>
-                                    <dd>{{ conversation.user_snapshot.full_name|default:user.full_name|default:user.email }}</dd>
+                                    <dd>{{ conversation.owner.full_name|default:conversation.owner.email }}</dd>
                                 </div>
                                 <div>
                                     <dt class="text-sm font-medium text-gray-500">Location</dt>
-                                    <dd>{{ conversation.user_snapshot.location|default:"Not specified" }}</dd>
+                                    <dd>{{ conversation.owner.location|default:"Not specified" }}</dd>
                                 </div>
                                 <div>
                                     <dt class="text-sm font-medium text-gray-500">Medical context</dt>
-                                    <dd>{{ conversation.user_snapshot.medical_condition|default:"Not captured" }}</dd>
+                                    <dd>{{ conversation.owner.medical_condition|default:"Not captured" }}</dd>
                                 </div>
                                 <div>
                                     <dt class="text-sm font-medium text-gray-500">Interests</dt>
                                     <ul class="mt-1 space-y-1 list-disc list-inside">
-                                        {% for interest in conversation.user_snapshot.interests %}
+                                        {% for interest in conversation.owner.interests %}
                                             <li>{{ interest }}</li>
                                         {% empty %}
                                             <li class="list-none text-gray-500">No interests recorded.</li>

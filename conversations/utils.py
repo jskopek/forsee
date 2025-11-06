@@ -190,8 +190,6 @@ def create_mock_conversation(
         owner=user,
         contact=contact,
         title=(trimmed.title or contact.name)[:255],
-        user_snapshot=user.profile_data,
-        contact_snapshot=contact.profile_data,
     )
     for message in trimmed.messages:
         sender = Message.Sender.USER if message.sender == "user" else Message.Sender.CONTACT
@@ -380,8 +378,8 @@ def _build_reply(conversation: Conversation, messages: list[Message], latest_use
 
 
 def _conversation_profiles(conversation: Conversation) -> dict[str, dict]:
-    user_profile = conversation.user_snapshot or getattr(conversation.owner, "profile_data", {})
-    contact_profile = conversation.contact_snapshot or getattr(conversation.contact, "profile_data", {})
+    user_profile = getattr(conversation.owner, "profile_data", {})
+    contact_profile = getattr(conversation.contact, "profile_data", {})
     return {"user": user_profile, "contact": contact_profile}
 
 def _find_user_message(messages: list[Message], trigger: Message | str | None) -> Message | None:

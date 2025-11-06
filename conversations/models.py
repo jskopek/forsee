@@ -20,8 +20,6 @@ class Conversation(models.Model):
         related_name="conversations",
     )
     title = models.CharField(max_length=255, blank=True)
-    user_snapshot = models.JSONField(default=dict, blank=True)
-    contact_snapshot = models.JSONField(default=dict, blank=True)
     last_response_job_id = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

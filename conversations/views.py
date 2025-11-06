@@ -62,8 +62,6 @@ class ConversationCreateView(LoginRequiredMixin, generic.FormView):
             owner=contact.user,
             contact=contact,
             title=form.cleaned_data.get("title") or contact.name,
-            user_snapshot=contact.user.profile_data,
-            contact_snapshot=contact.profile_data,
         )
         generate_contact_greeting(conversation)
         return HttpResponseRedirect(conversation.get_absolute_url())
@@ -81,8 +79,6 @@ class ConversationQuickStartView(UserPassesTestMixin, LoginRequiredMixin, Single
             owner=contact.user,
             contact=contact,
             title=contact.name,
-            user_snapshot=contact.user.profile_data,
-            contact_snapshot=contact.profile_data,
         )
         generate_contact_greeting(conversation)
         return redirect(conversation.get_absolute_url())
@@ -131,14 +127,6 @@ class ConversationDetailView(UserPassesTestMixin, LoginRequiredMixin, generic.De
         # Don't generate suggestions on page load - will be loaded via HTMX
         context["suggestions"] = []
         context["suggestion_hint"] = ""
-        if self.object.contact_snapshot:
-            snapshot = dict(self.object.contact_snapshot)
-            snapshot["interests"] = normalize_interests(snapshot.get("interests"))
-            self.object.contact_snapshot = snapshot
-        if self.object.user_snapshot:
-            snapshot = dict(self.object.user_snapshot)
-            snapshot["interests"] = normalize_interests(snapshot.get("interests"))
-            self.object.user_snapshot = snapshot
         return context
 
 
