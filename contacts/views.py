@@ -56,7 +56,7 @@ class ContactDetailView(ContactMixin, DetailView):
 
 
 class ContactCreateView(CrispyFormMixin, ContactMixin, CreateView):
-    fields = ["name", "relationship", "interests", "personality", "notes"]
+    fields = ["name", "relationship", "formality", "interests", "personality", "notes"]
 
     def form_valid(self, form):
         form.instance.user = self.request.user
@@ -64,7 +64,7 @@ class ContactCreateView(CrispyFormMixin, ContactMixin, CreateView):
 
 
 class ContactUpdateView(CrispyFormMixin, ContactMixin, UpdateView):
-    fields = ["name", "relationship", "interests", "personality", "notes"]
+    fields = ["name", "relationship", "formality", "interests", "personality", "notes"]
 
 
 class ContactDeleteView(ContactMixin, DeleteView):
