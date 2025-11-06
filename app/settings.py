@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'contacts',
     'administrator',
     'conversations',
+    'openai_analysis',
     'crispy_forms',
     'crispy_tailwind',
     'hijack',

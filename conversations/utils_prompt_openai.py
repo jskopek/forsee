@@ -92,6 +92,13 @@ def prompt_openai_structured(
     
     response = _client.chat.completions.create(**kwargs)
     
+    # Lightweight save - silently ignore failures
+    try:
+        from openai_analysis.utils import save_openai_request, _serialize_response
+        save_openai_request(kwargs.copy(), _serialize_response(response))
+    except Exception:
+        pass
+    
     if not response.choices or len(response.choices) == 0:
         raise RuntimeError("No choices in API response")
     
@@ -123,21 +130,30 @@ def prompt_openai(system_prompt: str, user_prompt: str) -> str | None:
     if "nano" in model_name.lower():
         # gpt-5-nano uses reasoning tokens, so we need much higher max_completion_tokens
         # to account for internal reasoning before the actual output
-        response = _client.chat.completions.create(
-            model=model_name,
-            max_completion_tokens=2000,  # Higher limit for reasoning models
-            messages=[
+        request_data = {
+            "model": model_name,
+            "max_completion_tokens": 2000,
+            "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-        )
+        }
+        response = _client.chat.completions.create(**request_data)
+        
+        # Lightweight save - silently ignore failures
+        try:
+            from openai_analysis.utils import save_openai_request, _serialize_response
+            save_openai_request(request_data, _serialize_response(response))
+        except Exception:
+            pass
+        
         # Extract text from chat completion
         if response.choices and len(response.choices) > 0:
             return response.choices[0].message.content or ""
         return ""
 
     # Use responses API for other models
-    params = {
+    request_data = {
         "model": model_name,
         "max_output_tokens": OPENAI_MAX_OUTPUT_TOKENS,
         "temperature": OPENAI_TEMPERATURE,
@@ -147,7 +163,15 @@ def prompt_openai(system_prompt: str, user_prompt: str) -> str | None:
         ],
     }
 
-    response = _client.responses.create(**params)
+    response = _client.responses.create(**request_data)
+    
+    # Lightweight save - silently ignore failures
+    try:
+        from openai_analysis.utils import save_openai_request, _serialize_response
+        save_openai_request(request_data, _serialize_response(response))
+    except Exception:
+        pass
+    
     try:
         return _extract_text(response)
     except Exception:
