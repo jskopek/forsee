@@ -151,50 +151,25 @@ const SpeechWarningModal = forwardRef(({ onSpeechEnabled }, ref) => {
 
   return (
     <div 
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        zIndex: 1000,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center'
-      }}
+      className="fixed top-0 left-0 right-0 bottom-0 z-[1000] flex items-center justify-center"
       role="alert"
     >
       {/* Backdrop overlay */}
       <div 
-        style={{
-          position: 'absolute',
-          inset: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.2)',
-          pointerEvents: 'none'
-        }}
+        className="absolute inset-0 bg-black/20 pointer-events-none"
       />
       {/* Modal content */}
       <div 
-        style={{
-          position: 'relative',
-          backgroundColor: '#fff3cd',
-          border: '2px solid #ffc107',
-          borderRadius: '8px',
-          padding: '16px',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-          maxWidth: '400px',
-          margin: '0 16px',
-          pointerEvents: 'auto'
-        }}
+        className="relative bg-warning-bg border-2 border-warning-border rounded-lg p-4 shadow-[0_4px_12px_rgba(0,0,0,0.15)] max-w-[400px] mx-4 pointer-events-auto"
       >
-        <strong style={{ display: 'block', color: '#856404', marginBottom: '8px', fontSize: '1rem', fontWeight: '600' }}>
+        <strong className="block text-warning-text mb-2 text-base font-semibold">
           Speech synthesis requires user interaction
         </strong>
-        <p style={{ margin: '4px 0', color: '#856404', fontSize: '0.9rem', lineHeight: '1.4' }}>
+        <p className="my-1 text-warning-text text-[0.9rem] leading-[1.4]">
           Click anywhere on the page to enable speech synthesis. Your text will be spoken automatically once enabled.
         </p>
         {pendingText && (
-          <p style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #ffc107', fontStyle: 'italic', color: '#856404', fontSize: '0.85rem' }}>
+          <p className="mt-2 pt-2 border-t border-warning-border italic text-warning-text text-[0.85rem]">
             Your text will be preserved: &quot;{pendingText}&quot;
           </p>
         )}

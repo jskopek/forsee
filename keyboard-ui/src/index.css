@@ -1,12 +1,73 @@
-html, body, #root {
-  height: 100%;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0; /* remove default body margin to allow edge-to-edge UI */
+  }
+
+  * {
+    box-sizing: border-box;
+  }
 }
 
-body {
-  margin: 0; /* remove default body margin to allow edge-to-edge UI */
-}
+@layer utilities {
+  .animate-dwell-fill {
+    /* Base state - no animation, reset transform */
+    transform: scaleX(0);
+    animation: none;
+    opacity: 1;
+    will-change: transform;
+  }
 
-* {
-  box-sizing: border-box;
+  .animate-dwell-fill-repeat {
+    /* Base state - no animation, reset transform */
+    transform: scaleX(0);
+    animation: none;
+    opacity: 1;
+    will-change: transform;
+  }
+
+  .group:hover .animate-dwell-fill {
+    animation-name: dwell-fill;
+    animation-duration: var(--dwell-time, 1000ms);
+    animation-timing-function: linear;
+    animation-fill-mode: forwards;
+    animation-play-state: running;
+    animation-delay: 0s;
+  }
+
+  .group:hover .animate-dwell-fill-repeat {
+    animation-name: dwell-fill;
+    animation-duration: var(--dwell-time, 1000ms);
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    animation-play-state: running;
+    animation-delay: 0s;
+  }
+
+  .group:not(:hover) .animate-dwell-fill {
+    animation: none !important;
+    transform: scaleX(0) !important;
+  }
+
+  .group:not(:hover) .animate-dwell-fill-repeat {
+    animation: none !important;
+    transform: scaleX(0) !important;
+  }
+
+  @keyframes dwell-fill {
+    0% {
+      transform: scaleX(0);
+    }
+    100% {
+      transform: scaleX(1);
+    }
+  }
 }
 

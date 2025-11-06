@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Keyboard from './components/Keyboard';
 import Settings from './components/Settings';
 import SpeechWarningModal from './components/SpeechWarningModal';
-import './App.css';
 import { createDefaultAutocompleteEngine } from './autocomplete';
 
 const App = () => {
@@ -113,11 +112,11 @@ const App = () => {
   };
 
   return (
-    <div className="App" style={{ '--dwell-time': `${dwellTime}ms` }}>
+    <div className="text-center min-h-screen flex flex-col bg-bg-main" style={{ '--dwell-time': `${dwellTime}ms` }}>
       {/* Top bar */}
-      <div className="top-bar">
+      <div className="grid grid-cols-[1fr_2fr_1fr] gap-0 p-0 bg-white border-b-0 items-center">
         <button
-          className="btn btn-danger dwellable repeat"
+          className="relative h-14 px-4 rounded-none border-none bg-transparent text-base cursor-pointer overflow-hidden text-white before:content-[''] before:absolute before:inset-0 before:bg-danger-back before:transition-colors before:duration-[120ms] before:ease-in-out before:rounded-none before:z-[1] after:content-[''] after:absolute after:inset-1 after:bg-danger-front after:border after:border-danger-border after:rounded-lg after:transition-colors after:duration-[120ms] after:ease-in-out after:z-[1] hover:before:bg-danger-back-hover hover:after:bg-danger-front-hover hover:after:border-danger-border-hover group"
           onClick={() => handleKeyPress('backspace')}
           onMouseEnter={() => {
             if (backspaceIntervalRef.current) {
@@ -134,22 +133,22 @@ const App = () => {
             }
           }}
         >
-          <span className="dwell-progress" aria-hidden="true" />
-          <span className="btn-label">⌫ Backspace</span>
+          <span className="absolute inset-1 rounded-lg bg-white/28 origin-left z-[2] pointer-events-none animate-dwell-fill-repeat" aria-hidden="true" />
+          <span className="relative z-[3] inline-flex items-center gap-2 leading-none">⌫ Backspace</span>
         </button>
-        <div className="typed-display" title={text || 'Start typing...'}>
+        <div className="h-14 flex items-center justify-center bg-white border border-border-light rounded-md text-lg font-[system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji',sans-serif] px-3 overflow-hidden whitespace-nowrap text-ellipsis" title={text || 'Start typing...'}>
           {text || 'Start typing...'}
         </div>
         <button
-          className="btn btn-primary dwellable"
+          className="relative h-14 px-4 rounded-none border-none bg-transparent text-base cursor-pointer overflow-hidden text-white before:content-[''] before:absolute before:inset-0 before:bg-primary-back before:transition-colors before:duration-[120ms] before:ease-in-out before:rounded-none before:z-[1] after:content-[''] after:absolute after:inset-1 after:bg-gradient-to-br after:from-primary-gradient-start after:to-primary-gradient-end after:border after:border-primary-border after:rounded-lg after:transition-all after:duration-[120ms] after:ease-in-out after:z-[1] hover:before:bg-primary-back-hover hover:after:from-primary-gradient-start-hover hover:after:to-primary-gradient-end-hover hover:after:border-primary-border-hover group"
           onClick={handleSpeak}
           onMouseEnter={() => handleDwell(() => handleSpeak())}
           onMouseLeave={handleDwellLeave}
         >
-          <span className="dwell-progress" aria-hidden="true" />
-          <span className="btn-label">
+          <span className="absolute inset-1 rounded-lg bg-white/28 origin-left z-[2] pointer-events-none animate-dwell-fill" aria-hidden="true" />
+          <span className="relative z-[3] inline-flex items-center gap-2 leading-none">
             <svg
-              className="icon"
+              className="w-6 h-6 block"
               viewBox="0 0 24 24"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
@@ -171,32 +170,32 @@ const App = () => {
       </div>
 
       {/* Secondary bar */}
-      <div className="secondary-bar">
+      <div className="grid grid-cols-[auto_1fr_auto] gap-0 p-0 bg-white border-b-0">
         <button
-          className="btn btn-space dwellable"
+          className="relative h-14 px-4 rounded-none border-none bg-transparent text-base cursor-pointer overflow-hidden text-white min-w-[120px] before:content-[''] before:absolute before:inset-0 before:bg-space-back before:transition-colors before:duration-[120ms] before:ease-in-out before:rounded-none before:z-[1] after:content-[''] after:absolute after:inset-1 after:bg-space-front after:border after:border-space-border after:rounded-lg after:transition-colors after:duration-[120ms] after:ease-in-out after:z-[1] hover:before:bg-space-back-hover hover:after:bg-space-front-hover hover:after:border-space-border-hover group"
           onClick={() => handleKeyPress('space')}
           onMouseEnter={() => handleDwell('space')}
           onMouseLeave={handleDwellLeave}
         >
-          <span className="dwell-progress" aria-hidden="true" />
-          <span className="btn-label">Space</span>
+          <span className="absolute inset-1 rounded-lg bg-white/28 origin-left z-[2] pointer-events-none animate-dwell-fill" aria-hidden="true" />
+          <span className="relative z-[3] inline-flex items-center gap-2 leading-none">Space</span>
         </button>
-        <div className="suggestions">
+        <div className="grid grid-cols-3 gap-0 items-stretch">
           {suggestions.map((word) => (
             <button
               key={word}
-              className="suggestion dwellable"
+              className="relative h-14 border-none bg-transparent cursor-pointer text-text-dark text-base before:content-[''] before:absolute before:inset-0 before:bg-suggestion-back before:rounded-none before:transition-colors before:duration-[120ms] before:ease-in-out before:z-[1] after:content-[''] after:absolute after:inset-[3px] after:bg-suggestion-front after:border after:border-suggestion-border after:rounded-lg after:transition-colors after:duration-[120ms] after:ease-in-out after:z-[1] hover:before:bg-suggestion-back-hover hover:after:bg-suggestion-front-hover hover:after:border-suggestion-border-hover group"
               onClick={() => applySuggestion(word)}
               onMouseEnter={() => handleDwell(() => applySuggestion(word))}
               onMouseLeave={handleDwellLeave}
             >
-              <span className="dwell-progress" aria-hidden="true" />
-              <span className="suggestion-label">{word}</span>
+              <span className="absolute inset-[3px] rounded-lg bg-black/18 origin-left z-[2] pointer-events-none animate-dwell-fill" aria-hidden="true" />
+              <span className="relative z-[3] font-semibold">{word}</span>
             </button>
           ))}
         </div>
-        <button className="btn btn-neutral" onClick={toggleSettings}>
-          <span className="btn-label">{isSettingsOpen ? 'Close Settings' : 'Settings'}</span>
+        <button className="relative h-14 px-4 rounded-none border-none bg-transparent text-base cursor-pointer overflow-hidden text-text-dark before:content-[''] before:absolute before:inset-0 before:bg-neutral-back before:transition-colors before:duration-[120ms] before:ease-in-out before:rounded-none before:z-[1] after:content-[''] after:absolute after:inset-1 after:bg-neutral-front after:border after:border-neutral-border after:rounded-lg after:transition-colors after:duration-[120ms] after:ease-in-out after:z-[1] hover:before:bg-neutral-back-hover hover:after:bg-neutral-front-hover hover:after:border-neutral-border-hover" onClick={toggleSettings}>
+          <span className="relative z-[3] inline-flex items-center gap-2 leading-none">{isSettingsOpen ? 'Close Settings' : 'Settings'}</span>
         </button>
       </div>
 
@@ -208,7 +207,7 @@ const App = () => {
       )}
 
       {/* Keyboard area fills the remaining space */}
-      <div className="keyboard-wrapper">
+      <div className="flex-1 flex p-0">
         <Keyboard onDwell={handleDwell} onDwellLeave={handleDwellLeave} />
       </div>
 
