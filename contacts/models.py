@@ -36,9 +36,5 @@ class Contact(models.Model):
     def get_absolute_url(self) -> str:
         return reverse("contacts:detail", kwargs={"pk": self.pk})
 
-    @property
-    def profile_data(self) -> dict:
-        return model_to_dict(
-            self,
-            fields=["id", "user", "name", "relationship", "notes", "interests", "personality"],
-        )
+    def get_profile_data(self) -> dict:
+        return model_to_dict(self, fields=["name", "relationship", "notes", "interests", "personality"])

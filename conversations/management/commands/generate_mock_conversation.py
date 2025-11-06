@@ -6,14 +6,15 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError
 
 from contacts.models import Contact
-from conversations.services.mock_conversations import (
+from conversations.utils_mock_conversations import (
     DEFAULT_MAX_TURNS,
     DEFAULT_MAX_WORDS,
     DEFAULT_MIN_TURNS,
     MockConversationError,
     MockConversationGenerator,
+    create_mock_conversation,
+    generate_mock_conversation_transcript,
 )
-from conversations.utils import create_mock_conversation, generate_mock_conversation_transcript
 
 
 class Command(BaseCommand):

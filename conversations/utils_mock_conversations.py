@@ -4,12 +4,16 @@ import json
 import os
 import random
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Sequence, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Sequence, Tuple
 
 try:
     from openai import OpenAI as _OpenAIClient
 except ModuleNotFoundError:  # pragma: no cover - optional dependency
     _OpenAIClient = None
+
+from django.db import transaction
+
+from .models import Conversation, Message
 
 if TYPE_CHECKING:  # pragma: no cover - typing aid
     from openai import OpenAI
@@ -541,6 +545,67 @@ def _serialize_pk(value) -> str | None:
     return str(value)
 
 
+# Django-specific utility functions
+def generate_mock_conversation_transcript(
+    *,
+    user,
+    contact,
+    generator: MockConversationGenerator | None = None,
+    min_turns: int | None = None,
+    max_turns: int | None = None,
+    max_words: int | None = None,
+) -> MockConversationTranscript:
+    """
+    Produce a synthetic yet human-feeling transcript for the given user/contact pair.
+    """
+    generator = generator or MockConversationGenerator()
+    kwargs = {
+        "user": user,
+        "contact": contact,
+        "min_turns": min_turns or DEFAULT_MIN_TURNS,
+        "max_turns": max_turns or DEFAULT_MAX_TURNS,
+        "max_words": max_words or DEFAULT_MAX_WORDS,
+    }
+    return generator.generate(**kwargs)
+
+
+@transaction.atomic
+def create_mock_conversation(
+    *,
+    user,
+    contact,
+    generator: MockConversationGenerator | None = None,
+    min_turns: int | None = None,
+    max_turns: int | None = None,
+    max_words: int | None = None,
+) -> Tuple[Conversation, MockConversationTranscript]:
+    """
+    Persist a newly generated conversation along with its transcript.
+    """
+    transcript = generate_mock_conversation_transcript(
+        user=user,
+        contact=contact,
+        generator=generator,
+        min_turns=min_turns,
+        max_turns=max_turns,
+        max_words=max_words,
+    )
+    trimmed = transcript.trimmed(
+        max_messages=(max_turns or DEFAULT_MAX_TURNS),
+        max_words=max_words or DEFAULT_MAX_WORDS,
+    )
+    conversation = Conversation.objects.create(
+        owner=user,
+        contact=contact,
+        title=(trimmed.title or contact.name)[:255],
+    )
+    for message in trimmed.messages:
+        sender = Message.Sender.USER if message.sender == "user" else Message.Sender.CONTACT
+        conversation.messages.create(sender=sender, body=message.body)
+    return conversation, trimmed
+
+
+# Constants
 _HEALTHCARE_KEYWORDS: Sequence[str] = (
     "nurse",
     "doctor",

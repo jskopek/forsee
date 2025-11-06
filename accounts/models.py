@@ -26,9 +26,5 @@ class User(AbstractBaseUser, PermissionsMixin):
     def __str__(self):
         return self.full_name or self.email
 
-    @property
-    def profile_data(self) -> dict:
-        return model_to_dict(
-            self,
-            fields=["id", "email", "full_name", "location", "medical_condition", "interests", "sports_teams"],
-        )
+    def get_profile_data(self) -> dict:
+        return model_to_dict(self, fields=["full_name", "location", "medical_condition", "interests", "sports_teams"])

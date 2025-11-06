@@ -13,15 +13,13 @@ from django.urls import reverse_lazy
 from django.views import View, generic
 from django.views.generic.detail import SingleObjectMixin
 
-from .services.mock_conversations import MockConversationError
-from .utils import (
-    create_mock_conversation,
+from .utils import is_htmx
+from .utils_generators import (
     generate_contact_greeting,
     generate_contact_reply,
     generate_reply_suggestions,
-    is_htmx,
-    normalize_interests,
 )
+from .utils_mock_conversations import MockConversationError, create_mock_conversation
 from .forms import ConversationCreateForm, MessageForm
 from .models import Conversation, Message
 
