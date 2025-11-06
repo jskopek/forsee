@@ -19,7 +19,8 @@ _client = None
 def prompt_openai_structured(
     system_prompt: str,
     user_prompt: str,
-    *,
+    temperature: float = OPENAI_TEMPERATURE,
+    max_completion_tokens: int = OPENAI_MAX_OUTPUT_TOKENS,
     schema: dict | None = None,
 ) -> dict | list:
     """
@@ -83,12 +84,8 @@ def prompt_openai_structured(
     if schema:
         kwargs["response_format"] = {"type": "json_schema", "json_schema": schema}
     
-    # Adjust token limits based on model
-    if "nano" in model_name.lower():
-        kwargs["max_completion_tokens"] = 3000  # reasoning tokens need more space
-    else:
-        kwargs["max_completion_tokens"] = OPENAI_MAX_OUTPUT_TOKENS
-        kwargs["temperature"] = OPENAI_TEMPERATURE
+    kwargs["max_completion_tokens"] = max_completion_tokens
+    kwargs["temperature"] = temperature
     
     response = _client.chat.completions.create(**kwargs)
     

@@ -45,112 +45,121 @@ def generate_contact_reply(conversation: Conversation, trigger_message: Message)
 
 def generate_reply_suggestions(conversation: Conversation, hint: str | None = None) -> list[str]:
     """
-    Produce a handful of short, ready-to-speak reply options for in-person conversation.
-    Prioritizes brevity, natural speech, and the user's hint.
+    Produce short, ready-to-speak reply options for in-person conversation.
+    Prioritizes brevity, natural speech, and (when present) the user hint.
     """
     MAX_WORDS = 12
-    normalized_hint = (hint or "").strip()[:160]
+    N_SUGGESTIONS = 3
+    MAX_HINT_LEN = 160
+    HISTORY_TURNS = 10  # compact, fast
 
+    # --- Normalize inputs ---
+    normalized_hint = (hint or "").strip()[:MAX_HINT_LEN]
 
+    contact = conversation.contact
+    contact_name = getattr(contact, "name", None) or ""
+    contact_formality = getattr(contact, "formality", None) or "casual"
+
+    # Pull only what we need; build a compact transcript string:
+    # "Contact: ..." / "You: ..." lines, newest last.
+    qs = conversation.messages.order_by("-created_at", "-id").values("sender", "body")[:HISTORY_TURNS]
+    recent = list(reversed(qs))
+
+    def _role_line(sender: str, body: str) -> str:
+        if sender == Message.Sender.CONTACT:
+            return f"Contact: {body}".strip()
+        else:
+            return f"You: {body}".strip()
+
+    transcript_lines = [_role_line(m["sender"], m["body"]) for m in recent if m.get("body")]
+    transcript = "\n".join(transcript_lines)
+
+    # --- System prompt: short, explicit, production-friendly ---
     system_prompt = (
-        "You generate brief, natural spoken replies for an in-person conversation.\n"
-        "These are quick things someone would actually say aloud.\n\n"
+        "You generate brief, natural spoken replies that the user will say aloud next.\n"
         "Hard rules:\n"
-        f"- Keep each suggestion under {MAX_WORDS} words.\n"
-        "- Sound casual and natural; contractions are fine.\n"
-        "- No quotes, no emoji, no hashtags.\n"
-        "- Do NOT do emotional processing, therapy talk, or self-reflection.\n"
-        "- Do NOT propose activities, ask for help, or expand the topic unless the hint explicitly asks.\n"
-        "- Respond directly to the most recent exchange. If a user hint is present, treat it as the primary intent.\n"
-        "- Address the contact by first name only if contact.name is provided.\n"
-        "- Return EXACTLY the requested number of suggestions as a JSON array of strings.\n\n"
-        "Formality guide (match contact.formality):\n"
-        "- casual → relaxed and friendly.\n"
-        "- polite → soft edges, complete sentences.\n"
-        "- professional → clear and neutral, avoid slang.\n"
-        "- warm → gentle, caring, slightly affectionate.\n"
-        "- blunt → minimal wording, direct.\n\n"
-        "Examples of correct tone for hint='busy':\n"
-        "- casual:  Hey, great to see you — I'm a bit busy right now.\n"
-        "- polite:  Hello! I'm a little busy at the moment; can we chat soon?\n"
-        "- professional:  Good to see you. I'm currently occupied but will follow up shortly.\n"
-        "- warm:  Hey you — I'm tied up for a moment, but I’ll be right back.\n"
-        "- blunt:  Busy right now. One minute.\n"
+        f"- Output exactly {N_SUGGESTIONS} suggestions as a JSON array of strings.\n"
+        f"- Each suggestion under {MAX_WORDS} words (space-separated word count).\n"
+        "- Contractions allowed. No quotes, no emoji, no hashtags.\n"
+        "- No emotional processing, advice-giving, meta-commentary, or reflection.\n"
+        "- Do not broaden the topic or propose actions unless the hint requests it.\n"
+        "- If a user_hint is present, it OVERRIDES conversation content and sets the reply goal.\n"
+        "- Use conversation only for tone, names, and concrete details.\n"
+        "- Match formality exactly:\n"
+        "  casual → relaxed and friendly\n"
+        "  polite → complete sentences, courteous\n"
+        "  professional → clear, concise, neutral; no slang\n"
+        "  warm → gentle, caring, soft tone\n"
+        "  blunt → very short, direct, minimal words\n"
+        "- If contact_name is provided, use it sparingly (≤1 in 3 suggestions).\n"
+        "- If any suggestion exceeds the word limit, shorten it without changing intent.\n"
     )
 
-    desired_suggestion_count = 3
-    recent_messages = [{"sender": m["sender"], "body": m["body"]} for m in conversation.messages.order_by("-created_at").values("sender", "body")[:12]]
-    prompt_payload = {
-        "desired_suggestion_count": desired_suggestion_count,
-        "contact": model_to_dict(conversation.contact, fields=["name", "relationship", "formality"]),
-        "conversation_history": recent_messages,
-        "latest_contact_message": _get_latest_message(recent_messages, from_sender=Message.Sender.CONTACT),
-        "latest_user_message": _get_latest_message(recent_messages, from_sender=Message.Sender.USER),
+    # --- Compact user payload ---
+    user_payload = {
+        "n": N_SUGGESTIONS,
+        "formality": contact_formality,
+        "contact_name": contact_name,
+        "transcript": transcript,
     }
     if normalized_hint:
-        prompt_payload["user_hint"] = normalized_hint
-        prompt_payload["hint_policy"] = (
-            "Use the hint as the main intent for the reply. "
-            "Keep replies short and directly aligned to the hint. "
-            "Do not broaden the topic or add reflective language."
-        )
+        user_payload["user_hint"] = normalized_hint
 
-    try:
-        schema = {
-            "name": "reply_suggestions",
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "suggestions": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "minItems": 1,
-                        "maxItems": 10,
-                    }
-                },
-                "required": ["suggestions"],
-                "additionalProperties": False,
+    # --- Strict schema with min=max=n ---
+    schema = {
+        "name": "reply_suggestions",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "suggestions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": N_SUGGESTIONS,
+                    "maxItems": N_SUGGESTIONS,
+                }
             },
-            "strict": True,
-        }
+            "required": ["suggestions"],
+            "additionalProperties": False,
+        },
+    }
+
+    # --- Call model ---
+    try:
         result = prompt_openai_structured(
             system_prompt,
-            f"Return exactly {desired_suggestion_count} suggestions.\n\n" + json.dumps(prompt_payload, indent=2, ensure_ascii=False),
+            json.dumps(user_payload, ensure_ascii=False),
             schema=schema,
+            # sensible defaults for speed/consistency:
+            temperature=0.4,
+            max_completion_tokens=70,
         )
-        suggestions = result["suggestions"]
-        # Final sanitize: trim, enforce non-empty, drop anything too long
-        out = []
+        suggestions = result.get("suggestions", [])
+        # Final sanitize: trim, enforce non-empty, enforce <= MAX_WORDS
+        out: list[str] = []
         for s in suggestions:
             if isinstance(s, str):
                 s = s.strip()
                 if s and len(s.split()) <= MAX_WORDS:
                     out.append(s)
-            if len(out) == desired_suggestion_count:
+            if len(out) == N_SUGGESTIONS:
                 break
-        return out
+
+        # If model overran word limit, try a light truncate fallback to keep count exact.
+        # (Conservative: cut to first MAX_WORDS tokens.)
+        if len(out) < N_SUGGESTIONS and isinstance(suggestions, list):
+            for s in suggestions:
+                if not isinstance(s, str):
+                    continue
+                s = " ".join(s.strip().split()[:MAX_WORDS])
+                if s and s not in out:
+                    out.append(s)
+                if len(out) == N_SUGGESTIONS:
+                    break
+
+        return out[:N_SUGGESTIONS]
     except Exception as e:
         import logging
         logger = logging.getLogger(__name__)
         logger.error(f"Failed to generate suggestions: {type(e).__name__}: {e}")
         return []
-
-
-# Helpers
-def _get_latest_message(message_history: list[dict], from_sender: Message.Sender | None = None) -> str:
-    """
-    Get the latest message body from message history, optionally filtered by sender.
-    
-    Args:
-        message_history: List of message dicts with 'sender' and 'body' keys, ordered newest-first
-        from_sender: Optional Message.Sender to filter by (e.g., Message.Sender.CONTACT, Message.Sender.USER)
-    
-    Returns:
-        The body of the latest matching message, or empty string if none found
-    """
-    for message in message_history:
-        if from_sender is None or message.get("sender") == from_sender:
-            return message.get("body", "")
-    return ""
-
-
