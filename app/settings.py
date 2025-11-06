@@ -199,4 +199,4 @@ RQ_QUEUES = {
 
 RQ_EXCEPTION_HANDLERS = ("django_rq.utils.push_exception_handler",)
 
-OPENAI_RESPONSES_MODEL = os.getenv("OPENAI_RESPONSES_MODEL", "gpt-5-nano")
+OPENAI_RESPONSES_MODEL = os.getenv("OPENAI_RESPONSES_MODEL", "gpt-4.1-mini")
