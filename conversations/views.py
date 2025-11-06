@@ -14,8 +14,6 @@ from django.views.generic.detail import SingleObjectMixin
 
 from .utils import is_htmx
 from .utils_generators import (
-    generate_contact_greeting,
-    generate_contact_reply,
     generate_reply_suggestions,
 )
 from .utils_mock_conversations import MockConversationError, create_mock_conversation
@@ -89,7 +87,6 @@ class ConversationCreateView(LoginRequiredMixin, View):
             contact=contact,
             title=title or contact.name,
         )
-        generate_contact_greeting(conversation)
         return HttpResponseRedirect(conversation.get_absolute_url())
 
 
@@ -106,7 +103,6 @@ class ConversationQuickStartView(UserPassesTestMixin, LoginRequiredMixin, Single
             contact=contact,
             title=contact.name,
         )
-        generate_contact_greeting(conversation)
         return redirect(conversation.get_absolute_url())
 
 
@@ -166,8 +162,22 @@ class ConversationMessageCreateView(UserPassesTestMixin, LoginRequiredMixin, Sin
         if not body:
             return HttpResponseBadRequest("Please enter a message before sending.")
 
-        user_message: Message = conversation.messages.create(sender=Message.Sender.USER, body=body)
-        generate_contact_reply(conversation, trigger_message=user_message)
+        # Determine who should send based on last message
+        # Contact always starts first, then alternates: contact, user, contact, user...
+        last_message = conversation.messages.order_by("-created_at", "-id").first()
+        
+        if last_message is None:
+            # No messages yet - contact starts first
+            sender = Message.Sender.CONTACT
+        elif last_message.sender == Message.Sender.CONTACT:
+            # Last was contact, so user sends next
+            sender = Message.Sender.USER
+        else:
+            # Last was user, so contact sends next
+            sender = Message.Sender.CONTACT
+
+        # Create the message
+        conversation.messages.create(sender=sender, body=body)
 
         if is_htmx(request):
             messages_qs = conversation.messages.order_by("created_at", "id")
@@ -183,19 +193,21 @@ class ConversationMessageCreateView(UserPassesTestMixin, LoginRequiredMixin, Sin
 
 class ConversationSuggestionsView(UserPassesTestMixin, LoginRequiredMixin, SingleObjectMixin, View):
     model = Conversation
-    template_name = "conversations/partials/suggestion_panel.html"
+    template_name = "conversations/partials/suggestion_list.html"
 
     def test_func(self):
         return self.get_object().owner == self.request.user or self.request.user.is_superuser
 
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         conversation = self.get_object()
+        # Get hint from input field (can be empty)
         hint_text = request.POST.get('hint', '').strip()
-        suggestions = generate_reply_suggestions(conversation, hint_text)
+        # If hint is empty, pass None to generate suggestions based on conversation history
+        hint = hint_text if hint_text else None
+        suggestions = generate_reply_suggestions(conversation, hint)
         return render(request, self.template_name, {
             'conversation': conversation,
             'suggestions': suggestions,
-            'suggestion_hint': hint_text,
         })
 
 

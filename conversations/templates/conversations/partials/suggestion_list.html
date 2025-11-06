@@ -1,0 +1,32 @@
+{% for suggestion in suggestions %}
+    <form
+        method="post"
+        hx-post="{% url 'conversations:message-send' conversation.pk %}"
+        hx-target="#conversation-messages"
+        hx-swap="outerHTML"
+        hx-headers='{"X-Requested-With": "XMLHttpRequest"}'
+        class="group"
+    >
+        {% csrf_token %}
+        <input type="hidden" name="body" value="{{ suggestion }}">
+        <button
+            type="submit"
+            class="w-full rounded-2xl border border-gray-200 bg-white px-5 py-4 text-left text-base font-medium text-gray-900 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+            <span class="block whitespace-normal leading-relaxed">
+                {{ suggestion }}
+            </span>
+        </button>
+    </form>
+{% empty %}
+    <div class="rounded-2xl border border-dashed border-gray-300 bg-white px-5 py-4 text-sm text-gray-500">
+        <div class="flex items-center justify-center space-x-2">
+            <svg class="animate-spin h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span>Loading suggestions...</span>
+        </div>
+    </div>
+{% endfor %}
+
