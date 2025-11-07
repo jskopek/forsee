@@ -6,7 +6,7 @@ from ninja import Router
 from ninja.errors import HttpError
 from pydantic import BaseModel, Field
 
-from .models import Conversation
+from .models import Conversation, Message
 from .utils_generators import generate_reply_suggestions, generate_word_hints
 
 api_router = Router(tags=["conversations"])
@@ -27,6 +27,18 @@ class SuggestionsResponse(BaseModel):
 
 class SuggestionsRequest(BaseModel):
     hint: str | None = Field(default=None, description="Optional hint text to guide suggestions")
+
+
+class AddMessageRequest(BaseModel):
+    body: str = Field(..., description="The message text content")
+    sender: str | None = Field(default=None, description="Optional sender: 'user' or 'contact'. If not provided, alternates from last message.")
+
+
+class MessageResponse(BaseModel):
+    id: str
+    sender: str
+    body: str
+    created_at: str
 
 
 def get_conversation_or_404(conversation_id: UUID, user) -> Conversation:
@@ -76,4 +88,54 @@ def get_suggestions(request, conversation_id: UUID, body: SuggestionsRequest):
     
     return {
         "suggestions": suggestions
+    }
+
+
+@api_router.post("/{conversation_id}/messages", response=MessageResponse)
+def add_message(request, conversation_id: UUID, body: AddMessageRequest):
+    """
+    Add a message to a conversation.
+    Optionally specify sender ('user' or 'contact'). If not provided, alternates from last message.
+    """
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required")
+    
+    conversation = get_conversation_or_404(conversation_id, request.user)
+    
+    # Validate body is not empty
+    body_text = body.body.strip()
+    if not body_text:
+        raise HttpError(400, "Message body cannot be empty")
+    
+    # Determine sender
+    if body.sender:
+        # Validate sender value
+        if body.sender not in [Message.Sender.USER, Message.Sender.CONTACT]:
+            raise HttpError(400, f"Invalid sender. Must be '{Message.Sender.USER}' or '{Message.Sender.CONTACT}'")
+        sender = body.sender
+    else:
+        # Alternate from last message
+        last_message = conversation.messages.order_by('-created_at', '-id').first()
+        if last_message is None:
+            # No messages yet, default to user
+            sender = Message.Sender.USER
+        else:
+            # Alternate: if last was user, next is contact; if last was contact, next is user
+            if last_message.sender == Message.Sender.USER:
+                sender = Message.Sender.CONTACT
+            else:
+                sender = Message.Sender.USER
+    
+    # Create the message
+    message = Message.objects.create(
+        conversation=conversation,
+        sender=sender,
+        body=body_text,
+    )
+    
+    return {
+        "id": str(message.id),
+        "sender": message.sender,
+        "body": message.body,
+        "created_at": message.created_at.isoformat(),
     }

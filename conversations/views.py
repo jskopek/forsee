@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from contacts.models import Contact
@@ -8,7 +7,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db.models import Prefetch
-from django.http import HttpRequest, HttpResponse, HttpResponseBadRequest, HttpResponseForbidden, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, HttpResponseRedirect
 from django.shortcuts import redirect, render
 from django.views import View, generic
 from django.views.generic.detail import SingleObjectMixin
@@ -166,44 +165,3 @@ class ConversationKeyboardView(UserPassesTestMixin, LoginRequiredMixin, generic.
         return context
 
 
-class ConversationMessageCreateView(UserPassesTestMixin, LoginRequiredMixin, SingleObjectMixin, View):
-    model = Conversation
-
-    def test_func(self):
-        return self.get_object().owner == self.request.user or self.request.user.is_superuser
-
-    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        conversation = self.get_object()
-        body = request.POST.get("body", "").strip()
-
-        # Simple validation
-        if not body:
-            return HttpResponseBadRequest("Please enter a message before sending.")
-
-        # Determine who should send based on last message
-        # Contact always starts first, then alternates: contact, user, contact, user...
-        last_message = conversation.messages.order_by("-created_at", "-id").first()
-        
-        if last_message is None:
-            # No messages yet - contact starts first
-            sender = Message.Sender.CONTACT
-        elif last_message.sender == Message.Sender.CONTACT:
-            # Last was contact, so user sends next
-            sender = Message.Sender.USER
-        else:
-            # Last was user, so contact sends next
-            sender = Message.Sender.CONTACT
-
-        # Create the message
-        conversation.messages.create(sender=sender, body=body)
-
-        if is_htmx(request):
-            messages_qs = conversation.messages.order_by("created_at", "id")
-            response = render(request, "conversations/partials/message_list.html", {
-                "conversation": conversation,
-                "messages": messages_qs
-            })
-            response["HX-Trigger"] = json.dumps({"message-sent": True})
-            return response
-        else:
-            return redirect(conversation.get_absolute_url())
