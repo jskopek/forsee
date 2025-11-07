@@ -182,9 +182,7 @@ const Hints = ({ text, onTextChange, dwellTime, conversationId }) => {
               onMouseLeave={handleHintLeave}
             >
               <span
-                className={`absolute inset-1 rounded-lg bg-white/28 origin-left z-[2] pointer-events-none ${
-                  isHovered ? 'animate-dwell-fill' : ''
-                }`}
+                className="absolute inset-1 rounded-lg bg-white/28 origin-left z-[2] pointer-events-none animate-dwell-fill"
                 aria-hidden="true"
               />
               <span className="relative z-[3] text-4xl mb-2">{hint.emoji}</span>

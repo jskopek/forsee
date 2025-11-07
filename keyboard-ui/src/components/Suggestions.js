@@ -160,9 +160,7 @@ const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak })
                 onClick={() => applySuggestion(suggestion)}
               >
                 <span
-                  className={`absolute inset-1 rounded-lg bg-white/28 origin-left z-[2] pointer-events-none ${
-                    isHovered ? 'animate-dwell-fill' : ''
-                  }`}
+                  className="absolute inset-1 rounded-lg bg-white/28 origin-left z-[2] pointer-events-none animate-dwell-fill"
                   aria-hidden="true"
                 />
                 <span className="relative z-[3] font-semibold text-center px-4 break-words">

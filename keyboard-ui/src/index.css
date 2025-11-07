@@ -16,58 +16,50 @@
   }
 }
 
-@layer utilities {
-  .animate-dwell-fill {
-    /* Base state - no animation, reset transform */
+/* Dwell fill animation - outside Tailwind layers to ensure it works */
+.animate-dwell-fill {
+  transform: scaleX(0);
+  opacity: 1;
+  will-change: transform;
+  background-color: rgba(255, 255, 255, 0.4) !important;
+}
+
+.animate-dwell-fill-repeat {
+  transform: scaleX(0);
+  opacity: 1;
+  will-change: transform;
+  background-color: rgba(255, 255, 255, 0.4) !important;
+}
+
+/* Use button:hover instead of .group:hover for more specificity */
+button.group:hover .animate-dwell-fill,
+.group:hover .animate-dwell-fill {
+  animation: dwell-fill var(--dwell-time, 1000ms) linear 0s forwards !important;
+}
+
+button.group:hover .animate-dwell-fill-repeat,
+.group:hover .animate-dwell-fill-repeat {
+  animation: dwell-fill var(--dwell-time, 1000ms) linear 0s infinite !important;
+}
+
+button.group:not(:hover) .animate-dwell-fill,
+.group:not(:hover) .animate-dwell-fill {
+  animation: none !important;
+  transform: scaleX(0) !important;
+}
+
+button.group:not(:hover) .animate-dwell-fill-repeat,
+.group:not(:hover) .animate-dwell-fill-repeat {
+  animation: none !important;
+  transform: scaleX(0) !important;
+}
+
+@keyframes dwell-fill {
+  0% {
     transform: scaleX(0);
-    animation: none;
-    opacity: 1;
-    will-change: transform;
   }
-
-  .animate-dwell-fill-repeat {
-    /* Base state - no animation, reset transform */
-    transform: scaleX(0);
-    animation: none;
-    opacity: 1;
-    will-change: transform;
-  }
-
-  .group:hover .animate-dwell-fill {
-    animation-name: dwell-fill;
-    animation-duration: var(--dwell-time, 1000ms);
-    animation-timing-function: linear;
-    animation-fill-mode: forwards;
-    animation-play-state: running;
-    animation-delay: 0s;
-  }
-
-  .group:hover .animate-dwell-fill-repeat {
-    animation-name: dwell-fill;
-    animation-duration: var(--dwell-time, 1000ms);
-    animation-timing-function: linear;
-    animation-iteration-count: infinite;
-    animation-play-state: running;
-    animation-delay: 0s;
-  }
-
-  .group:not(:hover) .animate-dwell-fill {
-    animation: none !important;
-    transform: scaleX(0) !important;
-  }
-
-  .group:not(:hover) .animate-dwell-fill-repeat {
-    animation: none !important;
-    transform: scaleX(0) !important;
-  }
-
-  @keyframes dwell-fill {
-    0% {
-      transform: scaleX(0);
-    }
-    100% {
-      transform: scaleX(1);
-    }
+  100% {
+    transform: scaleX(1);
   }
 }
 
