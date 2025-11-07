@@ -16,9 +16,16 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from ninja import NinjaAPI
+
+from conversations.api import api_router
+
+api = NinjaAPI()
+api.add_router("/conversations", api_router)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/', api.urls),
     path('accounts/', include('allauth.urls')),
     path('hijack/', include(('hijack.urls', 'hijack'), namespace='hijack')),
     path('administrator/', include('administrator.urls')),

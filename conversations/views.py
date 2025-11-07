@@ -13,10 +13,6 @@ from django.views import View, generic
 from django.views.generic.detail import SingleObjectMixin
 
 from .utils import is_htmx
-from .utils_generators import (
-    generate_reply_suggestions,
-    generate_word_hints,
-)
 from .utils_mock_conversations import MockConversationError, create_mock_conversation
 from .models import Conversation, Message
 
@@ -143,10 +139,10 @@ class ConversationDetailView(UserPassesTestMixin, LoginRequiredMixin, generic.De
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         context["messages"] = self.object.messages.order_by("created_at", "id")
-        # Don't generate suggestions on page load - will be loaded via HTMX
+        # Don't generate suggestions on page load - will be loaded via API
         context["suggestions"] = []
         context["suggestion_hint"] = ""
-        # Don't generate hints on page load - will be loaded via HTMX
+        # Don't generate hints on page load - will be loaded via API
         context["hints"] = []
         return context
 
@@ -192,41 +188,3 @@ class ConversationMessageCreateView(UserPassesTestMixin, LoginRequiredMixin, Sin
             return response
         else:
             return redirect(conversation.get_absolute_url())
-
-
-class ConversationSuggestionsView(UserPassesTestMixin, LoginRequiredMixin, SingleObjectMixin, View):
-    model = Conversation
-    template_name = "conversations/partials/suggestion_list.html"
-
-    def test_func(self):
-        return self.get_object().owner == self.request.user or self.request.user.is_superuser
-
-    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        conversation = self.get_object()
-        # Get hint from input field (can be empty)
-        hint_text = request.POST.get('hint', '').strip()
-        # If hint is empty, pass None to generate suggestions based on conversation history
-        hint = hint_text if hint_text else None
-        suggestions = generate_reply_suggestions(conversation, hint)
-        return render(request, self.template_name, {
-            'conversation': conversation,
-            'suggestions': suggestions,
-        })
-
-
-class ConversationHintsView(UserPassesTestMixin, LoginRequiredMixin, SingleObjectMixin, View):
-    model = Conversation
-    template_name = "conversations/partials/hints_grid.html"
-
-    def test_func(self):
-        return self.get_object().owner == self.request.user or self.request.user.is_superuser
-
-    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        conversation = self.get_object()
-        hints = generate_word_hints(conversation)
-        return render(request, self.template_name, {
-            'conversation': conversation,
-            'hints': hints,
-        })
-
-
