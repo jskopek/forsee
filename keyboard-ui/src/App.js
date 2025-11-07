@@ -105,11 +105,32 @@ const App = () => {
     clearTimeout(keyPressTimer.current);
   };
 
-  const handleSpeak = (textToSpeak) => {
+  const handleSpeak = async (textToSpeak) => {
     // Handle event objects from onClick handlers
     const phraseToUse = typeof textToSpeak === 'string' ? textToSpeak : text || '';
     const phrase = phraseToUse.trim();
     if (!phrase) return;
+    
+    // Send message to API if conversationId is available
+    // Always send as user when using the speak button
+    if (conversationId) {
+      try {
+        const apiBaseUrl = process.env.REACT_APP_API_BASE_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '');
+        const response = await fetch(`${apiBaseUrl}/api/conversations/${conversationId}/messages`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ body: phrase, sender: 'user' }),
+        });
+
+        if (!response.ok) {
+          throw new Error(response.status === 401 || response.status === 403 ? 'Authentication required' : response.status === 404 ? 'Conversation not found' : 'Failed to send message');
+        }
+      } catch (err) {
+        console.error('Error sending message:', err);
+        // Still proceed with speaking even if API call fails
+      }
+    }
     
     // Always try to speak - the modal will handle showing warnings if needed
     if (speechWarningModalRef.current) {
