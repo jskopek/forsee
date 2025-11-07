@@ -1,11 +1,11 @@
 from __future__ import annotations
-
 import json
-
-from django.forms import model_to_dict
-
+from typing import Annotated
+from pydantic import Field
+from django.conf import settings
+from pydantic import BaseModel
 from .models import Conversation, Message
-from .utils_prompt_openai import prompt_openai, prompt_openai_structured
+from .utils_prompt_openai import prompt_openai
 
 
 def generate_contact_greeting(conversation: Conversation) -> Message | None:
@@ -74,25 +74,15 @@ def generate_reply_suggestions(conversation: Conversation, hint: str | None = No
     transcript_lines = [_role_line(m["sender"], m["body"]) for m in recent if m.get("body")]
     transcript = "\n".join(transcript_lines)
 
-    # --- System prompt: short, explicit, production-friendly ---
+    # --- Short, cache-friendly system prompt ---
     system_prompt = (
-        "You generate brief, natural spoken replies that the user will say aloud next.\n"
-        "Hard rules:\n"
-        f"- Output exactly {N_SUGGESTIONS} suggestions as a JSON array of strings.\n"
-        f"- Each suggestion under {MAX_WORDS} words (space-separated word count).\n"
-        "- Contractions allowed. No quotes, no emoji, no hashtags.\n"
-        "- No emotional processing, advice-giving, meta-commentary, or reflection.\n"
-        "- Do not broaden the topic or propose actions unless the hint requests it.\n"
-        "- If a user_hint is present, it OVERRIDES conversation content and sets the reply goal.\n"
-        "- Use conversation only for tone, names, and concrete details.\n"
-        "- Match formality exactly:\n"
-        "  casual → relaxed and friendly\n"
-        "  polite → complete sentences, courteous\n"
-        "  professional → clear, concise, neutral; no slang\n"
-        "  warm → gentle, caring, soft tone\n"
-        "  blunt → very short, direct, minimal words\n"
-        "- If contact_name is provided, use it sparingly (≤1 in 3 suggestions).\n"
-        "- If any suggestion exceeds the word limit, shorten it without changing intent.\n"
+        "Write the user's next spoken lines.\n"
+        "Return ONLY JSON that maps to the Pydantic model with one key: suggestions.\n"
+        f"Suggestions must be {N_SUGGESTIONS} short strings (≤ {MAX_WORDS} words), natural speech, "
+        "no emojis/hashtags/quotes. If user_hint exists, it overrides conversation content. "
+        "Use conversation only for tone, names, and concrete details. "
+        "Formality is one of: casual, polite, professional, warm, blunt. "
+        "Use contact_name in at most one suggestion. Do not broaden the topic."
     )
 
     # --- Compact user payload ---
@@ -105,57 +95,30 @@ def generate_reply_suggestions(conversation: Conversation, hint: str | None = No
     if normalized_hint:
         user_payload["user_hint"] = normalized_hint
 
-    # --- Strict schema with min=max=n ---
-    schema = {
-        "name": "reply_suggestions",
-        "strict": True,
-        "schema": {
-            "type": "object",
-            "properties": {
-                "suggestions": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "minItems": N_SUGGESTIONS,
-                    "maxItems": N_SUGGESTIONS,
-                }
-            },
-            "required": ["suggestions"],
-            "additionalProperties": False,
-        },
-    }
+    class ReplySuggestions(BaseModel):
+        """Exactly 3 string suggestions for reply options."""
+        suggestions: Annotated[list[str], Field(min_length=3, max_length=3)]
 
-    # --- Call model ---
+
+    # --- Call model with Pydantic parsing ---
     try:
-        result = prompt_openai_structured(
+        parsed: ReplySuggestions = prompt_openai(
             system_prompt,
             json.dumps(user_payload, ensure_ascii=False),
-            schema=schema,
-            # sensible defaults for speed/consistency:
-            temperature=0.4,
-            max_completion_tokens=70,
+            pydantic_model=ReplySuggestions,
+            model_name=getattr(settings, "OPENAI_RESPONSES_MODEL", "gpt-4.1-mini"),
+            temperature=0.3,
+            max_output_tokens=40,
         )
-        suggestions = result.get("suggestions", [])
-        # Final sanitize: trim, enforce non-empty, enforce <= MAX_WORDS
-        out: list[str] = []
-        for s in suggestions:
-            if isinstance(s, str):
-                s = s.strip()
-                if s and len(s.split()) <= MAX_WORDS:
-                    out.append(s)
-            if len(out) == N_SUGGESTIONS:
-                break
 
-        # If model overran word limit, try a light truncate fallback to keep count exact.
-        # (Conservative: cut to first MAX_WORDS tokens.)
-        if len(out) < N_SUGGESTIONS and isinstance(suggestions, list):
-            for s in suggestions:
-                if not isinstance(s, str):
-                    continue
-                s = " ".join(s.strip().split()[:MAX_WORDS])
-                if s and s not in out:
-                    out.append(s)
-                if len(out) == N_SUGGESTIONS:
-                    break
+        if not isinstance(parsed, ReplySuggestions):
+            raise RuntimeError(f"Expected ReplySuggestions but got {type(parsed)}")
+
+        # Minimal post-clean: trim whitespace, cap words
+        out: list[str] = []
+        for s in parsed.suggestions:
+            s = " ".join(s.strip().split())
+            out.append(" ".join(s.split()[:MAX_WORDS]))
 
         return out[:N_SUGGESTIONS]
     except Exception as e:

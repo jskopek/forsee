@@ -1,194 +1,101 @@
-from __future__ import annotations
-
-import json
 import os
-
 from django.conf import settings
-
-try:
-    from openai import OpenAI
-except ImportError:  # pragma: no cover - optional dependency
-    OpenAI = None  # type: ignore[misc,assignment]
+from openai import OpenAI
+from pydantic import BaseModel
 
 OPENAI_TEMPERATURE = 0.7
 OPENAI_MAX_OUTPUT_TOKENS = 400
 
-_client = None
 
-
-def prompt_openai_structured(
+def prompt_openai(
     system_prompt: str,
     user_prompt: str,
     temperature: float = OPENAI_TEMPERATURE,
-    max_completion_tokens: int = OPENAI_MAX_OUTPUT_TOKENS,
-    schema: dict | None = None,
-) -> dict | list:
+    max_output_tokens: int = OPENAI_MAX_OUTPUT_TOKENS,
+    pydantic_model: type[BaseModel] | None = None,
+    model_name: str | None = None,
+) -> str | BaseModel | None:
     """
-    Request structured JSON output from OpenAI with optional JSON schema validation.
-    
-    Args:
-        system_prompt: The system instruction
-        user_prompt: The user query/request
-        schema: Optional JSON schema dict for OpenAI to validate against
-                If provided, response will be guaranteed to conform
-    
-    Returns:
-        Parsed JSON as dict or list (no Pydantic overhead)
-    
-    Example:
-        # Simple array of strings
-        result = prompt_openai_structured(
-            system_prompt="You are a helpful assistant.",
-            user_prompt="Generate 3 topic suggestions",
-            schema={
-                "name": "suggestions",
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "items": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "List of suggestions"
-                        }
-                    },
-                    "required": ["items"],
-                    "additionalProperties": False
-                },
-                "strict": True
-            }
-        )
-        suggestions = result["items"]
-    """
-    if OpenAI is None:
-        raise RuntimeError("OpenAI client is not available.")
-    
-    global _client  # noqa: PLW0603 - simple cache
-    if _client is None:
-        if not os.getenv("OPENAI_API_KEY"):
-            raise RuntimeError("OPENAI_API_KEY is not set.")
-        _client = OpenAI()
+    Request output from OpenAI using the Responses API.
 
-    model_name = settings.OPENAI_RESPONSES_MODEL
-    
+    If `pydantic_model` is provided, uses `responses.parse` with `text_format` (server-side
+    Pydantic parsing) and returns a Pydantic model instance.
+    Otherwise, uses `responses.create` and returns raw text.
+    """
+    if not os.getenv("OPENAI_API_KEY"):
+        raise RuntimeError("OPENAI_API_KEY is not set.")
+
+    if model_name is None:
+        model_name = settings.OPENAI_RESPONSES_MODEL
+
+    client = OpenAI()
+
+    # Common message shape
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
-    
-    kwargs = {
-        "model": model_name,
-        "messages": messages,
-    }
-    
-    # Add response format if schema provided
-    if schema:
-        kwargs["response_format"] = {"type": "json_schema", "json_schema": schema}
-    
-    kwargs["max_completion_tokens"] = max_completion_tokens
-    kwargs["temperature"] = temperature
-    
-    response = _client.chat.completions.create(**kwargs)
-    
-    # Lightweight save - silently ignore failures
+
     try:
-        from openai_analysis.utils import save_openai_request, _serialize_response
-        save_openai_request(kwargs.copy(), _serialize_response(response))
-    except Exception:
-        pass
-    
-    if not response.choices or len(response.choices) == 0:
-        raise RuntimeError("No choices in API response")
-    
-    raw_content = response.choices[0].message.content or ""
-    if not raw_content:
-        raise RuntimeError("Empty response from API")
-    
-    try:
-        return json.loads(raw_content)
-    except json.JSONDecodeError as e:
+        if pydantic_model:
+            if BaseModel is None:
+                raise RuntimeError("Pydantic is required for pydantic_model parameter")
+            # ✅ Pydantic-enforced path (returns model instance)
+            resp = client.responses.parse(
+                model=model_name,
+                input=messages,
+                text_format=pydantic_model,
+                temperature=temperature,
+                max_output_tokens=max_output_tokens,
+            )
+            parsed = getattr(resp, "output_parsed", None)
+            if parsed is None:
+                raise RuntimeError("responses.parse returned no output_parsed")
+            _log_openai_request_safe(
+                request={
+                    "endpoint": "responses.parse",
+                    "model": model_name,
+                    "temperature": temperature,
+                    "max_output_tokens": max_output_tokens,
+                    "text_format": pydantic_model.__name__,
+                    "input": messages,
+                },
+                response=resp,
+            )
+            return parsed
+        else:
+            # ✅ Plain-text path
+            resp = client.responses.create(
+                model=model_name,
+                input=messages,
+                temperature=temperature,
+                max_output_tokens=max_output_tokens,
+            )
+            text = getattr(resp, "output_text", "") or ""
+            _log_openai_request_safe(
+                request={
+                    "endpoint": "responses.create",
+                    "model": model_name,
+                    "temperature": temperature,
+                    "max_output_tokens": max_output_tokens,
+                    "input": messages,
+                },
+                response=resp,
+            )
+            return text.strip() or None
+
+    except Exception as e:
+        # Centralized error handling
         import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"Failed to parse JSON: {e}\nContent: {raw_content[:500]}")
-        raise
 
-
-def prompt_openai(system_prompt: str, user_prompt: str) -> str | None:
-    if OpenAI is None:
-        raise RuntimeError("OpenAI client is not available.")
-    global _client  # noqa: PLW0603 - simple cache
-    if _client is None:
-        if not os.getenv("OPENAI_API_KEY"):
-            raise RuntimeError("OPENAI_API_KEY is not set.")
-        _client = OpenAI()
-
-    model_name = settings.OPENAI_RESPONSES_MODEL
-
-    # Use chat completions API for gpt-5-nano since responses API doesn't work well
-    if "nano" in model_name.lower():
-        # gpt-5-nano uses reasoning tokens, so we need much higher max_completion_tokens
-        # to account for internal reasoning before the actual output
-        request_data = {
-            "model": model_name,
-            "max_completion_tokens": 2000,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        }
-        response = _client.chat.completions.create(**request_data)
-        
-        # Lightweight save - silently ignore failures
-        try:
-            from openai_analysis.utils import save_openai_request, _serialize_response
-            save_openai_request(request_data, _serialize_response(response))
-        except Exception:
-            pass
-        
-        # Extract text from chat completion
-        if response.choices and len(response.choices) > 0:
-            return response.choices[0].message.content or ""
-        return ""
-
-    # Use responses API for other models
-    request_data = {
-        "model": model_name,
-        "max_output_tokens": OPENAI_MAX_OUTPUT_TOKENS,
-        "temperature": OPENAI_TEMPERATURE,
-        "input": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-    }
-
-    response = _client.responses.create(**request_data)
-    
-    # Lightweight save - silently ignore failures
-    try:
-        from openai_analysis.utils import save_openai_request, _serialize_response
-        save_openai_request(request_data, _serialize_response(response))
-    except Exception:
-        pass
-    
-    try:
-        return _extract_text(response)
-    except Exception:
+        logging.getLogger(__name__).error(f"OpenAI error: {type(e).__name__}: {e}")
         return None
 
 
-# Internal helpers -------------------------------------------------------------
-
-def _extract_text(response: object) -> str:
-    output = getattr(response, "output", None) or getattr(response, "outputs", None) or []
-    texts = []
-    for item in output:
-        # Handle ResponseOutputMessage items (type='message')
-        item_type = getattr(item, "type", None)
-        if item_type == "message":
-            content = getattr(item, "content", None)
-            if content:
-                for chunk in content:
-                    text = getattr(chunk, "text", None)
-                    if text:
-                        texts.append(text)
-    return "\n".join(texts).strip()
-
+def _log_openai_request_safe(request: dict, response) -> None:
+    """Best-effort logging without breaking the call."""
+    try:
+        from openai_analysis.utils import save_openai_request, _serialize_response
+        save_openai_request(request.copy(), _serialize_response(response))
+    except Exception:
+        pass
