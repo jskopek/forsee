@@ -6,12 +6,18 @@ const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak })
   const [error, setError] = useState(null);
   const [hoveredSuggestion, setHoveredSuggestion] = useState(null);
   const hoverTimerRef = React.useRef(null);
+  const isHoveringRef = React.useRef(false);
 
   // Fetch suggestions from API when conversationId is available and component is mounted
   useEffect(() => {
     if (!conversationId) {
       setSuggestions([]);
       setError('No conversation ID provided');
+      return;
+    }
+
+    // Skip API calls if we're currently hovering over a suggestion
+    if (isHoveringRef.current) {
       return;
     }
 
@@ -34,53 +40,59 @@ const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak })
         }
 
         const data = await response.json();
-        setSuggestions(data.suggestions || []);
+        
+        // Only update suggestions if we're not hovering (to avoid replacing suggestions while user is selecting)
+        if (!isHoveringRef.current) {
+          setSuggestions(data.suggestions || []);
+        }
       } catch (err) {
         console.error('Error fetching suggestions:', err);
         setError(err.message);
-        setSuggestions([]);
+        if (!isHoveringRef.current) {
+          setSuggestions([]);
+        }
       } finally {
         setIsLoading(false);
       }
     }, 300);
 
-    return () => clearTimeout(debounceTimer);
+    return () => {
+      clearTimeout(debounceTimer);
+    };
   }, [conversationId, text]);
 
-  // Calculate optimal grid layout
+  // Calculate grid layout - always use a single column
   const gridConfig = useMemo(() => {
     const suggestionCount = suggestions.length;
-    if (suggestionCount === 0) return { cols: 1, rows: 1, itemsInLastRow: 0, lastRowIsIncomplete: false };
-    // Try to create a roughly square grid
-    const cols = Math.ceil(Math.sqrt(suggestionCount));
-    const rows = Math.ceil(suggestionCount / cols);
-    const itemsInLastRow = suggestionCount % cols || cols;
-    const lastRowIsIncomplete = itemsInLastRow < cols;
-    return { cols, rows, itemsInLastRow, lastRowIsIncomplete };
+    if (suggestionCount === 0) return { cols: 1, rows: 1 };
+    // Always display suggestions in a single column
+    return { cols: 1, rows: suggestionCount };
   }, [suggestions]);
 
   const applySuggestion = (suggestion) => {
-    // Replace the text input with the suggestion, then trigger speak with the suggestion text
+    isHoveringRef.current = false;
+    setHoveredSuggestion(null);
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    
     onTextChange(suggestion);
-    // Call speak with the suggestion text directly to avoid race conditions
     if (onSpeak) {
       onSpeak(suggestion);
     }
   };
 
   const handleSuggestionHover = (suggestion) => {
+    isHoveringRef.current = true;
     setHoveredSuggestion(suggestion);
     
-    // Immediately replace the text input with the suggestion
-    onTextChange(suggestion);
-    
-    // Clear any existing timer
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current);
     }
 
-    // Trigger speak after dwell time, passing the suggestion text directly
     hoverTimerRef.current = setTimeout(() => {
+      onTextChange(suggestion);
       if (onSpeak) {
         onSpeak(suggestion);
       }
@@ -88,7 +100,9 @@ const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak })
   };
 
   const handleSuggestionLeave = () => {
+    isHoveringRef.current = false;
     setHoveredSuggestion(null);
+    
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current);
       hoverTimerRef.current = null;
@@ -129,32 +143,10 @@ const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak })
           }}
         >
           {suggestions.map((suggestion, index) => {
-            const isHovered = hoveredSuggestion === suggestion;
-            
-            // Check if this item is in the last row
-            const rowIndex = Math.floor(index / gridConfig.cols);
-            const isInLastRow = rowIndex === gridConfig.rows - 1;
-            
-            // Calculate column span for last row items if incomplete
-            let gridColumnSpan = 1;
-            if (isInLastRow && gridConfig.lastRowIsIncomplete) {
-              // Distribute columns evenly among last row items
-              gridColumnSpan = Math.floor(gridConfig.cols / gridConfig.itemsInLastRow);
-              // Handle remainder by adding extra span to first items
-              const remainder = gridConfig.cols % gridConfig.itemsInLastRow;
-              const positionInLastRow = index - (gridConfig.rows - 1) * gridConfig.cols;
-              if (positionInLastRow < remainder) {
-                gridColumnSpan += 1;
-              }
-            }
-            
             return (
               <button
                 key={`${suggestion}-${index}`}
                 className="relative flex flex-col items-center justify-center w-full h-full border-none outline-none bg-transparent text-white text-xl cursor-pointer overflow-hidden before:content-[''] before:absolute before:inset-0 before:bg-key-back before:transition-colors before:duration-[120ms] before:ease-in-out before:z-[1] after:content-[''] after:absolute after:inset-1 after:bg-key-front after:border after:border-key-border after:rounded-lg after:transition-colors after:duration-[120ms] after:ease-in-out after:z-[1] hover:before:bg-key-back-hover hover:after:bg-key-front-hover hover:after:border-key-border-hover group"
-                style={{
-                  gridColumn: `span ${gridColumnSpan}`,
-                }}
                 onMouseEnter={() => handleSuggestionHover(suggestion)}
                 onMouseLeave={handleSuggestionLeave}
                 onClick={() => applySuggestion(suggestion)}
