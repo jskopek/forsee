@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Keyboard - {{ conversation.contact.name }} · Eye Tracking Keyboard{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* Hide navigation for keyboard view */
+    nav { display: none !important; }
+    main { margin-top: 0 !important; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="min-h-screen">
+    {% if is_development %}
+    {# In development, embed React app directly (CORS enabled) #}
+    <iframe 
+        src="{{ react_dev_url }}/?id={{ conversation.id }}"
+        class="w-full h-screen border-0"
+        title="Keyboard UI"
+        allow="microphone"
+        style="width: 100%; height: 100vh; border: none;"
+    ></iframe>
+    {% else %}
+    {# In production, serve built React app #}
+    <div id="root"></div>
+    <script>
+        // Set conversation ID for React app
+        window.CONVERSATION_ID = "{{ conversation.id }}";
+    </script>
+    <script src="{% static 'keyboard-ui/static/js/main.js' %}"></script>
+    {% endif %}
+</div>
+{% endblock %}
+

@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.sites',
+    'corsheaders',
     'compressor',
     'django_rq',
     'allauth',
@@ -63,6 +64,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  # Must be before CommonMiddleware
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -72,6 +74,19 @@ MIDDLEWARE = [
     'allauth.account.middleware.AccountMiddleware',
     'hijack.middleware.HijackUserMiddleware',
 ]
+
+# React dev server URL (for CORS configuration)
+REACT_DEV_SERVER_URL = os.getenv('REACT_DEV_SERVER_URL', 'http://localhost:3000')
+
+# CORS settings for React dev server (development only)
+if DEBUG:
+    CORS_ALLOWED_ORIGINS = [
+        REACT_DEV_SERVER_URL,
+    ]
+    CORS_ALLOW_CREDENTIALS = True
+    CSRF_TRUSTED_ORIGINS = [
+        REACT_DEV_SERVER_URL,  # Must include scheme (http:// or https://)
+    ]
 
 ROOT_URLCONF = 'app.urls'
 

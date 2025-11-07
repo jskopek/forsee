@@ -17,18 +17,30 @@
                             Started {{ conversation.created_at|date:"M j, Y g:i a" }}
                         </p>
                     </div>
-                    <button
-                        type="button"
-                        class="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                        x-on:click="showDetails = true; openPanel = 'contact'"
-                        aria-haspopup="dialog"
-                        :aria-expanded="showDetails.toString()"
-                    >
-                        <svg class="h-5 w-5 text-gray-500" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-.75-11.5a.75.75 0 111.5 0 .75.75 0 01-1.5 0zm0 2.25a.75.75 0 000 1.5h.25v3a.75.75 0 001.5 0v-3A1.75 1.75 0 0010 8.75h-.75z" clip-rule="evenodd" />
-                        </svg>
-                        Conversation info
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <a
+                            href="{% url 'conversations:keyboard' conversation.pk %}"
+                            class="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 shadow-sm hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                        >
+                            <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path d="M2 3.5A1.5 1.5 0 013.5 2h1.148a1.5 1.5 0 011.326.791l.703 1.414a1.5 1.5 0 001.326.791h2.368a1.5 1.5 0 001.326-.791l.703-1.414A1.5 1.5 0 0114.352 2h1.148A1.5 1.5 0 0117 3.5v11a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 012 14.5v-11z" />
+                                <path fill-rule="evenodd" d="M3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm1 3a1 1 0 100 2h12a1 1 0 100-2H4z" clip-rule="evenodd" />
+                            </svg>
+                            Open Keyboard
+                        </a>
+                        <button
+                            type="button"
+                            class="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                            x-on:click="showDetails = true; openPanel = 'contact'"
+                            aria-haspopup="dialog"
+                            :aria-expanded="showDetails.toString()"
+                        >
+                            <svg class="h-5 w-5 text-gray-500" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-.75-11.5a.75.75 0 111.5 0 .75.75 0 01-1.5 0zm0 2.25a.75.75 0 000 1.5h.25v3a.75.75 0 001.5 0v-3A1.75 1.75 0 0010 8.75h-.75z" clip-rule="evenodd" />
+                            </svg>
+                            Conversation info
+                        </button>
+                    </div>
                 </div>
             </div>
 

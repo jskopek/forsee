@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from contacts.models import Contact
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db.models import Prefetch
@@ -144,6 +145,24 @@ class ConversationDetailView(UserPassesTestMixin, LoginRequiredMixin, generic.De
         context["suggestion_hint"] = ""
         # Don't generate hints on page load - will be loaded via API
         context["hints"] = []
+        return context
+
+
+class ConversationKeyboardView(UserPassesTestMixin, LoginRequiredMixin, generic.DetailView):
+    """View to serve the keyboard UI for a conversation."""
+    model = Conversation
+    template_name = "conversations/keyboard.html"
+    context_object_name = "conversation"
+
+    def test_func(self):
+        return self.get_object().owner == self.request.user or self.request.user.is_superuser
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        # Determine if we're in development mode
+        context["is_development"] = settings.DEBUG
+        # React dev server URL (adjust port if needed)
+        context["react_dev_url"] = getattr(settings, 'REACT_DEV_SERVER_URL', 'http://localhost:3000')
         return context
 
 
