@@ -108,7 +108,7 @@ def generate_reply_suggestions(conversation: Conversation, hint: str | None = No
             pydantic_model=ReplySuggestions,
             model_name=getattr(settings, "OPENAI_RESPONSES_MODEL", "gpt-4.1-mini"),
             temperature=0.3,
-            max_output_tokens=40,
+            max_output_tokens=200,
         )
 
         if not isinstance(parsed, ReplySuggestions):
