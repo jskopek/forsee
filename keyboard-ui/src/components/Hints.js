@@ -11,10 +11,8 @@ const Hints = ({ text, onTextChange, dwellTime, conversationId }) => {
   // Fetch hints from API when conversationId is available
   useEffect(() => {
     if (!conversationId) {
-      // No conversation ID, show empty state
       setHints([]);
       setError('No conversation ID provided');
-      setIsLoading(false);
       return;
     }
 
@@ -23,51 +21,18 @@ const Hints = ({ text, onTextChange, dwellTime, conversationId }) => {
       setError(null);
       
       try {
-        // Determine API base URL
-        // In development, React runs on port 3000, Django on port 8000
-        // In production, they're on the same origin
-        const apiBaseUrl = process.env.REACT_APP_API_BASE_URL || 
-          (process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '');
-        const url = `${apiBaseUrl}/api/conversations/${conversationId}/hints`;
-        const response = await fetch(url, {
-          method: 'GET',
-          credentials: 'include', // Include cookies for authentication
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
+        const apiBaseUrl = process.env.REACT_APP_API_BASE_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '');
+        const response = await fetch(`${apiBaseUrl}/api/conversations/${conversationId}/hints`, {
+          credentials: 'include',
+          headers: { 'Accept': 'application/json' },
         });
 
-        // Check if response is actually JSON
-        const contentType = response.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-          const text = await response.text();
-          console.error('Non-JSON response received:', text.substring(0, 200));
-          if (response.status === 401 || response.status === 403) {
-            throw new Error('Authentication required. Please log in.');
-          } else if (response.status === 404) {
-            throw new Error('Conversation not found');
-          } else {
-            throw new Error(`Server returned HTML instead of JSON. Status: ${response.status}`);
-          }
-        }
-
         if (!response.ok) {
-          if (response.status === 401) {
-            throw new Error('Authentication required');
-          } else if (response.status === 404) {
-            throw new Error('Conversation not found');
-          } else {
-            throw new Error(`Failed to fetch hints: ${response.statusText}`);
-          }
+          throw new Error(response.status === 401 || response.status === 403 ? 'Authentication required' : response.status === 404 ? 'Conversation not found' : 'Request failed');
         }
 
         const data = await response.json();
-        if (data.hints && Array.isArray(data.hints)) {
-          setHints(data.hints);
-        } else {
-          throw new Error('Invalid response format');
-        }
+        setHints(data.hints || []);
       } catch (err) {
         console.error('Error fetching hints:', err);
         setError(err.message);
