@@ -3,6 +3,7 @@ import Keyboard from './components/Keyboard';
 import Settings from './components/Settings';
 import Hints from './components/Hints';
 import SpeechWarningModal from './components/SpeechWarningModal';
+import Backspace from './components/Backspace';
 import { createDefaultAutocompleteEngine } from './autocomplete';
 
 const App = () => {
@@ -14,11 +15,11 @@ const App = () => {
   const [conversationId, setConversationId] = useState(null);
   const requestSeq = useRef(0);
   const speechWarningModalRef = useRef(null);
+  const backspaceRef = useRef(null);
 
   const autocompleteEngine = useMemo(() => createDefaultAutocompleteEngine(), []);
 
   const keyPressTimer = useRef(null);
-  const backspaceIntervalRef = useRef(null);
 
   // Extract conversation ID from URL query parameter
   useEffect(() => {
@@ -43,6 +44,10 @@ const App = () => {
       setText((prevText) => prevText + ' ');
     } else {
       setText((prevText) => prevText + key);
+    }
+    // Reset backspace counter on any key press
+    if (backspaceRef.current) {
+      backspaceRef.current.reset();
     }
   };
 
@@ -133,27 +138,13 @@ const App = () => {
     <div className="text-center min-h-screen flex flex-col bg-bg-main" style={{ '--dwell-time': `${dwellTime}ms` }}>
       {/* Top bar */}
       <div className="grid grid-cols-[1fr_2fr_1fr] gap-0 p-0 bg-white border-b-0 items-center">
-        <button
-          className="relative h-14 px-4 rounded-none border-none bg-transparent text-base cursor-pointer overflow-hidden text-white before:content-[''] before:absolute before:inset-0 before:bg-danger-back before:transition-colors before:duration-[120ms] before:ease-in-out before:rounded-none before:z-[1] after:content-[''] after:absolute after:inset-1 after:bg-danger-front after:border after:border-danger-border after:rounded-lg after:transition-colors after:duration-[120ms] after:ease-in-out after:z-[1] hover:before:bg-danger-back-hover hover:after:bg-danger-front-hover hover:after:border-danger-border-hover group"
-          onClick={() => handleKeyPress('backspace')}
-          onMouseEnter={() => {
-            if (backspaceIntervalRef.current) {
-              clearInterval(backspaceIntervalRef.current);
-            }
-            backspaceIntervalRef.current = setInterval(() => {
-              handleKeyPress('backspace');
-            }, dwellTime);
-          }}
-          onMouseLeave={() => {
-            if (backspaceIntervalRef.current) {
-              clearInterval(backspaceIntervalRef.current);
-              backspaceIntervalRef.current = null;
-            }
-          }}
-        >
-          <span className="absolute inset-1 rounded-lg bg-white/28 origin-left z-[2] pointer-events-none animate-dwell-fill-repeat" aria-hidden="true" />
-          <span className="relative z-[3] inline-flex items-center gap-2 leading-none">⌫ Backspace</span>
-        </button>
+        <Backspace
+          ref={backspaceRef}
+          dwellTime={dwellTime}
+          onBackspace={() => setText((prevText) => prevText.slice(0, -1))}
+          onClear={() => setText('')}
+          hasText={text.length > 0}
+        />
         <div className="h-14 flex items-center justify-center bg-white border border-border-light rounded-md text-lg font-[system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji',sans-serif] px-3 overflow-hidden whitespace-nowrap text-ellipsis" title={text || 'Start typing...'}>
           {text || 'Start typing...'}
         </div>
