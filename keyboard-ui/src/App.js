@@ -5,6 +5,7 @@ import Hints from './components/Hints';
 import Suggestions from './components/Suggestions';
 import SpeechWarningModal from './components/SpeechWarningModal';
 import Backspace from './components/Backspace';
+import Toast from './components/Toast';
 import { createDefaultAutocompleteEngine } from './autocomplete';
 
 const App = () => {
@@ -18,6 +19,8 @@ const App = () => {
   const requestSeq = useRef(0);
   const speechWarningModalRef = useRef(null);
   const backspaceRef = useRef(null);
+  // Toast state - empty string means hidden
+  const [toastMessage, setToastMessage] = useState('');
 
   const autocompleteEngine = useMemo(() => createDefaultAutocompleteEngine(), []);
 
@@ -188,6 +191,7 @@ const App = () => {
           onBackspace={() => setText((prevText) => prevText.slice(0, -1))}
           onClear={() => setText('')}
           hasText={text.length > 0}
+          onShowToast={setToastMessage}
         />
         <div className="h-14 flex items-center justify-center bg-white border border-border-light rounded-md text-lg font-[system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji',sans-serif] px-3 overflow-hidden whitespace-nowrap text-ellipsis" title={text || 'Start typing...'}>
           {text || 'Start typing...'}
@@ -292,6 +296,12 @@ const App = () => {
 
       {/* Speech warning modal */}
       <SpeechWarningModal ref={speechWarningModalRef} onSpeechEnabled={(spokenText) => setText('')} />
+
+      {/* Toast notification */}
+      <Toast 
+        message={toastMessage} 
+        onClose={() => setToastMessage('')}
+      />
 
       {/* no bottom utility row */}
     </div>
