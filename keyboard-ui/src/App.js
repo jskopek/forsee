@@ -106,7 +106,9 @@ const App = () => {
   };
 
   const handleSpeak = (textToSpeak) => {
-    const phrase = (textToSpeak !== undefined ? textToSpeak : text || '').trim();
+    // Handle event objects from onClick handlers
+    const phraseToUse = typeof textToSpeak === 'string' ? textToSpeak : text || '';
+    const phrase = phraseToUse.trim();
     if (!phrase) return;
     
     // Always try to speak - the modal will handle showing warnings if needed
