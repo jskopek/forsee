@@ -191,4 +191,52 @@
         </div>
     </div>
 </section>
+
+<script>
+(function() {
+    const conversationId = '{{ conversation.pk }}';
+    const eventSourceUrl = '{% url "conversations:sse" conversation.pk %}';
+    
+    let eventSource = null;
+    
+    function connectSSE() {
+        try {
+            eventSource = new EventSource(eventSourceUrl);
+            
+            eventSource.onopen = function() {
+                console.log('SSE connected');
+            };
+            
+            eventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                if (data.type === 'message_added') {
+                    // Trigger HTMX refresh
+                    window.dispatchEvent(new CustomEvent('websocket-message'));
+                }
+            };
+            
+            eventSource.onerror = function(error) {
+                console.error('SSE error:', error);
+                // EventSource will automatically reconnect
+            };
+        } catch (error) {
+            console.error('Failed to create EventSource:', error);
+        }
+    }
+    
+    // Connect when page loads
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', connectSSE);
+    } else {
+        connectSSE();
+    }
+    
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', function() {
+        if (eventSource) {
+            eventSource.close();
+        }
+    });
+})();
+</script>
 {% endblock %}
