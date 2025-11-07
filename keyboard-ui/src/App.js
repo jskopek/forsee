@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Keyboard from './components/Keyboard';
 import Settings from './components/Settings';
+import Hints from './components/Hints';
 import SpeechWarningModal from './components/SpeechWarningModal';
 import { createDefaultAutocompleteEngine } from './autocomplete';
 
@@ -8,6 +9,7 @@ const App = () => {
   const [text, setText] = useState('');
   const [dwellTime, setDwellTime] = useState(1000);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isHintsOpen, setIsHintsOpen] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
   const requestSeq = useRef(0);
   const speechWarningModalRef = useRef(null);
@@ -109,6 +111,12 @@ const App = () => {
 
   const toggleSettings = () => {
     setIsSettingsOpen(!isSettingsOpen);
+    setIsHintsOpen(false); // Close hints when opening settings
+  };
+
+  const toggleHints = () => {
+    setIsHintsOpen(!isHintsOpen);
+    setIsSettingsOpen(false); // Close settings when opening hints
   };
 
   return (
@@ -194,9 +202,20 @@ const App = () => {
             </button>
           ))}
         </div>
-        <button className="relative h-14 px-4 rounded-none border-none bg-transparent text-base cursor-pointer overflow-hidden text-text-dark before:content-[''] before:absolute before:inset-0 before:bg-neutral-back before:transition-colors before:duration-[120ms] before:ease-in-out before:rounded-none before:z-[1] after:content-[''] after:absolute after:inset-1 after:bg-neutral-front after:border after:border-neutral-border after:rounded-lg after:transition-colors after:duration-[120ms] after:ease-in-out after:z-[1] hover:before:bg-neutral-back-hover hover:after:bg-neutral-front-hover hover:after:border-neutral-border-hover" onClick={toggleSettings}>
-          <span className="relative z-[3] inline-flex items-center gap-2 leading-none">{isSettingsOpen ? 'Close Settings' : 'Settings'}</span>
-        </button>
+        <div className="flex gap-0">
+          <button
+            className="relative h-14 px-4 rounded-none border-none bg-transparent text-base cursor-pointer overflow-hidden text-text-dark before:content-[''] before:absolute before:inset-0 before:bg-neutral-back before:transition-colors before:duration-[120ms] before:ease-in-out before:rounded-none before:z-[1] after:content-[''] after:absolute after:inset-1 after:bg-neutral-front after:border after:border-neutral-border after:rounded-lg after:transition-colors after:duration-[120ms] after:ease-in-out after:z-[1] hover:before:bg-neutral-back-hover hover:after:bg-neutral-front-hover hover:after:border-neutral-border-hover group"
+            onClick={toggleHints}
+            onMouseEnter={() => handleDwell(() => toggleHints())}
+            onMouseLeave={handleDwellLeave}
+          >
+            <span className="absolute inset-1 rounded-lg bg-white/28 origin-left z-[2] pointer-events-none animate-dwell-fill" aria-hidden="true" />
+            <span className="relative z-[3] inline-flex items-center gap-2 leading-none">{isHintsOpen ? 'Close Hints' : 'Hints'}</span>
+          </button>
+          <button className="relative h-14 px-4 rounded-none border-none bg-transparent text-base cursor-pointer overflow-hidden text-text-dark before:content-[''] before:absolute before:inset-0 before:bg-neutral-back before:transition-colors before:duration-[120ms] before:ease-in-out before:rounded-none before:z-[1] after:content-[''] after:absolute after:inset-1 after:bg-neutral-front after:border after:border-neutral-border after:rounded-lg after:transition-colors after:duration-[120ms] after:ease-in-out after:z-[1] hover:before:bg-neutral-back-hover hover:after:bg-neutral-front-hover hover:after:border-neutral-border-hover" onClick={toggleSettings}>
+            <span className="relative z-[3] inline-flex items-center gap-2 leading-none">{isSettingsOpen ? 'Close Settings' : 'Settings'}</span>
+          </button>
+        </div>
       </div>
 
       {isSettingsOpen && (
@@ -206,9 +225,13 @@ const App = () => {
         />
       )}
 
-      {/* Keyboard area fills the remaining space */}
+      {/* Keyboard or Hints area fills the remaining space */}
       <div className="flex-1 flex p-0">
-        <Keyboard onDwell={handleDwell} onDwellLeave={handleDwellLeave} />
+        {isHintsOpen ? (
+          <Hints text={text} onTextChange={setText} dwellTime={dwellTime} />
+        ) : (
+          <Keyboard onDwell={handleDwell} onDwellLeave={handleDwellLeave} />
+        )}
       </div>
 
       {/* Speech warning modal */}
