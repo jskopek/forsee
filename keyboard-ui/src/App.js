@@ -11,6 +11,7 @@ const App = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isHintsOpen, setIsHintsOpen] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
+  const [conversationId, setConversationId] = useState(null);
   const requestSeq = useRef(0);
   const speechWarningModalRef = useRef(null);
 
@@ -18,6 +19,15 @@ const App = () => {
 
   const keyPressTimer = useRef(null);
   const backspaceIntervalRef = useRef(null);
+
+  // Extract conversation ID from URL query parameter
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const conversationIdParam = urlParams.get('id');
+    if (conversationIdParam) {
+      setConversationId(conversationIdParam);
+    }
+  }, []);
 
   useEffect(() => {
     const savedDwellTime = localStorage.getItem('dwellTime');
@@ -228,7 +238,7 @@ const App = () => {
       {/* Keyboard or Hints area fills the remaining space */}
       <div className="flex-1 flex p-0">
         {isHintsOpen ? (
-          <Hints text={text} onTextChange={setText} dwellTime={dwellTime} />
+          <Hints text={text} onTextChange={setText} dwellTime={dwellTime} conversationId={conversationId} />
         ) : (
           <Keyboard onDwell={handleDwell} onDwellLeave={handleDwellLeave} />
         )}

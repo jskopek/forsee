@@ -1,25 +1,84 @@
 import React, { useState, useEffect, useMemo } from 'react';
 
-// Hardcoded hints for now - will be replaced with API later
-const HARDCODED_HINTS = [
-  { word: 'hello', emoji: '👋' },
-  { word: 'thanks', emoji: '🙏' },
-  { word: 'yes', emoji: '✅' },
-  { word: 'no', emoji: '❌' },
-  { word: 'water', emoji: '💧' },
-  { word: 'food', emoji: '🍽️' },
-  { word: 'help', emoji: '🆘' },
-  { word: 'pain', emoji: '😣' },
-  { word: 'tired', emoji: '😴' },
-  { word: 'happy', emoji: '😊' },
-  { word: 'bathroom', emoji: '🚽' },
-  { word: 'medicine', emoji: '💊' },
-];
-
-const Hints = ({ text, onTextChange, dwellTime }) => {
+const Hints = ({ text, onTextChange, dwellTime, conversationId }) => {
+  const [hints, setHints] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [hoveredHint, setHoveredHint] = useState(null);
   const hoverTimerRef = React.useRef(null);
   const textRef = React.useRef(text);
+
+  // Fetch hints from API when conversationId is available
+  useEffect(() => {
+    if (!conversationId) {
+      // No conversation ID, show empty state
+      setHints([]);
+      setError('No conversation ID provided');
+      setIsLoading(false);
+      return;
+    }
+
+    const fetchHints = async () => {
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        // Determine API base URL
+        // In development, React runs on port 3000, Django on port 8000
+        // In production, they're on the same origin
+        const apiBaseUrl = process.env.REACT_APP_API_BASE_URL || 
+          (process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '');
+        const url = `${apiBaseUrl}/api/conversations/${conversationId}/hints`;
+        const response = await fetch(url, {
+          method: 'GET',
+          credentials: 'include', // Include cookies for authentication
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+        });
+
+        // Check if response is actually JSON
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          const text = await response.text();
+          console.error('Non-JSON response received:', text.substring(0, 200));
+          if (response.status === 401 || response.status === 403) {
+            throw new Error('Authentication required. Please log in.');
+          } else if (response.status === 404) {
+            throw new Error('Conversation not found');
+          } else {
+            throw new Error(`Server returned HTML instead of JSON. Status: ${response.status}`);
+          }
+        }
+
+        if (!response.ok) {
+          if (response.status === 401) {
+            throw new Error('Authentication required');
+          } else if (response.status === 404) {
+            throw new Error('Conversation not found');
+          } else {
+            throw new Error(`Failed to fetch hints: ${response.statusText}`);
+          }
+        }
+
+        const data = await response.json();
+        if (data.hints && Array.isArray(data.hints)) {
+          setHints(data.hints);
+        } else {
+          throw new Error('Invalid response format');
+        }
+      } catch (err) {
+        console.error('Error fetching hints:', err);
+        setError(err.message);
+        setHints([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchHints();
+  }, [conversationId]);
 
   // Keep textRef in sync with text prop
   React.useEffect(() => {
@@ -34,14 +93,14 @@ const Hints = ({ text, onTextChange, dwellTime }) => {
 
   // Calculate optimal grid layout
   const gridConfig = useMemo(() => {
-    const hintCount = HARDCODED_HINTS.length;
+    const hintCount = hints.length;
     // Try to create a roughly square grid
     const cols = Math.ceil(Math.sqrt(hintCount));
     const rows = Math.ceil(hintCount / cols);
     const itemsInLastRow = hintCount % cols || cols;
     const lastRowIsIncomplete = itemsInLastRow < cols;
     return { cols, rows, itemsInLastRow, lastRowIsIncomplete };
-  }, []);
+  }, [hints]);
 
   const addHint = (word, currentText) => {
     const trimmedText = currentText.trim();
@@ -98,15 +157,31 @@ const Hints = ({ text, onTextChange, dwellTime }) => {
   }, []);
 
   return (
-    <div className="flex-1 flex flex-col p-0">
-      <div
-        className="flex-1 grid w-full h-full"
-        style={{
-          gridTemplateColumns: `repeat(${gridConfig.cols}, 1fr)`,
-          gridTemplateRows: `repeat(${gridConfig.rows}, 1fr)`,
-        }}
-      >
-        {HARDCODED_HINTS.map((hint, index) => {
+    <div className="flex-1 flex flex-col p-0 relative">
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-bg-main/80 z-10">
+          <div className="text-white text-lg">Loading hints...</div>
+        </div>
+      )}
+      {error && !isLoading && (
+        <div className="absolute top-2 left-2 right-2 bg-yellow-600/90 text-white px-4 py-2 rounded text-sm z-10">
+          {error}
+        </div>
+      )}
+      {!isLoading && hints.length === 0 && !error && (
+        <div className="absolute inset-0 flex items-center justify-center bg-bg-main z-10">
+          <div className="text-white text-lg">No hints available</div>
+        </div>
+      )}
+      {hints.length > 0 && (
+        <div
+          className="flex-1 grid w-full h-full"
+          style={{
+            gridTemplateColumns: `repeat(${gridConfig.cols}, 1fr)`,
+            gridTemplateRows: `repeat(${gridConfig.rows}, 1fr)`,
+          }}
+        >
+          {hints.map((hint, index) => {
           const isSelected = selectedHints.has(hint.word.toLowerCase());
           const isHovered = hoveredHint?.word === hint.word;
           
@@ -154,7 +229,8 @@ const Hints = ({ text, onTextChange, dwellTime }) => {
             </button>
           );
         })}
-      </div>
+        </div>
+      )}
     </div>
   );
 };
