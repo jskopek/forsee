@@ -12,4 +12,5 @@ urlpatterns = [
     path("<uuid:pk>/", views.ConversationDetailView.as_view(), name="detail"),
     path("<uuid:pk>/messages/send/", views.ConversationMessageCreateView.as_view(), name="message-send"),
     path("<uuid:pk>/suggestions/", views.ConversationSuggestionsView.as_view(), name="suggestions"),
+    path("<uuid:pk>/hints/", views.ConversationHintsView.as_view(), name="hints"),
 ]

@@ -126,3 +126,98 @@ def generate_reply_suggestions(conversation: Conversation, hint: str | None = No
         logger = logging.getLogger(__name__)
         logger.error(f"Failed to generate suggestions: {type(e).__name__}: {e}")
         return []
+
+
+def generate_word_hints(conversation: Conversation) -> list[dict[str, str]]:
+    """
+    Generate single-word hints with emojis based on the last message and recent conversation context.
+    Returns a list of dictionaries with 'word' and 'emoji' keys.
+    Each hint should represent a possible response path or topic direction.
+    """
+    N_HINTS = 20  # Generate a good number of hints for the grid
+    HISTORY_TURNS = 5  # Use last few messages for context
+
+    contact = conversation.contact
+    contact_name = getattr(contact, "name", None) or ""
+    contact_formality = getattr(contact, "formality", None) or "casual"
+
+    # Get recent messages for context
+    qs = conversation.messages.order_by("-created_at", "-id").values("sender", "body")[:HISTORY_TURNS]
+    recent = list(reversed(qs))
+
+    def _role_line(sender: str, body: str) -> str:
+        if sender == Message.Sender.CONTACT:
+            return f"Contact: {body}".strip()
+        else:
+            return f"You: {body}".strip()
+
+    transcript_lines = [_role_line(m["sender"], m["body"]) for m in recent if m.get("body")]
+    transcript = "\n".join(transcript_lines)
+
+    # Get the last message specifically
+    last_message = recent[-1] if recent else None
+    last_message_text = last_message.get("body", "") if last_message else ""
+
+    system_prompt = (
+        "Generate single-word hints with emojis that could help the user respond to the conversation.\n"
+        "Each hint must be exactly ONE word (no spaces, no hyphens) paired with ONE relevant emoji.\n"
+        "The hints should cover diverse possible response directions: emotions, actions, topics, questions, etc.\n"
+        "Return ONLY JSON that maps to the Pydantic model with one key: hints.\n"
+        "Each hint must have 'word' (single word, lowercase) and 'emoji' (single emoji character).\n"
+        f"Generate {N_HINTS} diverse hints that explore many possible response paths.\n"
+        "Focus on the last message but consider the conversation context for variety."
+    )
+
+    user_payload = {
+        "n": N_HINTS,
+        "formality": contact_formality,
+        "contact_name": contact_name,
+        "transcript": transcript,
+        "last_message": last_message_text,
+    }
+
+    class WordHint(BaseModel):
+        """A single word hint with an emoji."""
+        word: str
+        emoji: str
+
+    class WordHints(BaseModel):
+        """List of word hints."""
+        hints: Annotated[list[WordHint], Field(min_length=1)]
+
+    try:
+        parsed: WordHints = prompt_openai(
+            system_prompt,
+            json.dumps(user_payload, ensure_ascii=False),
+            pydantic_model=WordHints,
+            model_name=getattr(settings, "OPENAI_RESPONSES_MODEL", "gpt-4.1-mini"),
+            temperature=0.7,  # Higher temperature for more variety
+            max_output_tokens=400,
+        )
+
+        if not isinstance(parsed, WordHints):
+            raise RuntimeError(f"Expected WordHints but got {type(parsed)}")
+
+        # Clean and validate hints
+        out: list[dict[str, str]] = []
+        seen_words = set()
+        for hint in parsed.hints:
+            # Ensure word is single word, lowercase, no spaces
+            word = "".join(hint.word.lower().split())[:20]  # Max 20 chars, remove spaces
+            if not word or word in seen_words:
+                continue
+            seen_words.add(word)
+            
+            # Ensure emoji is present (take first emoji if multiple provided)
+            emoji = hint.emoji.strip()
+            if not emoji:
+                continue
+            
+            out.append({"word": word, "emoji": emoji})
+
+        return out[:N_HINTS]
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to generate word hints: {type(e).__name__}: {e}")
+        return []

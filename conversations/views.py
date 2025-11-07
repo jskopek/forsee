@@ -15,6 +15,7 @@ from django.views.generic.detail import SingleObjectMixin
 from .utils import is_htmx
 from .utils_generators import (
     generate_reply_suggestions,
+    generate_word_hints,
 )
 from .utils_mock_conversations import MockConversationError, create_mock_conversation
 from .models import Conversation, Message
@@ -145,6 +146,8 @@ class ConversationDetailView(UserPassesTestMixin, LoginRequiredMixin, generic.De
         # Don't generate suggestions on page load - will be loaded via HTMX
         context["suggestions"] = []
         context["suggestion_hint"] = ""
+        # Don't generate hints on page load - will be loaded via HTMX
+        context["hints"] = []
         return context
 
 
@@ -208,6 +211,22 @@ class ConversationSuggestionsView(UserPassesTestMixin, LoginRequiredMixin, Singl
         return render(request, self.template_name, {
             'conversation': conversation,
             'suggestions': suggestions,
+        })
+
+
+class ConversationHintsView(UserPassesTestMixin, LoginRequiredMixin, SingleObjectMixin, View):
+    model = Conversation
+    template_name = "conversations/partials/hints_grid.html"
+
+    def test_func(self):
+        return self.get_object().owner == self.request.user or self.request.user.is_superuser
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        conversation = self.get_object()
+        hints = generate_word_hints(conversation)
+        return render(request, self.template_name, {
+            'conversation': conversation,
+            'hints': hints,
         })
 
 

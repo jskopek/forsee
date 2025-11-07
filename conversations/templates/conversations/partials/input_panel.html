@@ -1,16 +1,150 @@
 <div 
     id="conversation-input-wrapper" 
+    data-hints-url="{% url 'conversations:hints' conversation.pk %}"
+    data-suggestions-url="{% url 'conversations:suggestions' conversation.pk %}"
     x-data="{ 
         messageText: '', 
         isSubmitting: false,
-        showSuggestions: {{ suggestions|length|yesno:'true,false' }}
+        showSuggestions: {{ suggestions|length|yesno:'true,false' }},
+        showHints: false,
+        selectedHints: [],
+        hintsLoading: false,
+        hintsUrl: $el.dataset.hintsUrl,
+        suggestionsUrl: $el.dataset.suggestionsUrl,
+        toggleHint(word, emoji) {
+            const index = this.selectedHints.indexOf(word);
+            const currentText = this.messageText.trim();
+            const words = currentText ? currentText.split(/\s+/) : [];
+            
+            if (index === -1) {
+                // Add hint
+                this.selectedHints.push(word);
+                words.push(word);
+                this.messageText = words.join(' ');
+                // Dispatch event to update button state
+                window.dispatchEvent(new CustomEvent('hint-selected', { detail: { word, emoji } }));
+                // Trigger suggestions refresh after adding a hint
+                if (typeof htmx !== 'undefined') {
+                    htmx.ajax('POST', this.suggestionsUrl, {
+                        target: '#conversation-suggestion-panel',
+                        swap: 'innerHTML',
+                        headers: {'X-Requested-With': 'XMLHttpRequest'},
+                        values: {
+                            csrfmiddlewaretoken: document.querySelector('[name=csrfmiddlewaretoken]')?.value || '',
+                            hint: this.messageText
+                        }
+                    });
+                }
+            } else {
+                // Remove hint
+                this.selectedHints.splice(index, 1);
+                const filteredWords = words.filter(w => w !== word);
+                this.messageText = filteredWords.join(' ');
+                // Dispatch event to update button state
+                window.dispatchEvent(new CustomEvent('hint-deselected', { detail: { word, emoji } }));
+            }
+        },
+        refreshHints() {
+            if (!this.showHints) return;
+            this.hintsLoading = true;
+            if (typeof htmx !== 'undefined') {
+                htmx.ajax('POST', this.hintsUrl, {
+                    target: '#conversation-hints-content',
+                    swap: 'innerHTML',
+                    headers: {'X-Requested-With': 'XMLHttpRequest'},
+                    values: {csrfmiddlewaretoken: document.querySelector('[name=csrfmiddlewaretoken]')?.value || ''}
+                });
+            } else {
+                const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+                fetch(this.hintsUrl, {
+                    method: 'POST',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRFToken': csrfToken,
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: 'csrfmiddlewaretoken=' + encodeURIComponent(csrfToken)
+                })
+                .then(response => response.text())
+                .then(html => {
+                    const contentDiv = document.getElementById('conversation-hints-content');
+                    if (contentDiv) {
+                        contentDiv.innerHTML = html;
+                        // Re-initialize Alpine.js on the new content
+                        if (typeof Alpine !== 'undefined') {
+                            Alpine.initTree(contentDiv);
+                        }
+                    }
+                    this.hintsLoading = false;
+                })
+                .catch(() => {
+                    this.hintsLoading = false;
+                });
+            }
+        },
+        toggleHintsMode() {
+            this.showHints = !this.showHints;
+            if (this.showHints) {
+                // Load hints when toggling on
+                this.refreshHints();
+            } else {
+                // Clear selected hints when toggling off
+                this.selectedHints = [];
+            }
+        },
+        handleHtmxAfterSwap(event) {
+            if (event.detail && event.detail.target) {
+                const target = event.detail.target;
+                if (target.id === 'conversation-suggestion-panel') {
+                    this.showSuggestions = true;
+                }
+                if (target.id === 'conversation-hints-content') {
+                    this.hintsLoading = false;
+                    // Ensure hints panel is visible
+                    this.showHints = true;
+                    // Re-initialize Alpine.js on the new content
+                    if (typeof Alpine !== 'undefined') {
+                        // Use setTimeout to ensure DOM is fully updated
+                        setTimeout(() => {
+                            Alpine.initTree(target);
+                            // Sync button states with selectedHints
+                            this.selectedHints.forEach(word => {
+                                window.dispatchEvent(new CustomEvent('hint-selected', { detail: { word } }));
+                            });
+                        }, 0);
+                    }
+                }
+            }
+        },
+        handleMessageSent() {
+            this.isSubmitting = false;
+            this.messageText = '';
+            this.showSuggestions = false;
+            this.selectedHints = [];
+            if (this.showHints) {
+                this.refreshHints();
+            }
+        }
     }"
     x-on:htmx:beforeRequest="isSubmitting = true"
-    x-on:htmx:afterRequest="isSubmitting = false; messageText = ''; showSuggestions = true"
-    x-on:htmx:after-swap.window="if ($event.detail.target && $event.detail.target.id === 'conversation-suggestion-panel') { showSuggestions = true; }"
-    x-on:message-sent.window="isSubmitting = false; messageText = ''; showSuggestions = false"
+    x-on:htmx:afterRequest="isSubmitting = false; showSuggestions = true"
+    x-on:htmx:after-swap.window="handleHtmxAfterSwap($event)"
+    x-on:message-sent.window="handleMessageSent()"
+    x-on:hint-clicked.window="toggleHint($event.detail.word, $event.detail.emoji)"
     class="px-6 py-4 border-t border-gray-100 bg-white sticky bottom-0 z-10"
 >
+    <!-- Hints Panel (shown when hints mode is enabled) -->
+    <div 
+        id="conversation-hints-panel"
+        x-show="showHints"
+        x-transition
+        class="mb-4 p-4 bg-gray-50 rounded-xl border border-gray-200"
+    >
+        <div id="conversation-hints-content">
+            {% include "conversations/partials/hints_grid.html" with conversation=conversation hints=hints %}
+        </div>
+    </div>
+
     <!-- Suggestions Panel (shown when suggestions are available) -->
     <div 
         id="conversation-suggestion-panel"
@@ -59,6 +193,19 @@
                 </svg>
             </button>
         </form>
+        <button
+            type="button"
+            x-on:click="toggleHintsMode()"
+            x-bind:class="showHints 
+                ? 'bg-indigo-600 text-white border-indigo-700 hover:bg-indigo-700' 
+                : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'"
+            class="inline-flex items-center justify-center rounded-xl border px-5 py-3 text-sm font-semibold shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+        >
+            <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+            </svg>
+            Hints
+        </button>
         <form
             method="post"
             hx-post="{% url 'conversations:suggestions' conversation.pk %}"
