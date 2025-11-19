@@ -68,7 +68,7 @@ const App = () => {
     const seq = requestSeq.current + 1;
     requestSeq.current = seq;
     autocompleteEngine
-      .suggest(prefix, { limit: 3 })
+      .suggest(prefix, { limit: 6 })
       .then((result) => {
         if (requestSeq.current === seq) {
           setSuggestions(Array.isArray(result) ? result : []);
@@ -233,7 +233,7 @@ const App = () => {
           <span className="absolute inset-1 rounded-lg bg-white/28 origin-left z-[2] pointer-events-none animate-dwell-fill" aria-hidden="true" />
           <span className="relative z-[3] inline-flex items-center gap-2 leading-none">Space</span>
         </button>
-        <div className="grid grid-cols-3 gap-0 items-stretch">
+        <div className="grid grid-cols-6 gap-0 items-stretch">
           {suggestions.map((word) => (
             <button
               key={word}
