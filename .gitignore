@@ -90,7 +90,7 @@ ipython_config.py
 .python-version
 
 # Poetry
-poetry.lock
+# poetry.lock is needed for Heroku deployment
 
 # Celery
 celerybeat-schedule
