@@ -1,12 +1,74 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 
-const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak }) => {
+const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak, onShowToast, onRegisterRefresh }) => {
   const [suggestions, setSuggestions] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [hoveredSuggestion, setHoveredSuggestion] = useState(null);
-  const hoverTimerRef = React.useRef(null);
-  const isHoveringRef = React.useRef(false);
+  const hoverTimerRef = useRef(null);
+  const isHoveringRef = useRef(false);
+  const containerHoverRef = useRef(false);
+  const textRef = useRef(text);
+  const pendingRefreshRef = useRef(false);
+  const lastFetchedTextRef = useRef('');
+
+  // Keep textRef in sync
+  useEffect(() => {
+    textRef.current = text;
+  }, [text]);
+
+  const fetchSuggestions = useCallback(async () => {
+    console.log('[Suggestions] 🔍 Fetching suggestions...');
+    if (!conversationId) {
+      setSuggestions([]);
+      setError('No conversation ID provided');
+      return;
+    }
+
+    // Skip API calls if we're currently hovering over a suggestion
+    if (containerHoverRef.current) {
+      console.log('[Suggestions] ⏸️ Skipping fetch - currently hovering');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const apiBaseUrl = process.env.REACT_APP_API_BASE_URL || window.API_BASE_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '');
+      const response = await fetch(`${apiBaseUrl}/api/conversations/${conversationId}/suggestions`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ hint: textRef.current.trim() || null }),
+      });
+
+      if (!response.ok) {
+        throw new Error(response.status === 401 || response.status === 403 ? 'Authentication required' : response.status === 404 ? 'Conversation not found' : 'Request failed');
+      }
+
+      const data = await response.json();
+      console.log('[Suggestions] ✅ Received suggestions:', data.suggestions?.length || 0);
+      
+      // Track the text that was used for this fetch
+      lastFetchedTextRef.current = textRef.current.trim();
+      
+      // Only update suggestions if we're not hovering (to avoid replacing suggestions while user is selecting)
+      if (!containerHoverRef.current) {
+        setSuggestions(data.suggestions || []);
+      } else {
+        console.log('[Suggestions] ⏸️ Not updating - hover detected during fetch');
+      }
+    } catch (err) {
+      console.error('[Suggestions] ❌ Error fetching suggestions:', err);
+      setError(err.message);
+      if (!containerHoverRef.current) {
+        setSuggestions([]);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [conversationId]);
 
   // Fetch suggestions from API when conversationId is available and component is mounted
   useEffect(() => {
@@ -16,50 +78,15 @@ const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak })
       return;
     }
 
-    // Skip API calls if we're currently hovering over a suggestion
-    if (isHoveringRef.current) {
-      return;
-    }
-
     // Debounce API calls to avoid excessive requests while typing
-    const debounceTimer = setTimeout(async () => {
-      setIsLoading(true);
-      setError(null);
-      
-      try {
-        const apiBaseUrl = process.env.REACT_APP_API_BASE_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '');
-        const response = await fetch(`${apiBaseUrl}/api/conversations/${conversationId}/suggestions`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({ hint: text.trim() || null }),
-        });
-
-        if (!response.ok) {
-          throw new Error(response.status === 401 || response.status === 403 ? 'Authentication required' : response.status === 404 ? 'Conversation not found' : 'Request failed');
-        }
-
-        const data = await response.json();
-        
-        // Only update suggestions if we're not hovering (to avoid replacing suggestions while user is selecting)
-        if (!isHoveringRef.current) {
-          setSuggestions(data.suggestions || []);
-        }
-      } catch (err) {
-        console.error('Error fetching suggestions:', err);
-        setError(err.message);
-        if (!isHoveringRef.current) {
-          setSuggestions([]);
-        }
-      } finally {
-        setIsLoading(false);
-      }
+    const debounceTimer = setTimeout(() => {
+      fetchSuggestions();
     }, 300);
 
     return () => {
       clearTimeout(debounceTimer);
     };
-  }, [conversationId, text]);
+  }, [conversationId, text, fetchSuggestions]);
 
   // Calculate grid layout - always use a single column
   const gridConfig = useMemo(() => {
@@ -109,6 +136,63 @@ const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak })
     }
   };
 
+  const handleContainerMouseEnter = () => {
+    console.log('[Suggestions] 🖱️ Container hover started');
+    containerHoverRef.current = true;
+  };
+
+  const handleContainerMouseLeave = () => {
+    console.log('[Suggestions] 🖱️ Container hover ended');
+    containerHoverRef.current = false;
+    isHoveringRef.current = false;
+    
+    // Check if text has changed since last fetch (e.g., hints were added)
+    const currentText = textRef.current.trim();
+    if (currentText !== lastFetchedTextRef.current) {
+      console.log('[Suggestions] 🔄 Text changed while hovering, refetching suggestions');
+      console.log('[Suggestions]   Previous:', lastFetchedTextRef.current);
+      console.log('[Suggestions]   Current:', currentText);
+      fetchSuggestions();
+    } else if (pendingRefreshRef.current) {
+      // If there's a pending refresh (from new message), do it now
+      console.log('[Suggestions] 🔄 Executing pending refresh');
+      pendingRefreshRef.current = false;
+      fetchSuggestions();
+    }
+  };
+
+  // Register refresh callback with parent
+  useEffect(() => {
+    if (onRegisterRefresh) {
+      const refreshHandler = () => {
+        console.log('[Suggestions] 🔄 Refresh handler called');
+        // Check if we're currently hovering
+        if (containerHoverRef.current) {
+          console.log('[Suggestions] ⏸️ Currently hovering, queueing refresh');
+          // Queue refresh for when hover ends
+          pendingRefreshRef.current = true;
+          if (onShowToast) {
+            onShowToast('New suggestions available - will update when you move away');
+          }
+        } else {
+          console.log('[Suggestions] ✅ Not hovering, refreshing immediately');
+          // Refresh immediately
+          fetchSuggestions();
+        }
+      };
+      
+      console.log('[Suggestions] 📝 Registering refresh handler');
+      onRegisterRefresh(refreshHandler);
+      
+      return () => {
+        console.log('[Suggestions] 🧹 Unregistering refresh handler');
+        if (onRegisterRefresh) {
+          onRegisterRefresh(null);
+        }
+      };
+    }
+  }, [onRegisterRefresh, onShowToast, fetchSuggestions]);
+
   useEffect(() => {
     return () => {
       if (hoverTimerRef.current) {
@@ -118,7 +202,11 @@ const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak })
   }, []);
 
   return (
-    <div className="flex-1 flex flex-col p-0 relative">
+    <div 
+      className="flex-1 flex flex-col p-0 relative"
+      onMouseEnter={handleContainerMouseEnter}
+      onMouseLeave={handleContainerMouseLeave}
+    >
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-bg-main/80 z-10">
           <div className="text-white text-lg">Loading suggestions...</div>

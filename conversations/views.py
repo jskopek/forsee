@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import time
 from typing import Any
 
 from contacts.models import Contact
@@ -9,8 +7,8 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db.models import Prefetch
-from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, HttpResponseRedirect, StreamingHttpResponse
-from django.shortcuts import redirect, render, get_object_or_404
+from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, HttpResponseRedirect
+from django.shortcuts import redirect, render
 from django.views import View, generic
 from django.views.generic.detail import SingleObjectMixin
 
@@ -146,6 +144,9 @@ class ConversationDetailView(UserPassesTestMixin, LoginRequiredMixin, generic.De
         context["suggestion_hint"] = ""
         # Don't generate hints on page load - will be loaded via API
         context["hints"] = []
+        # Pusher configuration for real-time updates
+        context["pusher_key"] = settings.PUSHER_KEY
+        context["pusher_cluster"] = settings.PUSHER_CLUSTER
         return context
 
 
@@ -165,66 +166,5 @@ class ConversationKeyboardView(UserPassesTestMixin, LoginRequiredMixin, generic.
         # React dev server URL (adjust port if needed)
         context["react_dev_url"] = getattr(settings, 'REACT_DEV_SERVER_URL', 'http://localhost:3000')
         return context
-
-
-class ConversationSSEView(UserPassesTestMixin, LoginRequiredMixin, View):
-    """Server-Sent Events view for real-time conversation updates."""
-    
-    def test_func(self):
-        conversation = get_object_or_404(Conversation, pk=self.kwargs['pk'])
-        return conversation.owner == self.request.user or self.request.user.is_superuser
-
-    def get(self, request: HttpRequest, **kwargs: Any) -> StreamingHttpResponse:
-        """Stream SSE events when new messages are added."""
-        conversation = get_object_or_404(Conversation, pk=self.kwargs['pk'])
-        
-        # Verify user has access
-        if conversation.owner != request.user and not request.user.is_superuser:
-            return HttpResponseForbidden()
-        
-        def event_stream():
-            from django.utils import timezone
-            
-            # Get the latest message timestamp at connection time
-            last_message = conversation.messages.order_by('-created_at', '-id').first()
-            last_timestamp = last_message.created_at if last_message else None
-            
-            # Record connection time for initial state (when no messages exist)
-            connection_time = timezone.now() if not last_timestamp else None
-            
-            # Send initial keepalive
-            yield f"data: {json.dumps({'type': 'connected'})}\n\n"
-            
-            # Poll for new messages
-            while True:
-                try:
-                    # Always check for messages created after our last timestamp
-                    if last_timestamp:
-                        new_messages = conversation.messages.filter(
-                            created_at__gt=last_timestamp
-                        ).order_by('created_at', 'id')
-                    else:
-                        # No messages initially - check if any appear (created after connection time)
-                        new_messages = conversation.messages.filter(
-                            created_at__gte=connection_time
-                        ).order_by('created_at', 'id')
-                    
-                    if new_messages.exists():
-                        # Update last_timestamp to the newest message
-                        last_timestamp = new_messages.last().created_at
-                        # Send event
-                        yield f"data: {json.dumps({'type': 'message_added'})}\n\n"
-                    
-                    # Sleep for a short time before checking again
-                    time.sleep(1)
-                except Exception as e:
-                    # On error, send error event and break
-                    yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-                    break
-        
-        response = StreamingHttpResponse(event_stream(), content_type='text/event-stream')
-        response['Cache-Control'] = 'no-cache'
-        response['X-Accel-Buffering'] = 'no'  # Disable buffering for nginx
-        return response
 
 

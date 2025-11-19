@@ -11,5 +11,4 @@ urlpatterns = [
     path("with-contact/<uuid:pk>/generate/", views.ConversationGenerateView.as_view(), name="generate"),
     path("<uuid:pk>/", views.ConversationDetailView.as_view(), name="detail"),
     path("<uuid:pk>/keyboard/", views.ConversationKeyboardView.as_view(), name="keyboard"),
-    path("<uuid:pk>/events/", views.ConversationSSEView.as_view(), name="sse"),
 ]

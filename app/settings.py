@@ -32,6 +32,8 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-&h8hk)j8g#h&7kmirqmp)l%%kd
 DEBUG = os.getenv('DEBUG', 'True') == 'True'
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',') if os.getenv('ALLOWED_HOSTS') else []
+# Remove empty strings from the list
+ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS if host.strip()]
 
 
 # Application definition
@@ -78,15 +80,23 @@ MIDDLEWARE = [
 # React dev server URL (for CORS configuration)
 REACT_DEV_SERVER_URL = os.getenv('REACT_DEV_SERVER_URL', 'http://localhost:3000')
 
-# CORS settings for React dev server (development only)
-if DEBUG:
-    CORS_ALLOWED_ORIGINS = [
-        REACT_DEV_SERVER_URL,
-    ]
-    CORS_ALLOW_CREDENTIALS = True
-    CSRF_TRUSTED_ORIGINS = [
-        REACT_DEV_SERVER_URL,  # Must include scheme (http:// or https://)
-    ]
+# CORS settings
+CORS_ALLOWED_ORIGINS = [
+    REACT_DEV_SERVER_URL,
+]
+# Add additional CORS origins from environment variable
+if os.getenv('CORS_ALLOWED_ORIGINS'):
+    CORS_ALLOWED_ORIGINS.extend([origin.strip() for origin in os.getenv('CORS_ALLOWED_ORIGINS').split(',') if origin.strip()])
+
+CORS_ALLOW_CREDENTIALS = True
+
+# CSRF trusted origins
+CSRF_TRUSTED_ORIGINS = [
+    REACT_DEV_SERVER_URL,  # Must include scheme (http:// or https://)
+]
+# Add additional CSRF trusted origins from environment variable
+if os.getenv('CSRF_TRUSTED_ORIGINS'):
+    CSRF_TRUSTED_ORIGINS.extend([origin.strip() for origin in os.getenv('CSRF_TRUSTED_ORIGINS').split(',') if origin.strip()])
 
 ROOT_URLCONF = 'app.urls'
 
@@ -106,6 +116,12 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'app.wsgi.application'
+
+# Pusher configuration
+PUSHER_APP_ID = os.getenv('PUSHER_APP_ID', '').strip()
+PUSHER_KEY = os.getenv('PUSHER_KEY', '').strip()
+PUSHER_SECRET = os.getenv('PUSHER_API_SECRET', '').strip()
+PUSHER_CLUSTER = os.getenv('PUSHER_CLUSTER', 'us2').strip()
 
 
 # Database

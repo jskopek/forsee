@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import Pusher from 'pusher-js';
 import Keyboard from './components/Keyboard';
 import Settings from './components/Settings';
 import Hints from './components/Hints';
@@ -19,8 +20,12 @@ const App = () => {
   const requestSeq = useRef(0);
   const speechWarningModalRef = useRef(null);
   const backspaceRef = useRef(null);
+  
   // Toast state - empty string means hidden
   const [toastMessage, setToastMessage] = useState('');
+  
+  // Callback for active component to register refresh handler
+  const refreshCallbackRef = useRef(null);
 
   const autocompleteEngine = useMemo(() => createDefaultAutocompleteEngine(), []);
 
@@ -41,6 +46,50 @@ const App = () => {
       setDwellTime(parseInt(savedDwellTime, 10));
     }
   }, []);
+
+  // Pusher connection for real-time updates
+  useEffect(() => {
+    if (!conversationId) {
+      console.log('[Pusher] No conversationId, skipping');
+      return;
+    }
+
+    const pusherKey = process.env.REACT_APP_PUSHER_KEY;
+    const pusherCluster = process.env.REACT_APP_PUSHER_CLUSTER || 'us2';
+    
+    if (!pusherKey) {
+      console.log('[Pusher] No PUSHER_KEY configured, skipping');
+      return;
+    }
+
+    console.log('[Pusher] Connecting...');
+    const pusher = new Pusher(pusherKey, {
+      cluster: pusherCluster,
+    });
+
+    const channel = pusher.subscribe(`conversation-${conversationId}`);
+    
+    channel.bind('message_added', (data) => {
+      console.log('[Pusher] 🔔 New message detected:', data);
+      if (refreshCallbackRef.current) {
+        refreshCallbackRef.current();
+      }
+    });
+
+    channel.bind('pusher:subscription_succeeded', () => {
+      console.log('[Pusher] ✅ Subscribed to channel');
+    });
+
+    channel.bind('pusher:subscription_error', (error) => {
+      console.error('[Pusher] ❌ Subscription error:', error);
+    });
+
+    return () => {
+      console.log('[Pusher] Cleaning up');
+      pusher.unsubscribe(`conversation-${conversationId}`);
+      pusher.disconnect();
+    };
+  }, [conversationId]);
 
   const handleKeyPress = (key) => {
     if (key === 'backspace') {
@@ -118,7 +167,7 @@ const App = () => {
     // Always send as user when using the speak button
     if (conversationId) {
       try {
-        const apiBaseUrl = process.env.REACT_APP_API_BASE_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '');
+        const apiBaseUrl = process.env.REACT_APP_API_BASE_URL || window.API_BASE_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '');
         const response = await fetch(`${apiBaseUrl}/api/conversations/${conversationId}/messages`, {
           method: 'POST',
           credentials: 'include',
@@ -286,9 +335,30 @@ const App = () => {
       {/* Keyboard, Hints, or Suggestions area fills the remaining space */}
       <div className="flex-1 flex p-0">
         {isSuggestionsOpen ? (
-          <Suggestions text={text} onTextChange={setText} dwellTime={dwellTime} conversationId={conversationId} onSpeak={handleSpeak} />
+          <Suggestions 
+            text={text} 
+            onTextChange={setText} 
+            dwellTime={dwellTime} 
+            conversationId={conversationId} 
+            onSpeak={handleSpeak}
+            onShowToast={setToastMessage}
+            onRegisterRefresh={(callback) => { 
+              console.log('[App] Registering Suggestions refresh callback');
+              refreshCallbackRef.current = callback; 
+            }}
+          />
         ) : isHintsOpen ? (
-          <Hints text={text} onTextChange={setText} dwellTime={dwellTime} conversationId={conversationId} />
+          <Hints 
+            text={text} 
+            onTextChange={setText} 
+            dwellTime={dwellTime} 
+            conversationId={conversationId}
+            onShowToast={setToastMessage}
+            onRegisterRefresh={(callback) => { 
+              console.log('[App] Registering Hints refresh callback');
+              refreshCallbackRef.current = callback; 
+            }}
+          />
         ) : (
           <Keyboard onDwell={handleDwell} onDwellLeave={handleDwellLeave} />
         )}

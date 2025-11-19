@@ -1,12 +1,65 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 
-const Hints = ({ text, onTextChange, dwellTime, conversationId }) => {
+const Hints = ({ text, onTextChange, dwellTime, conversationId, onShowToast, onRegisterRefresh }) => {
   const [hints, setHints] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [hoveredHint, setHoveredHint] = useState(null);
-  const hoverTimerRef = React.useRef(null);
-  const textRef = React.useRef(text);
+  const hoverTimerRef = useRef(null);
+  const containerHoverRef = useRef(false);
+  const textRef = useRef(text);
+  const pendingRefreshRef = useRef(false);
+
+  // Keep textRef in sync with text prop
+  useEffect(() => {
+    textRef.current = text;
+  }, [text]);
+
+  const fetchHints = useCallback(async () => {
+    console.log('[Hints] 🔍 Fetching hints...');
+    if (!conversationId) {
+      setHints([]);
+      setError('No conversation ID provided');
+      return;
+    }
+
+    // Skip API calls if we're currently hovering
+    if (containerHoverRef.current) {
+      console.log('[Hints] ⏸️ Skipping fetch - currently hovering');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const apiBaseUrl = process.env.REACT_APP_API_BASE_URL || window.API_BASE_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '');
+      const response = await fetch(`${apiBaseUrl}/api/conversations/${conversationId}/hints`, {
+        credentials: 'include',
+        headers: { 'Accept': 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error(response.status === 401 || response.status === 403 ? 'Authentication required' : response.status === 404 ? 'Conversation not found' : 'Request failed');
+      }
+
+      const data = await response.json();
+      console.log('[Hints] ✅ Received hints:', data.hints?.length || 0);
+      if (!containerHoverRef.current) {
+        setHints(data.hints || []);
+      } else {
+        console.log('[Hints] ⏸️ Not updating - hover detected during fetch');
+      }
+    } catch (err) {
+      console.error('[Hints] ❌ Error fetching hints:', err);
+      setError(err.message);
+      if (!containerHoverRef.current) {
+        setHints([]);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [conversationId]);
 
   // Fetch hints from API when conversationId is available
   useEffect(() => {
@@ -16,39 +69,8 @@ const Hints = ({ text, onTextChange, dwellTime, conversationId }) => {
       return;
     }
 
-    const fetchHints = async () => {
-      setIsLoading(true);
-      setError(null);
-      
-      try {
-        const apiBaseUrl = process.env.REACT_APP_API_BASE_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '');
-        const response = await fetch(`${apiBaseUrl}/api/conversations/${conversationId}/hints`, {
-          credentials: 'include',
-          headers: { 'Accept': 'application/json' },
-        });
-
-        if (!response.ok) {
-          throw new Error(response.status === 401 || response.status === 403 ? 'Authentication required' : response.status === 404 ? 'Conversation not found' : 'Request failed');
-        }
-
-        const data = await response.json();
-        setHints(data.hints || []);
-      } catch (err) {
-        console.error('Error fetching hints:', err);
-        setError(err.message);
-        setHints([]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     fetchHints();
-  }, [conversationId]);
-
-  // Keep textRef in sync with text prop
-  React.useEffect(() => {
-    textRef.current = text;
-  }, [text]);
+  }, [conversationId, fetchHints]);
 
   // Calculate which hints are currently in the text
   const selectedHints = useMemo(() => {
@@ -113,6 +135,55 @@ const Hints = ({ text, onTextChange, dwellTime, conversationId }) => {
     }
   };
 
+  const handleContainerMouseEnter = () => {
+    console.log('[Hints] 🖱️ Container hover started');
+    containerHoverRef.current = true;
+  };
+
+  const handleContainerMouseLeave = () => {
+    console.log('[Hints] 🖱️ Container hover ended');
+    containerHoverRef.current = false;
+    
+    // If there's a pending refresh, do it now
+    if (pendingRefreshRef.current) {
+      console.log('[Hints] 🔄 Executing pending refresh');
+      pendingRefreshRef.current = false;
+      fetchHints();
+    }
+  };
+
+  // Register refresh callback with parent
+  useEffect(() => {
+    if (onRegisterRefresh) {
+      const refreshHandler = () => {
+        console.log('[Hints] 🔄 Refresh handler called');
+        // Check if we're currently hovering
+        if (containerHoverRef.current) {
+          console.log('[Hints] ⏸️ Currently hovering, queueing refresh');
+          // Queue refresh for when hover ends
+          pendingRefreshRef.current = true;
+          if (onShowToast) {
+            onShowToast('New hints available - will update when you move away');
+          }
+        } else {
+          console.log('[Hints] ✅ Not hovering, refreshing immediately');
+          // Refresh immediately
+          fetchHints();
+        }
+      };
+      
+      console.log('[Hints] 📝 Registering refresh handler');
+      onRegisterRefresh(refreshHandler);
+      
+      return () => {
+        console.log('[Hints] 🧹 Unregistering refresh handler');
+        if (onRegisterRefresh) {
+          onRegisterRefresh(null);
+        }
+      };
+    }
+  }, [onRegisterRefresh, onShowToast, fetchHints]);
+
   useEffect(() => {
     return () => {
       if (hoverTimerRef.current) {
@@ -122,7 +193,11 @@ const Hints = ({ text, onTextChange, dwellTime, conversationId }) => {
   }, []);
 
   return (
-    <div className="flex-1 flex flex-col p-0 relative">
+    <div 
+      className="flex-1 flex flex-col p-0 relative"
+      onMouseEnter={handleContainerMouseEnter}
+      onMouseLeave={handleContainerMouseLeave}
+    >
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-bg-main/80 z-10">
           <div className="text-white text-lg">Loading hints...</div>
