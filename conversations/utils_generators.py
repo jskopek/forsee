@@ -49,7 +49,7 @@ def generate_reply_suggestions(conversation: Conversation, hint: str | None = No
     Prioritizes brevity, natural speech, and (when present) the user hint.
     """
     MAX_WORDS = 12
-    N_SUGGESTIONS = 3
+    N_SUGGESTIONS = 6
     MAX_HINT_LEN = 160
     HISTORY_TURNS = 10  # compact, fast
 
@@ -96,8 +96,8 @@ def generate_reply_suggestions(conversation: Conversation, hint: str | None = No
         user_payload["user_hint"] = normalized_hint
 
     class ReplySuggestions(BaseModel):
-        """Exactly 3 string suggestions for reply options."""
-        suggestions: Annotated[list[str], Field(min_length=3, max_length=3)]
+        """Exactly 6 string suggestions for reply options."""
+        suggestions: Annotated[list[str], Field(min_length=6, max_length=6)]
 
 
     # --- Call model with Pydantic parsing ---
