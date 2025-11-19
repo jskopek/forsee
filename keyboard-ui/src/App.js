@@ -13,7 +13,7 @@ const App = () => {
   const [text, setText] = useState('');
   const [dwellTime, setDwellTime] = useState(1000);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isHintsOpen, setIsHintsOpen] = useState(false);
+  const [isHintsOpen, setIsHintsOpen] = useState(true);
   const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
   const [conversationId, setConversationId] = useState(null);
@@ -230,6 +230,13 @@ const App = () => {
     setIsHintsOpen(false); // Close hints when opening suggestions
   };
 
+  const handleHintSelected = () => {
+    // When a hint is selected, switch to suggestions view
+    setIsSuggestionsOpen(true);
+    setIsHintsOpen(false);
+    setIsSettingsOpen(false);
+  };
+
   return (
     <div className="text-center min-h-screen flex flex-col bg-bg-main" style={{ '--dwell-time': `${dwellTime}ms` }}>
       {/* Top bar */}
@@ -348,15 +355,16 @@ const App = () => {
             }}
           />
         ) : isHintsOpen ? (
-          <Hints 
-            text={text} 
-            onTextChange={setText} 
-            dwellTime={dwellTime} 
+          <Hints
+            text={text}
+            onTextChange={setText}
+            dwellTime={dwellTime}
             conversationId={conversationId}
             onShowToast={setToastMessage}
-            onRegisterRefresh={(callback) => { 
+            onHintSelected={handleHintSelected}
+            onRegisterRefresh={(callback) => {
               console.log('[App] Registering Hints refresh callback');
-              refreshCallbackRef.current = callback; 
+              refreshCallbackRef.current = callback;
             }}
           />
         ) : (

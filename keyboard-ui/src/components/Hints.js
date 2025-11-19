@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 
-const Hints = ({ text, onTextChange, dwellTime, conversationId, onShowToast, onRegisterRefresh }) => {
+const Hints = ({ text, onTextChange, dwellTime, conversationId, onShowToast, onHintSelected, onRegisterRefresh }) => {
   const [hints, setHints] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -123,6 +123,10 @@ const Hints = ({ text, onTextChange, dwellTime, conversationId, onShowToast, onR
       // If not selected, add on hover after dwell time
       hoverTimerRef.current = setTimeout(() => {
         addHint(hint.word, textRef.current);
+        // Switch to suggestions view after adding a hint
+        if (onHintSelected) {
+          onHintSelected();
+        }
       }, dwellTime);
     }
   };
