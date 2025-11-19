@@ -144,6 +144,9 @@ class ConversationDetailView(UserPassesTestMixin, LoginRequiredMixin, generic.De
         context["suggestion_hint"] = ""
         # Don't generate hints on page load - will be loaded via API
         context["hints"] = []
+        # Pusher configuration for real-time updates
+        context["pusher_key"] = settings.PUSHER_KEY
+        context["pusher_cluster"] = settings.PUSHER_CLUSTER
         return context
 
 

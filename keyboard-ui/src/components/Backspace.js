@@ -1,6 +1,6 @@
-import React, { useState, useRef, useImperativeHandle, forwardRef } from 'react';
+import React, { useState, useRef, useImperativeHandle, forwardRef, useEffect } from 'react';
 
-const Backspace = forwardRef(({ dwellTime, onBackspace, onClear, hasText }, ref) => {
+const Backspace = forwardRef(({ dwellTime, onBackspace, onClear, hasText, onShowToast }, ref) => {
   const [consecutiveBackspaceCount, setConsecutiveBackspaceCount] = useState(0);
   const [isHoveringBackspace, setIsHoveringBackspace] = useState(false);
   const backspaceIntervalRef = useRef(null);
@@ -10,6 +10,20 @@ const Backspace = forwardRef(({ dwellTime, onBackspace, onClear, hasText }, ref)
       setConsecutiveBackspaceCount(0);
     }
   }));
+
+  // Show toast when backspace count changes
+  useEffect(() => {
+    if (isHoveringBackspace && consecutiveBackspaceCount > 0 && consecutiveBackspaceCount < 4 && hasText && onShowToast) {
+      onShowToast(`${4 - consecutiveBackspaceCount} more backspace${4 - consecutiveBackspaceCount === 1 ? '' : 's'} to clear everything`);
+    } else if (onShowToast && (!isHoveringBackspace || !hasText || consecutiveBackspaceCount >= 4 || consecutiveBackspaceCount === 0)) {
+      // Dismiss toast immediately when:
+      // - User stops hovering over backspace
+      // - There's no more text
+      // - We've cleared everything (count >= 4)
+      // - Counter is reset to 0
+      onShowToast('');
+    }
+  }, [consecutiveBackspaceCount, isHoveringBackspace, hasText, onShowToast]);
 
   const handleBackspace = () => {
     setConsecutiveBackspaceCount((prevCount) => {
@@ -65,27 +79,6 @@ const Backspace = forwardRef(({ dwellTime, onBackspace, onClear, hasText }, ref)
         <span className="absolute inset-1 rounded-lg bg-white/28 origin-left z-[2] pointer-events-none animate-dwell-fill-repeat" aria-hidden="true" />
         <span className="relative z-[3] inline-flex items-center gap-2 leading-none">⌫ Backspace</span>
       </button>
-      {/* Clear indicator */}
-      {isHoveringBackspace && consecutiveBackspaceCount > 0 && consecutiveBackspaceCount < 4 && hasText && (
-        <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 px-3 py-1.5 bg-danger-back border border-danger-border rounded-lg shadow-lg z-50 flex items-center gap-2 whitespace-nowrap">
-          <svg
-            className="w-4 h-4 text-white"
-            viewBox="0 0 24 24"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="3 6 5 6 21 6" />
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-          </svg>
-          <span className="text-white text-sm font-semibold">
-            {4 - consecutiveBackspaceCount} more to clear
-          </span>
-        </div>
-      )}
     </div>
   );
 });

@@ -191,4 +191,45 @@
         </div>
     </div>
 </section>
+
+<script src="https://js.pusher.com/8.4.0/pusher.min.js"></script>
+<script>
+(function() {
+    const conversationId = '{{ conversation.pk }}';
+    const pusherKey = '{{ pusher_key|default:"" }}';
+    const pusherCluster = '{{ pusher_cluster|default:"us2" }}';
+    
+    if (!pusherKey) {
+        console.log('[Pusher] No Pusher key configured');
+        return;
+    }
+    
+    console.log('[Pusher] Connecting...');
+    const pusher = new Pusher(pusherKey, {
+        cluster: pusherCluster,
+    });
+    
+    const channel = pusher.subscribe(`conversation-${conversationId}`);
+    
+    channel.bind('message_added', function(data) {
+        console.log('[Pusher] 🔔 New message detected:', data);
+        // Trigger HTMX refresh
+        window.dispatchEvent(new CustomEvent('websocket-message'));
+    });
+    
+    channel.bind('pusher:subscription_succeeded', function() {
+        console.log('[Pusher] ✅ Subscribed to channel');
+    });
+    
+    channel.bind('pusher:subscription_error', function(error) {
+        console.error('[Pusher] ❌ Subscription error:', error);
+    });
+    
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', function() {
+        pusher.unsubscribe(`conversation-${conversationId}`);
+        pusher.disconnect();
+    });
+})();
+</script>
 {% endblock %}
