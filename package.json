@@ -4,7 +4,8 @@
   "description": "Eye tracking keyboard for ALS patients",
   "scripts": {
     "build": "esbuild static/js/main.js --bundle --outfile=static/dist/bundle.js --minify",
-    "dev": "esbuild static/js/main.js --bundle --outfile=static/dist/bundle.js --watch"
+    "dev": "esbuild static/js/main.js --bundle --outfile=static/dist/bundle.js --watch",
+    "heroku-postbuild": "npm run build && cd keyboard-ui && npm install && npm run build && cd .. && node scripts/copy-keyboard-ui.js"
   },
   "keywords": [],
   "author": "",

@@ -35,6 +35,10 @@ ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',') if os.getenv('ALLOWED_
 # Remove empty strings from the list
 ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS if host.strip()]
 
+# Allow Heroku domains in production
+if not DEBUG:
+    ALLOWED_HOSTS.extend(['.herokuapp.com'])
+
 
 # Application definition
 
@@ -66,6 +70,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # Serve static files in production
     'corsheaders.middleware.CorsMiddleware',  # Must be before CommonMiddleware
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -97,6 +102,12 @@ CSRF_TRUSTED_ORIGINS = [
 # Add additional CSRF trusted origins from environment variable
 if os.getenv('CSRF_TRUSTED_ORIGINS'):
     CSRF_TRUSTED_ORIGINS.extend([origin.strip() for origin in os.getenv('CSRF_TRUSTED_ORIGINS').split(',') if origin.strip()])
+
+# Add Heroku domains to CSRF trusted origins in production
+if not DEBUG:
+    CSRF_TRUSTED_ORIGINS.extend([
+        'https://*.herokuapp.com',
+    ])
 
 ROOT_URLCONF = 'app.urls'
 
@@ -184,6 +195,10 @@ STATICFILES_FINDERS = [
 COMPRESS_ENABLED = True
 COMPRESS_OFFLINE = False
 COMPRESS_ROOT = BASE_DIR / 'static'
+
+# WhiteNoise static file storage for production
+if not DEBUG:
+    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

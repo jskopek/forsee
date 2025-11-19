@@ -29,6 +29,18 @@ The current version of EyeSight is very early. It currently includes:
 
 It is **not yet optimized** for fast conversation or predictive phrase flow. This is the foundation that we will build on.
 
+## Deploy to Heroku
+
+Deploy your own instance of EyeSpeak with one click:
+
+[![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/jskopek/eye-tracking-keyboard)
+
+**Prerequisites:**
+- A [Pusher](https://pusher.com/) account (free tier available)
+- An [OpenAI API key](https://platform.openai.com/) (optional, for AI suggestions)
+
+For detailed deployment instructions, see [HEROKU_DEPLOYMENT.md](HEROKU_DEPLOYMENT.md).
+
 ## How do we get to 100wpm with low-quality eye tracking
 
 Typing letter-by-letter, or even word-by-word, is too slow. To reach conversational speed, we need sentence-level prediction. Think of it like a dialog system in a role-playing game. Instead of typing everything manually, you select from a few likely responses.

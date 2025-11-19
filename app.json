@@ -1,0 +1,79 @@
+{
+  "name": "EyeSpeak",
+  "description": "An open-source, camera-based eye-tracking keyboard for real-time verbal communication",
+  "repository": "https://github.com/jskopek/eye-tracking-keyboard",
+  "logo": "",
+  "keywords": ["python", "django", "react", "accessibility", "eye-tracking", "als"],
+  "stack": "heroku-24",
+  "buildpacks": [
+    {
+      "url": "heroku/nodejs"
+    },
+    {
+      "url": "heroku/python"
+    }
+  ],
+  "env": {
+    "SECRET_KEY": {
+      "description": "Django secret key for cryptographic signing",
+      "generator": "secret"
+    },
+    "DEBUG": {
+      "description": "Enable Django debug mode (set to False for production)",
+      "value": "False"
+    },
+    "PUSHER_APP_ID": {
+      "description": "Pusher app ID for real-time updates",
+      "required": true
+    },
+    "PUSHER_KEY": {
+      "description": "Pusher public key",
+      "required": true
+    },
+    "PUSHER_API_SECRET": {
+      "description": "Pusher API secret",
+      "required": true
+    },
+    "PUSHER_CLUSTER": {
+      "description": "Pusher cluster region",
+      "value": "us2"
+    },
+    "REACT_APP_PUSHER_KEY": {
+      "description": "Pusher key for React app (same as PUSHER_KEY)",
+      "required": true
+    },
+    "REACT_APP_PUSHER_CLUSTER": {
+      "description": "Pusher cluster for React app (same as PUSHER_CLUSTER)",
+      "value": "us2"
+    },
+    "OPENAI_API_KEY": {
+      "description": "OpenAI API key for AI-powered suggestions",
+      "required": false
+    },
+    "OPENAI_RESPONSES_MODEL": {
+      "description": "OpenAI model to use for response suggestions",
+      "value": "gpt-4.1-mini"
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "basic"
+    },
+    "worker": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  },
+  "addons": [
+    {
+      "plan": "heroku-postgresql:essential-0"
+    },
+    {
+      "plan": "heroku-redis:mini"
+    }
+  ],
+  "scripts": {
+    "postdeploy": "python manage.py migrate && python manage.py shell -c \"from django.contrib.sites.models import Site; Site.objects.update_or_create(id=1, defaults={'domain': 'localhost', 'name': 'EyeSpeak'})\""
+  }
+}

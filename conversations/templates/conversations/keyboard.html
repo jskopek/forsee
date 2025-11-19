@@ -24,6 +24,7 @@
     ></iframe>
     {% else %}
     {# In production, serve built React app #}
+    <link rel="stylesheet" href="{% static 'keyboard-ui/static/css/main.css' %}">
     <div id="root"></div>
     <script>
         // Set conversation ID and API base URL for React app
