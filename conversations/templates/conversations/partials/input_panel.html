@@ -15,6 +15,25 @@
         getHintsApiUrl() { return '/api/conversations/' + this.conversationId + '/hints'; },
         getSuggestionsApiUrl() { return '/api/conversations/' + this.conversationId + '/suggestions'; },
         getMessagesApiUrl() { return '/api/conversations/' + this.conversationId + '/messages'; },
+        async clearMessages() {
+            try {
+                const response = await fetch(this.getMessagesApiUrl(), {
+                    method: 'DELETE',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    credentials: 'same-origin',
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to clear messages');
+                }
+                
+                window.location.reload();
+            } catch (error) {
+                console.error('Error clearing messages:', error);
+            }
+        },
         async sendMessage(messageBody, sender = null) {
             if (!messageBody.trim()) return false;
             
@@ -255,9 +274,9 @@
                 type="button"
                 x-on:click="sendMessage(messageText)"
                 x-bind:disabled="isSubmitting || !messageText.trim()"
-                class="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                class="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-5 py-3 text-lg font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-                <span x-show="!isSubmitting">Send</span>
+                <span x-show="!isSubmitting">→</span>
                 <svg x-show="isSubmitting" class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -266,31 +285,10 @@
         </div>
         <button
             type="button"
-            x-on:click="toggleHintsMode()"
-            x-bind:class="showHints 
-                ? 'bg-indigo-600 text-white border-indigo-700 hover:bg-indigo-700' 
-                : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'"
-            class="inline-flex items-center justify-center rounded-xl border px-5 py-3 text-sm font-semibold shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+            x-on:click="clearMessages()"
+            class="inline-flex items-center justify-center rounded-xl border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-red-50 hover:border-red-300 hover:text-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
         >
-            <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
-            </svg>
-            Hints
-        </button>
-        <button
-            type="button"
-            x-on:click="refreshSuggestions()"
-            x-bind:disabled="isSubmitting || suggestionsLoading"
-            class="inline-flex items-center justify-center rounded-xl border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-            <svg x-show="!suggestionsLoading" class="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
-            </svg>
-            <svg x-show="suggestionsLoading" class="animate-spin h-5 w-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            Suggestions
+            Clear
         </button>
     </div>
 </div>

@@ -1,19 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 
-const Hints = ({ text, onTextChange, dwellTime, conversationId, onShowToast, onRegisterRefresh }) => {
+const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, onShowToast, onRegisterRefresh, onLoadingChange }) => {
   const [hints, setHints] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [hoveredHint, setHoveredHint] = useState(null);
   const hoverTimerRef = useRef(null);
   const containerHoverRef = useRef(false);
-  const textRef = useRef(text);
   const pendingRefreshRef = useRef(false);
-
-  // Keep textRef in sync with text prop
-  useEffect(() => {
-    textRef.current = text;
-  }, [text]);
+  const selectedHintsSet = useMemo(() => new Set(selectedHints.map((word) => word.toLowerCase())), [selectedHints]);
 
   const fetchHints = useCallback(async () => {
     console.log('[Hints] 🔍 Fetching hints...');
@@ -30,6 +24,7 @@ const Hints = ({ text, onTextChange, dwellTime, conversationId, onShowToast, onR
     }
 
     setIsLoading(true);
+    if (onLoadingChange) onLoadingChange(true);
     setError(null);
     
     try {
@@ -58,8 +53,9 @@ const Hints = ({ text, onTextChange, dwellTime, conversationId, onShowToast, onR
       }
     } finally {
       setIsLoading(false);
+      if (onLoadingChange) onLoadingChange(false);
     }
-  }, [conversationId]);
+  }, [conversationId, onLoadingChange]);
 
   // Fetch hints from API when conversationId is available
   useEffect(() => {
@@ -72,12 +68,6 @@ const Hints = ({ text, onTextChange, dwellTime, conversationId, onShowToast, onR
     fetchHints();
   }, [conversationId, fetchHints]);
 
-  // Calculate which hints are currently in the text
-  const selectedHints = useMemo(() => {
-    const words = text.toLowerCase().split(/\s+/).filter(w => w.length > 0);
-    return new Set(words);
-  }, [text]);
-
   // Calculate optimal grid layout
   const gridConfig = useMemo(() => {
     const hintCount = hints.length;
@@ -89,46 +79,23 @@ const Hints = ({ text, onTextChange, dwellTime, conversationId, onShowToast, onR
     return { cols, rows, itemsInLastRow, lastRowIsIncomplete };
   }, [hints]);
 
-  const addHint = (word, currentText) => {
-    const trimmedText = currentText.trim();
-    if (trimmedText) {
-      onTextChange(trimmedText + ' ' + word + ' ');
-    } else {
-      onTextChange(word + ' ');
-    }
-  };
-
-  const removeHint = (word, currentText) => {
-    const words = currentText.trim().split(/\s+/);
-    const filteredWords = words.filter(w => w.toLowerCase() !== word.toLowerCase());
-    onTextChange(filteredWords.join(' ') + (filteredWords.length > 0 ? ' ' : ''));
-  };
-
   const handleHintHover = (hint) => {
-    setHoveredHint(hint);
-    
     // Clear any existing timer
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current);
     }
 
-    const isSelected = selectedHints.has(hint.word.toLowerCase());
+    const normalized = hint.word.toLowerCase();
+    const isSelected = selectedHintsSet.has(normalized);
     
-    if (isSelected) {
-      // If selected, remove on hover after dwell time
-      hoverTimerRef.current = setTimeout(() => {
-        removeHint(hint.word, textRef.current);
-      }, dwellTime);
-    } else {
-      // If not selected, add on hover after dwell time
-      hoverTimerRef.current = setTimeout(() => {
-        addHint(hint.word, textRef.current);
-      }, dwellTime);
-    }
+    hoverTimerRef.current = setTimeout(() => {
+      if (onHintToggle) {
+        onHintToggle(hint.word, isSelected);
+      }
+    }, dwellTime);
   };
 
   const handleHintLeave = () => {
-    setHoveredHint(null);
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current);
       hoverTimerRef.current = null;
@@ -193,22 +160,17 @@ const Hints = ({ text, onTextChange, dwellTime, conversationId, onShowToast, onR
   }, []);
 
   return (
-    <div 
+    <div
       className="flex-[2] flex flex-col p-0 relative min-h-0"
       onMouseEnter={handleContainerMouseEnter}
       onMouseLeave={handleContainerMouseLeave}
     >
-      {isLoading && (
-        <div className="flex-1 flex items-center justify-center bg-bg-main/80">
-          <div className="text-white text-lg">Loading hints...</div>
-        </div>
-      )}
       {error && !isLoading && (
         <div className="flex-1 flex items-center justify-center bg-yellow-600/90 text-white px-4 py-2">
           <div className="text-lg">{error}</div>
         </div>
       )}
-      {!isLoading && hints.length === 0 && !error && (
+      {hints.length === 0 && !error && (
         <div className="flex-1 flex items-center justify-center bg-bg-main">
           <div className="text-white text-lg">No hints available</div>
         </div>
@@ -222,8 +184,7 @@ const Hints = ({ text, onTextChange, dwellTime, conversationId, onShowToast, onR
           }}
         >
           {hints.map((hint, index) => {
-          const isSelected = selectedHints.has(hint.word.toLowerCase());
-          const isHovered = hoveredHint?.word === hint.word;
+          const isSelected = selectedHintsSet.has(hint.word.toLowerCase());
           
           // Check if this item is in the last row
           const rowIndex = Math.floor(index / gridConfig.cols);

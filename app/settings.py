@@ -232,6 +232,7 @@ RQ_QUEUES = {
 RQ_EXCEPTION_HANDLERS = ("django_rq.utils.push_exception_handler",)
 
 OPENAI_RESPONSES_MODEL = os.getenv("OPENAI_RESPONSES_MODEL", "gpt-4o-mini")
+OPENAI_LOG_REQUESTS = os.getenv("OPENAI_LOG_REQUESTS", "False") == "True"
 
 DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO")
 

@@ -47,18 +47,21 @@ def generate_contact_reply(conversation: Conversation, trigger_message: Message)
         return message
 
 
-def generate_reply_suggestions(conversation: Conversation, hint: str | None = None) -> list[str]:
+def generate_reply_suggestions(conversation: Conversation, hint: str | None = None, prefix: str | None = None) -> list[str]:
     """
     Produce short, ready-to-speak reply options for in-person conversation.
     Prioritizes brevity, natural speech, and (when present) the user hint.
+    If a prefix is provided, every suggestion must start with those letters.
     """
     MAX_WORDS = 12
     N_SUGGESTIONS = 6
     MAX_HINT_LEN = 160
+    MAX_PREFIX_LEN = 40
     HISTORY_TURNS = 10  # compact, fast
 
     # --- Normalize inputs ---
     normalized_hint = (hint or "").strip()[:MAX_HINT_LEN]
+    normalized_prefix = (prefix or "").strip()[:MAX_PREFIX_LEN]
 
     contact = conversation.contact
     contact_name = getattr(contact, "name", None) or ""
@@ -84,6 +87,10 @@ def generate_reply_suggestions(conversation: Conversation, hint: str | None = No
         "Return ONLY JSON that maps to the Pydantic model with one key: suggestions.\n"
         f"Suggestions must be {N_SUGGESTIONS} short strings (≤ {MAX_WORDS} words), natural speech, "
         "no emojis/hashtags/quotes. If user_hint exists, it overrides conversation content. "
+        "If user_prefix exists, each suggestion must begin with a COMPLETE English word whose first letters match the prefix. "
+        "Example: prefix='por' → 'Portable devices are tricky', 'Possibly worth a demo'; "
+        "prefix='th' → 'That sounds fun', 'Thanks for sharing'. "
+        "Output only complete words—never the prefix alone or a word fragment. "
         "Use conversation only for tone, names, and concrete details. "
         "Formality is one of: casual, polite, professional, warm, blunt. "
         "Use contact_name in at most one suggestion. Do not broaden the topic."
@@ -98,6 +105,8 @@ def generate_reply_suggestions(conversation: Conversation, hint: str | None = No
     }
     if normalized_hint:
         user_payload["user_hint"] = normalized_hint
+    if normalized_prefix:
+        user_payload["user_prefix"] = normalized_prefix
 
     class ReplySuggestions(BaseModel):
         """Exactly 6 string suggestions for reply options."""
@@ -107,6 +116,40 @@ def generate_reply_suggestions(conversation: Conversation, hint: str | None = No
     # --- Call model with Pydantic parsing ---
     model_name = getattr(settings, "OPENAI_RESPONSES_MODEL", "gpt-4o-mini")
     openai_start = perf_counter()
+
+    def _apply_prefix(suggestion: str, required_prefix: str) -> str:
+        """
+        Ensure the suggestion's first word starts with required_prefix (case-normalized).
+        If the model already returned a valid word, just fix capitalization.
+        If not, return the suggestion unchanged—don't create nonsense by prepending.
+        """
+        trimmed = suggestion.strip()
+        if not trimmed:
+            return ""
+        
+        # Check if first word starts with the prefix (case-insensitive)
+        prefix_lower = required_prefix.lower()
+        prefix_len = len(required_prefix)
+        
+        if trimmed[:prefix_len].lower() == prefix_lower:
+            # Model returned a word starting with the prefix—normalize case
+            # Keep original capitalization of the rest of the word/sentence
+            return required_prefix + trimmed[prefix_len:]
+        
+        # Model didn't comply—return as-is rather than creating garbage
+        return trimmed
+
+    logger.info(
+        "OpenAI request (suggestions): model=%s payload=%s",
+        model_name,
+        json.dumps({"system_prompt": system_prompt, "user_payload": user_payload}, ensure_ascii=False),
+    )
+
+    logger.info(
+        "OpenAI request (hints): model=%s payload=%s",
+        getattr(settings, "OPENAI_RESPONSES_MODEL", "gpt-4o-mini"),
+        json.dumps({"system_prompt": system_prompt, "user_payload": user_payload}, ensure_ascii=False),
+    )
 
     try:
         parsed: ReplySuggestions = prompt_openai(
@@ -119,11 +162,12 @@ def generate_reply_suggestions(conversation: Conversation, hint: str | None = No
         )
         openai_duration = (perf_counter() - openai_start) * 1000  # milliseconds
         logger.info(
-            "generate_reply_suggestions OpenAI latency %.2f ms (conversation_id=%s, model=%s, hint=%s)",
+            "generate_reply_suggestions OpenAI latency %.2f ms (conversation_id=%s, model=%s, hint=%s, prefix=%s)",
             openai_duration,
             getattr(conversation, "id", None),
             model_name,
             bool(normalized_hint),
+            normalized_prefix or None,
         )
 
         if not isinstance(parsed, ReplySuggestions):
@@ -133,6 +177,8 @@ def generate_reply_suggestions(conversation: Conversation, hint: str | None = No
         out: list[str] = []
         for s in parsed.suggestions:
             s = " ".join(s.strip().split())
+            if normalized_prefix:
+                s = _apply_prefix(s, normalized_prefix)
             out.append(" ".join(s.split()[:MAX_WORDS]))
 
         return out[:N_SUGGESTIONS]

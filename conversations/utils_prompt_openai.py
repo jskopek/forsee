@@ -5,6 +5,19 @@ from pydantic import BaseModel
 
 OPENAI_TEMPERATURE = 0.7
 OPENAI_MAX_OUTPUT_TOKENS = 400
+_OPENAI_CLIENT: OpenAI | None = None
+
+
+def _get_openai_client() -> OpenAI:
+    """
+    Lazily instantiate a single OpenAI client so every request reuses the same HTTP session.
+    """
+    global _OPENAI_CLIENT
+    if _OPENAI_CLIENT is None:
+        if not os.getenv("OPENAI_API_KEY"):
+            raise RuntimeError("OPENAI_API_KEY is not set.")
+        _OPENAI_CLIENT = OpenAI()
+    return _OPENAI_CLIENT
 
 
 def prompt_openai(
@@ -22,13 +35,10 @@ def prompt_openai(
     Pydantic parsing) and returns a Pydantic model instance.
     Otherwise, uses `responses.create` and returns raw text.
     """
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set.")
-
     if model_name is None:
         model_name = settings.OPENAI_RESPONSES_MODEL
 
-    client = OpenAI()
+    client = _get_openai_client()
 
     # Common message shape
     messages = [
@@ -94,6 +104,8 @@ def prompt_openai(
 
 def _log_openai_request_safe(request: dict, response) -> None:
     """Best-effort logging without breaking the call."""
+    if not getattr(settings, "OPENAI_LOG_REQUESTS", False):
+        return
     try:
         from openai_analysis.utils import save_openai_request, _serialize_response
         save_openai_request(request.copy(), _serialize_response(response))

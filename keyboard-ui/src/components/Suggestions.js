@@ -1,21 +1,25 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 
-const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak, onShowToast, onRegisterRefresh }) => {
+const Suggestions = ({ prefix = '', hintText = '', dwellTime, conversationId, onSpeak, onShowToast, onRegisterRefresh, onLoadingChange, onTextChange }) => {
   const [suggestions, setSuggestions] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [hoveredSuggestion, setHoveredSuggestion] = useState(null);
   const hoverTimerRef = useRef(null);
   const isHoveringRef = useRef(false);
   const containerHoverRef = useRef(false);
-  const textRef = useRef(text);
   const pendingRefreshRef = useRef(false);
-  const lastFetchedTextRef = useRef('');
+  const lastFetchedPrefixRef = useRef('');
+  const lastFetchedHintRef = useRef('');
+  const prefixRef = useRef(prefix);
+  const hintTextRef = useRef(hintText);
 
-  // Keep textRef in sync
   useEffect(() => {
-    textRef.current = text;
-  }, [text]);
+    prefixRef.current = prefix;
+  }, [prefix]);
+
+  useEffect(() => {
+    hintTextRef.current = hintText;
+  }, [hintText]);
 
   const fetchSuggestions = useCallback(async () => {
     console.log('[Suggestions] 🔍 Fetching suggestions...');
@@ -32,15 +36,22 @@ const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak, o
     }
 
     setIsLoading(true);
+    if (onLoadingChange) onLoadingChange(true);
     setError(null);
     
+    const prefixPayload = prefixRef.current.trim();
+    const hintPayload = hintTextRef.current.trim();
+
     try {
       const apiBaseUrl = process.env.REACT_APP_API_BASE_URL || window.API_BASE_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '');
       const response = await fetch(`${apiBaseUrl}/api/conversations/${conversationId}/suggestions`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ hint: textRef.current.trim() || null }),
+        body: JSON.stringify({
+          hint: hintPayload || null,
+          prefix: prefixPayload || null,
+        }),
       });
 
       if (!response.ok) {
@@ -50,8 +61,9 @@ const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak, o
       const data = await response.json();
       console.log('[Suggestions] ✅ Received suggestions:', data.suggestions?.length || 0);
       
-      // Track the text that was used for this fetch
-      lastFetchedTextRef.current = textRef.current.trim();
+      // Track the prefix and hints that were used for this fetch
+      lastFetchedPrefixRef.current = prefixPayload;
+      lastFetchedHintRef.current = hintPayload;
       
       // Only update suggestions if we're not hovering (to avoid replacing suggestions while user is selecting)
       if (!containerHoverRef.current) {
@@ -67,8 +79,9 @@ const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak, o
       }
     } finally {
       setIsLoading(false);
+      if (onLoadingChange) onLoadingChange(false);
     }
-  }, [conversationId]);
+  }, [conversationId, onLoadingChange]);
 
   // Fetch suggestions from API when conversationId is available and component is mounted
   useEffect(() => {
@@ -86,7 +99,7 @@ const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak, o
     return () => {
       clearTimeout(debounceTimer);
     };
-  }, [conversationId, text, fetchSuggestions]);
+  }, [conversationId, prefix, hintText, fetchSuggestions]);
 
   // Calculate grid layout - always use a single column
   const gridConfig = useMemo(() => {
@@ -98,12 +111,11 @@ const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak, o
 
   const applySuggestion = (suggestion) => {
     isHoveringRef.current = false;
-    setHoveredSuggestion(null);
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current);
       hoverTimerRef.current = null;
     }
-    
+
     onTextChange(suggestion);
     if (onSpeak) {
       onSpeak(suggestion);
@@ -112,8 +124,7 @@ const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak, o
 
   const handleSuggestionHover = (suggestion) => {
     isHoveringRef.current = true;
-    setHoveredSuggestion(suggestion);
-    
+
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current);
     }
@@ -128,8 +139,7 @@ const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak, o
 
   const handleSuggestionLeave = () => {
     isHoveringRef.current = false;
-    setHoveredSuggestion(null);
-    
+
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current);
       hoverTimerRef.current = null;
@@ -146,12 +156,17 @@ const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak, o
     containerHoverRef.current = false;
     isHoveringRef.current = false;
     
-    // Check if text has changed since last fetch (e.g., hints were added)
-    const currentText = textRef.current.trim();
-    if (currentText !== lastFetchedTextRef.current) {
-      console.log('[Suggestions] 🔄 Text changed while hovering, refetching suggestions');
-      console.log('[Suggestions]   Previous:', lastFetchedTextRef.current);
-      console.log('[Suggestions]   Current:', currentText);
+    const currentPrefix = prefixRef.current.trim();
+    const currentHint = hintTextRef.current.trim();
+    if (
+      currentPrefix !== lastFetchedPrefixRef.current ||
+      currentHint !== lastFetchedHintRef.current
+    ) {
+      console.log('[Suggestions] 🔄 Prefix/hint changed while hovering, refetching suggestions');
+      console.log('[Suggestions]   Previous prefix:', lastFetchedPrefixRef.current);
+      console.log('[Suggestions]   Current prefix:', currentPrefix);
+      console.log('[Suggestions]   Previous hints:', lastFetchedHintRef.current);
+      console.log('[Suggestions]   Current hints:', currentHint);
       fetchSuggestions();
     } else if (pendingRefreshRef.current) {
       // If there's a pending refresh (from new message), do it now
@@ -202,22 +217,17 @@ const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak, o
   }, []);
 
   return (
-    <div 
+    <div
       className="flex-[2] flex flex-col p-0 relative min-h-0"
       onMouseEnter={handleContainerMouseEnter}
       onMouseLeave={handleContainerMouseLeave}
     >
-      {isLoading && (
-        <div className="flex-1 flex items-center justify-center bg-bg-main/80">
-          <div className="text-white text-lg">Loading suggestions...</div>
-        </div>
-      )}
       {error && !isLoading && (
         <div className="flex-1 flex items-center justify-center bg-yellow-600/90 text-white px-4 py-2">
           <div className="text-lg">{error}</div>
         </div>
       )}
-      {!isLoading && suggestions.length === 0 && !error && (
+      {suggestions.length === 0 && !error && (
         <div className="flex-1 flex items-center justify-center bg-bg-main">
           <div className="text-white text-lg">No suggestions available</div>
         </div>

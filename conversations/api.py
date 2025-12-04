@@ -27,6 +27,7 @@ class SuggestionsResponse(BaseModel):
 
 class SuggestionsRequest(BaseModel):
     hint: str | None = Field(default=None, description="Optional hint text to guide suggestions")
+    prefix: str | None = Field(default=None, description="Optional prefix that all responses should start with")
 
 
 class AddMessageRequest(BaseModel):
@@ -82,9 +83,10 @@ def get_suggestions(request, conversation_id: UUID, body: SuggestionsRequest):
     
     conversation = get_conversation_or_404(conversation_id, request.user)
     
-    # Use hint from request body, or None if empty
+    # Use hint and prefix from request body, or None if empty
     hint_text = body.hint.strip() if body.hint else None
-    suggestions = generate_reply_suggestions(conversation, hint_text)
+    prefix_text = body.prefix.strip() if body.prefix else None
+    suggestions = generate_reply_suggestions(conversation, hint_text, prefix_text)
     
     return {
         "suggestions": suggestions
@@ -139,3 +141,23 @@ def add_message(request, conversation_id: UUID, body: AddMessageRequest):
         "body": message.body,
         "created_at": message.created_at.isoformat(),
     }
+
+
+class ClearMessagesResponse(BaseModel):
+    deleted_count: int
+
+
+@api_router.delete("/{conversation_id}/messages", response=ClearMessagesResponse)
+def clear_messages(request, conversation_id: UUID):
+    """
+    Delete all messages from a conversation.
+    """
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required")
+    
+    conversation = get_conversation_or_404(conversation_id, request.user)
+    
+    # Delete all messages and return count
+    deleted_count, _ = conversation.messages.all().delete()
+    
+    return {"deleted_count": deleted_count}
