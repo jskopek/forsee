@@ -231,4 +231,38 @@ RQ_QUEUES = {
 
 RQ_EXCEPTION_HANDLERS = ("django_rq.utils.push_exception_handler",)
 
-OPENAI_RESPONSES_MODEL = os.getenv("OPENAI_RESPONSES_MODEL", "gpt-4.1-mini")
+OPENAI_RESPONSES_MODEL = os.getenv("OPENAI_RESPONSES_MODEL", "gpt-4o-mini")
+
+DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO")
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": DJANGO_LOG_LEVEL,
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": os.getenv("DJANGO_DJANGO_LOG_LEVEL", DJANGO_LOG_LEVEL),
+            "propagate": False,
+        },
+        "conversations": {
+            "handlers": ["console"],
+            "level": os.getenv("DJANGO_CONVERSATIONS_LOG_LEVEL", DJANGO_LOG_LEVEL),
+            "propagate": False,
+        },
+    },
+}

@@ -1,11 +1,15 @@
 from __future__ import annotations
 import json
+import logging
+from time import perf_counter
 from typing import Annotated
 from pydantic import Field
 from django.conf import settings
 from pydantic import BaseModel
 from .models import Conversation, Message
 from .utils_prompt_openai import prompt_openai
+
+logger = logging.getLogger(__name__)
 
 
 def generate_contact_greeting(conversation: Conversation) -> Message | None:
@@ -101,14 +105,25 @@ def generate_reply_suggestions(conversation: Conversation, hint: str | None = No
 
 
     # --- Call model with Pydantic parsing ---
+    model_name = getattr(settings, "OPENAI_RESPONSES_MODEL", "gpt-4o-mini")
+    openai_start = perf_counter()
+
     try:
         parsed: ReplySuggestions = prompt_openai(
             system_prompt,
             json.dumps(user_payload, ensure_ascii=False),
             pydantic_model=ReplySuggestions,
-            model_name=getattr(settings, "OPENAI_RESPONSES_MODEL", "gpt-4.1-mini"),
+            model_name=model_name,
             temperature=0.3,
             max_output_tokens=200,
+        )
+        openai_duration = (perf_counter() - openai_start) * 1000  # milliseconds
+        logger.info(
+            "generate_reply_suggestions OpenAI latency %.2f ms (conversation_id=%s, model=%s, hint=%s)",
+            openai_duration,
+            getattr(conversation, "id", None),
+            model_name,
+            bool(normalized_hint),
         )
 
         if not isinstance(parsed, ReplySuggestions):
@@ -122,9 +137,14 @@ def generate_reply_suggestions(conversation: Conversation, hint: str | None = No
 
         return out[:N_SUGGESTIONS]
     except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"Failed to generate suggestions: {type(e).__name__}: {e}")
+        openai_duration = (perf_counter() - openai_start) * 1000
+        logger.error(
+            "Failed to generate suggestions (conversation_id=%s) after %.2f ms: %s: %s",
+            getattr(conversation, "id", None),
+            openai_duration,
+            type(e).__name__,
+            e,
+        )
         return []
 
 
@@ -190,7 +210,7 @@ def generate_word_hints(conversation: Conversation) -> list[dict[str, str]]:
             system_prompt,
             json.dumps(user_payload, ensure_ascii=False),
             pydantic_model=WordHints,
-            model_name=getattr(settings, "OPENAI_RESPONSES_MODEL", "gpt-4.1-mini"),
+            model_name=getattr(settings, "OPENAI_RESPONSES_MODEL", "gpt-4o-mini"),
             temperature=0.7,  # Higher temperature for more variety
             max_output_tokens=400,
         )

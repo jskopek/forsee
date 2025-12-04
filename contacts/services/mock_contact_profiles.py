@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from contacts.models import Contact
 
 
-DEFAULT_CONTACT_MODEL = os.getenv("OPENAI_MOCK_CONTACT_MODEL", "gpt-4.1-mini")
+DEFAULT_CONTACT_MODEL = os.getenv("OPENAI_MOCK_CONTACT_MODEL", "gpt-4o-mini")
 DEFAULT_CONTACT_TEMPERATURE = float(os.getenv("OPENAI_MOCK_CONTACT_TEMPERATURE", "0.85"))
 
 

@@ -38,3 +38,4 @@ REACT_APP_PUSHER_CLUSTER=us2
 
 **Note:** The `REACT_APP_PUSHER_KEY` should match the `PUSHER_KEY` value from your Django `.env` file.
 
+

@@ -15,7 +15,7 @@ else:
     OpenAI = Any
 
 
-DEFAULT_MODEL = os.getenv("OPENAI_MOCK_USER_MODEL", "gpt-4.1-mini")
+DEFAULT_MODEL = os.getenv("OPENAI_MOCK_USER_MODEL", "gpt-4o-mini")
 DEFAULT_TEMPERATURE = float(os.getenv("OPENAI_MOCK_USER_TEMPERATURE", "0.9"))
 
 YEARS_SINCE_DIAGNOSIS = list(range(1, 11))
