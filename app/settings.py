@@ -123,6 +123,9 @@ PUSHER_KEY = os.getenv('PUSHER_KEY', '').strip()
 PUSHER_SECRET = os.getenv('PUSHER_API_SECRET', '').strip()
 PUSHER_CLUSTER = os.getenv('PUSHER_CLUSTER', 'us2').strip()
 
+# Groq AI settings
+GROQ_MODEL = os.getenv('GROQ_MODEL', 'llama-3.1-8b-instant').strip()
+
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases

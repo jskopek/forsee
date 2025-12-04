@@ -3,6 +3,7 @@ import json
 import logging
 import time
 from groq import Groq
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +108,7 @@ def stream_suggestions_with_tools(conversation, hint=None, prefix=None):
         total_tokens = 0
 
         stream = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=settings.GROQ_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)}
@@ -253,7 +254,7 @@ def stream_hints_with_tools(conversation, exclude_words=None):
         total_tokens = 0
 
         stream = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=settings.GROQ_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)}
