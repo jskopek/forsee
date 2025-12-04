@@ -203,28 +203,28 @@ const Suggestions = ({ text, onTextChange, dwellTime, conversationId, onSpeak, o
 
   return (
     <div 
-      className="flex-1 flex flex-col p-0 relative"
+      className="flex-[2] flex flex-col p-0 relative min-h-0"
       onMouseEnter={handleContainerMouseEnter}
       onMouseLeave={handleContainerMouseLeave}
     >
       {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-bg-main/80 z-10">
+        <div className="flex-1 flex items-center justify-center bg-bg-main/80">
           <div className="text-white text-lg">Loading suggestions...</div>
         </div>
       )}
       {error && !isLoading && (
-        <div className="absolute top-2 left-2 right-2 bg-yellow-600/90 text-white px-4 py-2 rounded text-sm z-10">
-          {error}
+        <div className="flex-1 flex items-center justify-center bg-yellow-600/90 text-white px-4 py-2">
+          <div className="text-lg">{error}</div>
         </div>
       )}
       {!isLoading && suggestions.length === 0 && !error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-bg-main z-10">
+        <div className="flex-1 flex items-center justify-center bg-bg-main">
           <div className="text-white text-lg">No suggestions available</div>
         </div>
       )}
       {suggestions.length > 0 && (
         <div
-          className="flex-1 grid w-full h-full"
+          className="flex-1 grid"
           style={{
             gridTemplateColumns: `repeat(${gridConfig.cols}, 1fr)`,
             gridTemplateRows: `repeat(${gridConfig.rows}, 1fr)`,

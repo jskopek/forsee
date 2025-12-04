@@ -8,7 +8,7 @@ const Keyboard = ({ onDwell, onDwellLeave }) => {
   ];
 
   return (
-    <div className="flex-1 flex flex-col gap-0 w-full">
+    <div className="flex-[1] flex flex-col gap-0 w-full min-h-0">
       {keys.map((row, rowIndex) => (
         <div
           key={rowIndex}
