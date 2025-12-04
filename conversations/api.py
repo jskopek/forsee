@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import logging
 from uuid import UUID
 
 from ninja import Router
@@ -7,7 +9,10 @@ from ninja.errors import HttpError
 from pydantic import BaseModel, Field
 
 from .models import Conversation, Message
-from .utils_generators import generate_reply_suggestions, generate_word_hints
+from .utils_prompt_groq import stream_suggestions_with_tools, stream_hints_with_tools
+from .signals import get_pusher_client
+
+logger = logging.getLogger(__name__)
 
 api_router = Router(tags=["conversations"])
 
@@ -58,15 +63,18 @@ def get_conversation_or_404(conversation_id: UUID, user) -> Conversation:
 @api_router.get("/{conversation_id}/hints", response=HintsResponse)
 def get_hints(request, conversation_id: UUID):
     """
-    Get word hints for a conversation.
+    Get word hints for a conversation (non-streaming).
     Returns a list of word-emoji pairs that can help the user respond.
+    Note: For better performance, use /hints/stream endpoint instead.
     """
     if not request.user.is_authenticated:
         raise HttpError(401, "Authentication required")
-    
+
     conversation = get_conversation_or_404(conversation_id, request.user)
-    hints = generate_word_hints(conversation)
-    
+
+    # Collect all hints from streaming generator
+    hints = list(stream_hints_with_tools(conversation))
+
     return {
         "hints": [{"word": hint["word"], "emoji": hint["emoji"]} for hint in hints]
     }
@@ -75,19 +83,22 @@ def get_hints(request, conversation_id: UUID):
 @api_router.post("/{conversation_id}/suggestions", response=SuggestionsResponse)
 def get_suggestions(request, conversation_id: UUID, body: SuggestionsRequest):
     """
-    Get reply suggestions for a conversation.
+    Get reply suggestions for a conversation (non-streaming).
     Optionally accepts a hint text to guide the suggestions.
+    Note: For better performance, use /suggestions/stream endpoint instead.
     """
     if not request.user.is_authenticated:
         raise HttpError(401, "Authentication required")
-    
+
     conversation = get_conversation_or_404(conversation_id, request.user)
-    
+
     # Use hint and prefix from request body, or None if empty
     hint_text = body.hint.strip() if body.hint else None
     prefix_text = body.prefix.strip() if body.prefix else None
-    suggestions = generate_reply_suggestions(conversation, hint_text, prefix_text)
-    
+
+    # Collect all suggestions from streaming generator
+    suggestions = list(stream_suggestions_with_tools(conversation, hint_text, prefix_text))
+
     return {
         "suggestions": suggestions
     }
@@ -154,10 +165,123 @@ def clear_messages(request, conversation_id: UUID):
     """
     if not request.user.is_authenticated:
         raise HttpError(401, "Authentication required")
-    
+
     conversation = get_conversation_or_404(conversation_id, request.user)
-    
+
     # Delete all messages and return count
     deleted_count, _ = conversation.messages.all().delete()
-    
+
     return {"deleted_count": deleted_count}
+
+
+# ============================================================================
+# STREAMING ENDPOINTS
+# ============================================================================
+
+class StreamingStatusResponse(BaseModel):
+    status: str
+
+
+def _stream_to_pusher(generator_func, channel_name, event_name, *args):
+    """
+    Helper to stream from generator to Pusher in a thread.
+    This returns immediately while streaming happens in background.
+
+    Args:
+        generator_func: Generator function to call
+        channel_name: Pusher channel name
+        event_name: Base event name (e.g., 'suggestion_ready')
+        *args: Arguments to pass to generator_func
+    """
+    pusher_client = get_pusher_client()
+    if not pusher_client:
+        logger.error("No Pusher client available for streaming")
+        return
+
+    def _stream():
+        try:
+            index = 0
+            for item in generator_func(*args):
+                pusher_client.trigger(channel_name, event_name, {
+                    'index': index,
+                    'data': item,
+                })
+                index += 1
+
+            # Signal complete
+            pusher_client.trigger(channel_name, f"{event_name}_complete", {
+                'count': index
+            })
+            logger.info(f"Streaming complete: {index} items sent to {channel_name}/{event_name}")
+        except Exception as e:
+            logger.error(f"Streaming error: {e}", exc_info=True)
+            pusher_client.trigger(channel_name, f"{event_name}_error", {
+                'error': str(e)
+            })
+
+    # Start thread and return immediately
+    thread = threading.Thread(target=_stream, daemon=True)
+    thread.start()
+    logger.info(f"Started streaming thread for {channel_name}/{event_name}")
+
+
+@api_router.post("/{conversation_id}/suggestions/stream", response=StreamingStatusResponse)
+def stream_suggestions(request, conversation_id: UUID, body: SuggestionsRequest):
+    """
+    Start streaming suggestions via Pusher.
+    Returns immediately; suggestions arrive via WebSocket events.
+
+    Events sent:
+    - suggestion_ready: {index: int, data: str}
+    - suggestion_ready_complete: {count: int}
+    - suggestion_ready_error: {error: str}
+    """
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required")
+
+    conversation = get_conversation_or_404(conversation_id, request.user)
+
+    hint = body.hint.strip() if body.hint else None
+    prefix = body.prefix.strip() if body.prefix else None
+
+    channel_name = f'conversation-{conversation_id}'
+
+    # Start streaming in background thread
+    _stream_to_pusher(
+        stream_suggestions_with_tools,
+        channel_name,
+        'suggestion_ready',
+        conversation,
+        hint,
+        prefix
+    )
+
+    return {"status": "streaming"}
+
+
+@api_router.post("/{conversation_id}/hints/stream", response=StreamingStatusResponse)
+def stream_hints(request, conversation_id: UUID):
+    """
+    Start streaming hints via Pusher.
+    Returns immediately; hints arrive via WebSocket events.
+
+    Events sent:
+    - hint_ready: {index: int, data: {word: str, emoji: str}}
+    - hint_ready_complete: {count: int}
+    - hint_ready_error: {error: str}
+    """
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Authentication required")
+
+    conversation = get_conversation_or_404(conversation_id, request.user)
+
+    channel_name = f'conversation-{conversation_id}'
+
+    _stream_to_pusher(
+        stream_hints_with_tools,
+        channel_name,
+        'hint_ready',
+        conversation
+    )
+
+    return {"status": "streaming"}

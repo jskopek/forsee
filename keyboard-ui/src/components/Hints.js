@@ -1,72 +1,153 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import Pusher from 'pusher-js';
 
 const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, onShowToast, onRegisterRefresh, onLoadingChange }) => {
+  const MAX_HINTS = 20;
+
+  // FIFO queue: newest hints push out oldest
   const [hints, setHints] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const pusherRef = useRef(null);
   const hoverTimerRef = useRef(null);
   const containerHoverRef = useRef(false);
   const pendingRefreshRef = useRef(false);
   const selectedHintsSet = useMemo(() => new Set(selectedHints.map((word) => word.toLowerCase())), [selectedHints]);
 
-  const fetchHints = useCallback(async () => {
-    console.log('[Hints] 🔍 Fetching hints...');
-    if (!conversationId) {
-      setHints([]);
-      setError('No conversation ID provided');
-      return;
-    }
+  // Auto-unselect hints that are no longer in the list
+  useEffect(() => {
+    if (hints.length === 0 || selectedHints.length === 0) return;
 
-    // Skip API calls if we're currently hovering
-    if (containerHoverRef.current) {
-      console.log('[Hints] ⏸️ Skipping fetch - currently hovering');
-      return;
-    }
+    const currentHintWords = new Set(hints.map(h => h.word.toLowerCase()));
+    const hintsToRemove = selectedHints.filter(hint => !currentHintWords.has(hint.toLowerCase()));
 
-    setIsLoading(true);
-    if (onLoadingChange) onLoadingChange(true);
-    setError(null);
-    
-    try {
-      const apiBaseUrl = process.env.REACT_APP_API_BASE_URL || window.API_BASE_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '');
-      const response = await fetch(`${apiBaseUrl}/api/conversations/${conversationId}/hints`, {
-        credentials: 'include',
-        headers: { 'Accept': 'application/json' },
+    if (hintsToRemove.length > 0) {
+      console.log('[Hints] Auto-unselecting hints no longer in list:', hintsToRemove);
+      hintsToRemove.forEach(hint => {
+        // Unselect each hint that's no longer available
+        if (onHintToggle) {
+          onHintToggle(hint, true); // true means it's currently selected, so toggle it off
+        }
       });
+    }
+  }, [hints, selectedHints, onHintToggle]);
+
+  // Initialize Pusher
+  useEffect(() => {
+    if (!conversationId) return;
+
+    const pusher = new Pusher(process.env.REACT_APP_PUSHER_KEY, {
+      cluster: process.env.REACT_APP_PUSHER_CLUSTER
+    });
+
+    const channel = pusher.subscribe(`conversation-${conversationId}`);
+
+    channel.bind('hint_ready', (data) => {
+      console.log(`[Hints] Received: ${data.data.word}`);
+
+      setHints(prev => {
+        // FIFO: Add new to end, remove from start if > MAX
+        const updated = [...prev, data.data];
+        if (updated.length > MAX_HINTS) {
+          return updated.slice(-MAX_HINTS); // Keep last 20
+        }
+        return updated;
+      });
+    });
+
+    channel.bind('hint_ready_complete', (data) => {
+      console.log(`[Hints] Streaming complete: ${data.count} hints`);
+      setIsStreaming(false);
+      if (onLoadingChange) onLoadingChange(false);
+    });
+
+    channel.bind('hint_ready_error', (data) => {
+      console.error('[Hints] Error:', data.error);
+      setIsStreaming(false);
+      if (onLoadingChange) onLoadingChange(false);
+      if (onShowToast) onShowToast(`Error: ${data.error}`);
+    });
+
+    pusherRef.current = pusher;
+    return () => {
+      pusher.unsubscribe(`conversation-${conversationId}`);
+      pusher.disconnect();
+    };
+  }, [conversationId, onLoadingChange, onShowToast]);
+
+  const fetchHints = useCallback(async () => {
+    if (!conversationId || containerHoverRef.current) {
+      console.log('[Hints] Skipping fetch - no conversationId or hovering');
+      return;
+    }
+
+    // Clear existing and start streaming
+    console.log('[Hints] Starting new stream');
+    setHints([]);
+    setIsStreaming(true);
+    if (onLoadingChange) onLoadingChange(true);
+
+    const apiBaseUrl = process.env.REACT_APP_API_BASE_URL ||
+                       window.API_BASE_URL ||
+                       (process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '');
+
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/conversations/${conversationId}/hints/stream`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
 
       if (!response.ok) {
-        throw new Error(response.status === 401 || response.status === 403 ? 'Authentication required' : response.status === 404 ? 'Conversation not found' : 'Request failed');
+        throw new Error('Failed to start streaming');
       }
 
-      const data = await response.json();
-      console.log('[Hints] ✅ Received hints:', data.hints?.length || 0);
-      if (!containerHoverRef.current) {
-        setHints(data.hints || []);
-      } else {
-        console.log('[Hints] ⏸️ Not updating - hover detected during fetch');
-      }
+      console.log('[Hints] Streaming request sent successfully');
     } catch (err) {
-      console.error('[Hints] ❌ Error fetching hints:', err);
-      setError(err.message);
-      if (!containerHoverRef.current) {
-        setHints([]);
-      }
-    } finally {
-      setIsLoading(false);
+      console.error('[Hints] Error:', err);
+      setIsStreaming(false);
       if (onLoadingChange) onLoadingChange(false);
+      if (onShowToast) onShowToast('Failed to load hints');
     }
-  }, [conversationId, onLoadingChange]);
+  }, [conversationId, onLoadingChange, onShowToast]);
 
-  // Fetch hints from API when conversationId is available
+  // Auto-fetch on mount
   useEffect(() => {
-    if (!conversationId) {
-      setHints([]);
-      setError('No conversation ID provided');
-      return;
-    }
+    if (!conversationId) return;
 
     fetchHints();
   }, [conversationId, fetchHints]);
+
+  // Register refresh callback
+  useEffect(() => {
+    if (onRegisterRefresh) {
+      const refreshHandler = () => {
+        console.log('[Hints] Refresh handler called');
+        if (containerHoverRef.current) {
+          console.log('[Hints] Currently hovering, queueing refresh');
+          pendingRefreshRef.current = true;
+          if (onShowToast) {
+            onShowToast('New hints available - will update when you move away');
+          }
+        } else {
+          console.log('[Hints] Not hovering, refreshing immediately');
+          fetchHints();
+        }
+      };
+
+      console.log('[Hints] Registering refresh handler');
+      onRegisterRefresh(refreshHandler);
+
+      return () => {
+        console.log('[Hints] Unregistering refresh handler');
+        if (onRegisterRefresh) {
+          onRegisterRefresh(null);
+        }
+      };
+    }
+  }, [onRegisterRefresh, onShowToast, fetchHints]);
 
   // Calculate optimal grid layout
   const gridConfig = useMemo(() => {
@@ -87,7 +168,7 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
 
     const normalized = hint.word.toLowerCase();
     const isSelected = selectedHintsSet.has(normalized);
-    
+
     hoverTimerRef.current = setTimeout(() => {
       if (onHintToggle) {
         onHintToggle(hint.word, isSelected);
@@ -103,53 +184,21 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
   };
 
   const handleContainerMouseEnter = () => {
-    console.log('[Hints] 🖱️ Container hover started');
+    console.log('[Hints] Container hover started');
     containerHoverRef.current = true;
   };
 
   const handleContainerMouseLeave = () => {
-    console.log('[Hints] 🖱️ Container hover ended');
+    console.log('[Hints] Container hover ended');
     containerHoverRef.current = false;
-    
+
     // If there's a pending refresh, do it now
     if (pendingRefreshRef.current) {
-      console.log('[Hints] 🔄 Executing pending refresh');
+      console.log('[Hints] Executing pending refresh');
       pendingRefreshRef.current = false;
       fetchHints();
     }
   };
-
-  // Register refresh callback with parent
-  useEffect(() => {
-    if (onRegisterRefresh) {
-      const refreshHandler = () => {
-        console.log('[Hints] 🔄 Refresh handler called');
-        // Check if we're currently hovering
-        if (containerHoverRef.current) {
-          console.log('[Hints] ⏸️ Currently hovering, queueing refresh');
-          // Queue refresh for when hover ends
-          pendingRefreshRef.current = true;
-          if (onShowToast) {
-            onShowToast('New hints available - will update when you move away');
-          }
-        } else {
-          console.log('[Hints] ✅ Not hovering, refreshing immediately');
-          // Refresh immediately
-          fetchHints();
-        }
-      };
-      
-      console.log('[Hints] 📝 Registering refresh handler');
-      onRegisterRefresh(refreshHandler);
-      
-      return () => {
-        console.log('[Hints] 🧹 Unregistering refresh handler');
-        if (onRegisterRefresh) {
-          onRegisterRefresh(null);
-        }
-      };
-    }
-  }, [onRegisterRefresh, onShowToast, fetchHints]);
 
   useEffect(() => {
     return () => {
@@ -165,12 +214,7 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
       onMouseEnter={handleContainerMouseEnter}
       onMouseLeave={handleContainerMouseLeave}
     >
-      {error && !isLoading && (
-        <div className="flex-1 flex items-center justify-center bg-yellow-600/90 text-white px-4 py-2">
-          <div className="text-lg">{error}</div>
-        </div>
-      )}
-      {hints.length === 0 && !error && (
+      {hints.length === 0 && !isStreaming && (
         <div className="flex-1 flex items-center justify-center bg-bg-main">
           <div className="text-white text-lg">No hints available</div>
         </div>
@@ -185,11 +229,11 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
         >
           {hints.map((hint, index) => {
           const isSelected = selectedHintsSet.has(hint.word.toLowerCase());
-          
+
           // Check if this item is in the last row
           const rowIndex = Math.floor(index / gridConfig.cols);
           const isInLastRow = rowIndex === gridConfig.rows - 1;
-          
+
           // Calculate column span for last row items if incomplete
           let gridColumnSpan = 1;
           if (isInLastRow && gridConfig.lastRowIsIncomplete) {
@@ -202,7 +246,7 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
               gridColumnSpan += 1;
             }
           }
-          
+
           return (
             <button
               key={`${hint.word}-${index}`}
@@ -230,9 +274,19 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
         })}
         </div>
       )}
+      {/* Show loading skeletons while streaming */}
+      {hints.length === 0 && isStreaming && (
+        <div className="flex-1 grid grid-cols-5 gap-2 p-2">
+          {Array.from({ length: 10 }, (_, index) => (
+            <div key={`skeleton-${index}`} className="relative flex flex-col items-center justify-center bg-key-front/30 border border-key-border/30 rounded-lg p-4 animate-pulse">
+              <div className="w-12 h-12 bg-gray-500/30 rounded mb-2"></div>
+              <div className="h-4 bg-gray-500/30 rounded w-16"></div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
 
 export default Hints;
-

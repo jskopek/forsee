@@ -191,7 +191,27 @@ const App = () => {
   };
 
   const hintText = selectedHints.join(' ');
-  const displayText = currentText || keyboardPrefix || 'Start typing...';
+
+  // Build display text showing prefix + hints (or current text if suggestion was selected)
+  const buildDisplayText = () => {
+    if (currentText) {
+      // A suggestion was selected, show it
+      return currentText;
+    }
+
+    // Show prefix + hints
+    const parts = [];
+    if (keyboardPrefix) {
+      parts.push(keyboardPrefix);
+    }
+    if (selectedHints.length > 0) {
+      parts.push(selectedHints.join(' '));
+    }
+
+    return parts.length > 0 ? parts.join(' ') : 'Start typing...';
+  };
+
+  const displayText = buildDisplayText();
 
   return (
     <div className="text-center min-h-screen flex flex-col bg-bg-main" style={{ '--dwell-time': `${dwellTime}ms` }}>
@@ -208,10 +228,27 @@ const App = () => {
               onShowToast={setToastMessage}
             />
             <div
-              className="h-14 flex items-center justify-center bg-white border border-border-light rounded-md text-lg font-[system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji',sans-serif] px-3 min-w-0 overflow-hidden whitespace-nowrap text-ellipsis"
+              className="h-14 flex items-center justify-start bg-white border border-border-light rounded-md text-lg font-[system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji',sans-serif] px-3 min-w-0 overflow-hidden whitespace-nowrap text-ellipsis"
               title={displayText}
             >
-              {displayText}
+              {/* Show prefix and hints with visual distinction */}
+              {currentText ? (
+                // Show selected suggestion
+                <span>{currentText}</span>
+              ) : (
+                <>
+                  {keyboardPrefix && (
+                    <span className="font-bold text-blue-600">{keyboardPrefix}</span>
+                  )}
+                  {keyboardPrefix && selectedHints.length > 0 && <span>&nbsp;</span>}
+                  {selectedHints.length > 0 && (
+                    <span className="text-gray-600">{selectedHints.join(' ')}</span>
+                  )}
+                  {!keyboardPrefix && selectedHints.length === 0 && (
+                    <span className="text-gray-400">Start typing...</span>
+                  )}
+                </>
+              )}
             </div>
             <button
               className="relative h-14 px-4 rounded-none border-none bg-transparent text-base cursor-pointer overflow-hidden text-white min-w-[120px] before:content-[''] before:absolute before:inset-0 before:bg-space-back before:transition-colors before:duration-[120ms] before:ease-in-out before:rounded-none before:z-[1] after:content-[''] after:absolute after:inset-1 after:bg-space-front after:border after:border-space-border after:rounded-lg after:transition-all after:duration-[120ms] after:ease-in-out after:z-[1] hover:before:bg-space-back-hover hover:after:bg-space-front-hover hover:after:border-space-border-hover group"

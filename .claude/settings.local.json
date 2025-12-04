@@ -3,7 +3,9 @@
     "allow": [
       "Bash(poetry run python:*)",
       "Bash(poetry show:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(pip install:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []
