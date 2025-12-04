@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import Pusher from 'pusher-js';
 
 const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, onShowToast, onRegisterRefresh, onLoadingChange }) => {
-  const MAX_HINTS = 20;
+  const MAX_HINTS = 19; // Reserve one slot for "More" button
 
   // FIFO queue: newest hints push out oldest
   const [hints, setHints] = useState([]);
@@ -74,14 +74,15 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
     };
   }, [conversationId, onLoadingChange, onShowToast]);
 
-  const fetchHints = useCallback(async () => {
-    if (!conversationId || containerHoverRef.current) {
+  const fetchHints = useCallback(async (excludeWords = [], forceRefresh = false) => {
+    // Skip if hovering UNLESS it's a forced refresh (from "More" button)
+    if (!conversationId || (containerHoverRef.current && !forceRefresh)) {
       console.log('[Hints] Skipping fetch - no conversationId or hovering');
       return;
     }
 
     // Clear existing and start streaming
-    console.log('[Hints] Starting new stream');
+    console.log('[Hints] Starting new stream', excludeWords.length > 0 ? `(excluding ${excludeWords.length} hints)` : '');
     setHints([]);
     setIsStreaming(true);
     if (onLoadingChange) onLoadingChange(true);
@@ -96,7 +97,10 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
         {
           method: 'POST',
           credentials: 'include',
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            exclude_words: excludeWords
+          })
         }
       );
 
@@ -149,13 +153,14 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
     }
   }, [onRegisterRefresh, onShowToast, fetchHints]);
 
-  // Calculate optimal grid layout
+  // Calculate optimal grid layout (including "More" button)
   const gridConfig = useMemo(() => {
-    const hintCount = hints.length;
+    // Add 1 for the "More" button
+    const totalItems = hints.length + 1;
     // Try to create a roughly square grid
-    const cols = Math.ceil(Math.sqrt(hintCount));
-    const rows = Math.ceil(hintCount / cols);
-    const itemsInLastRow = hintCount % cols || cols;
+    const cols = Math.ceil(Math.sqrt(totalItems));
+    const rows = Math.ceil(totalItems / cols);
+    const itemsInLastRow = totalItems % cols || cols;
     const lastRowIsIncomplete = itemsInLastRow < cols;
     return { cols, rows, itemsInLastRow, lastRowIsIncomplete };
   }, [hints]);
@@ -181,6 +186,19 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
       clearTimeout(hoverTimerRef.current);
       hoverTimerRef.current = null;
     }
+  };
+
+  const handleMoreHover = () => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+    }
+
+    hoverTimerRef.current = setTimeout(() => {
+      // Get all current hint words to exclude
+      const currentWords = hints.map(h => h.word);
+      console.log('[Hints] "More" button activated - fetching new hints excluding:', currentWords);
+      fetchHints(currentWords, true); // Force refresh even while hovering
+    }, dwellTime);
   };
 
   const handleContainerMouseEnter = () => {
@@ -272,6 +290,20 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
             </button>
           );
         })}
+
+        {/* "More" button - always in bottom right */}
+        <button
+          className="relative flex flex-col items-center justify-center w-full h-full border-none outline-none bg-transparent text-white text-xl cursor-pointer overflow-hidden before:content-[''] before:absolute before:inset-0 before:bg-primary-back before:transition-colors before:duration-[120ms] before:ease-in-out before:z-[1] after:content-[''] after:absolute after:inset-1 after:bg-gradient-to-br after:from-primary-gradient-start after:to-primary-gradient-end after:border after:border-primary-border after:rounded-lg after:transition-all after:duration-[120ms] after:ease-in-out after:z-[1] hover:before:bg-primary-back-hover hover:after:from-primary-gradient-start-hover hover:after:to-primary-gradient-end-hover hover:after:border-primary-border-hover group"
+          onMouseEnter={handleMoreHover}
+          onMouseLeave={handleHintLeave}
+        >
+          <span
+            className="absolute inset-1 rounded-lg bg-white/28 origin-left z-[2] pointer-events-none animate-dwell-fill"
+            aria-hidden="true"
+          />
+          <span className="relative z-[3] text-4xl mb-2">🔄</span>
+          <span className="relative z-[3] font-semibold">More</span>
+        </button>
         </div>
       )}
       {/* Show loading skeletons while streaming */}

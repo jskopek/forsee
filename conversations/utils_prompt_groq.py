@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import time
 from groq import Groq
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,10 @@ def stream_suggestions_with_tools(conversation, hint=None, prefix=None):
     logger.info(f"Groq streaming suggestions for conversation {conversation.id} (hint={bool(hint)}, prefix={prefix or 'None'})")
 
     try:
+        start_time = time.time()
+        first_token_time = None
+        total_tokens = 0
+
         stream = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
@@ -118,6 +123,16 @@ def stream_suggestions_with_tools(conversation, hint=None, prefix=None):
         suggestion_count = 0
 
         for chunk in stream:
+            # Track first token time
+            if first_token_time is None:
+                first_token_time = time.time()
+
+            # Count tokens (approximate by character length of streaming content)
+            if hasattr(chunk.choices[0].delta, 'tool_calls') and chunk.choices[0].delta.tool_calls:
+                if hasattr(chunk.choices[0].delta.tool_calls[0], 'function'):
+                    if hasattr(chunk.choices[0].delta.tool_calls[0].function, 'arguments'):
+                        total_tokens += len(chunk.choices[0].delta.tool_calls[0].function.arguments) // 4  # Rough token estimate
+
             delta = chunk.choices[0].delta
 
             if hasattr(delta, 'tool_calls') and delta.tool_calls:
@@ -138,24 +153,30 @@ def stream_suggestions_with_tools(conversation, hint=None, prefix=None):
                                 tool_call_buffer = ""
 
                                 if suggestion_count >= N_SUGGESTIONS:
-                                    return
+                                    break
                     except json.JSONDecodeError:
                         # Not complete yet, keep buffering
                         continue
 
-        logger.info(f"Streaming complete: {suggestion_count} suggestions generated")
+        end_time = time.time()
+        total_time = end_time - start_time
+        ttft = first_token_time - start_time if first_token_time else 0
+        tokens_per_sec = total_tokens / total_time if total_time > 0 else 0
+
+        logger.info(f"Streaming complete: {suggestion_count} suggestions | {total_time:.2f}s total | TTFT: {ttft:.2f}s | ~{tokens_per_sec:.1f} tokens/sec")
     except Exception as e:
         logger.error(f"Error streaming suggestions: {e}", exc_info=True)
         raise
 
 
-def stream_hints_with_tools(conversation):
+def stream_hints_with_tools(conversation, exclude_words=None):
     """
     Stream hints using Groq tool calls.
     Yields each hint dict as soon as the model generates it.
 
     Args:
         conversation: Conversation model instance
+        exclude_words: Optional list of words to exclude from hints
 
     Yields:
         dict: Each hint with 'word' and 'emoji' keys
@@ -185,12 +206,18 @@ def stream_hints_with_tools(conversation):
     last_message = recent[-1] if recent else None
     last_message_text = last_message.get("body", "") if last_message else ""
 
+    # Build system prompt with exclusion instructions if needed
     system_prompt = (
         f"Generate {N_HINTS} single-word hints by calling push_hint exactly {N_HINTS} times.\n"
         "Each hint: ONE word (no spaces/hyphens) + ONE emoji.\n"
         "Cover diverse response directions: emotions, actions, topics.\n"
-        "Call push_hint immediately as you think of each hint."
     )
+
+    if exclude_words and len(exclude_words) > 0:
+        system_prompt += f"\nIMPORTANT: Do NOT use any of these words: {', '.join(exclude_words)}.\n"
+        system_prompt += "Generate completely different words that are not in this exclusion list.\n"
+
+    system_prompt += "Call push_hint immediately as you think of each hint."
 
     user_payload = {
         "formality": contact_formality,
@@ -198,6 +225,9 @@ def stream_hints_with_tools(conversation):
         "transcript": transcript,
         "last_message": last_message_text,
     }
+
+    if exclude_words and len(exclude_words) > 0:
+        user_payload["excluded_words"] = exclude_words
 
     tools = [{
         "type": "function",
@@ -215,9 +245,13 @@ def stream_hints_with_tools(conversation):
         }
     }]
 
-    logger.info(f"Groq streaming hints for conversation {conversation.id}")
+    logger.info(f"Groq streaming hints for conversation {conversation.id} (excluding {len(exclude_words or [])} words)")
 
     try:
+        start_time = time.time()
+        first_token_time = None
+        total_tokens = 0
+
         stream = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
@@ -234,7 +268,20 @@ def stream_hints_with_tools(conversation):
         hint_count = 0
         seen_words = set()
 
+        # Create set of excluded words for fast lookup
+        excluded_set = set((exclude_words or []))
+
         for chunk in stream:
+            # Track first token time
+            if first_token_time is None:
+                first_token_time = time.time()
+
+            # Count tokens (approximate by character length of streaming content)
+            if hasattr(chunk.choices[0].delta, 'tool_calls') and chunk.choices[0].delta.tool_calls:
+                if hasattr(chunk.choices[0].delta.tool_calls[0], 'function'):
+                    if hasattr(chunk.choices[0].delta.tool_calls[0].function, 'arguments'):
+                        total_tokens += len(chunk.choices[0].delta.tool_calls[0].function.arguments) // 4  # Rough token estimate
+
             delta = chunk.choices[0].delta
 
             if hasattr(delta, 'tool_calls') and delta.tool_calls:
@@ -249,6 +296,12 @@ def stream_hints_with_tools(conversation):
                             word = args['word'].strip().lower()
                             emoji = args['emoji'].strip()
 
+                            # Skip if word is in exclusion list
+                            if word in excluded_set:
+                                logger.info(f"Skipping excluded word: {word}")
+                                tool_call_buffer = ""
+                                continue
+
                             # Deduplicate
                             if word and emoji and word not in seen_words:
                                 seen_words.add(word)
@@ -258,11 +311,16 @@ def stream_hints_with_tools(conversation):
                                 tool_call_buffer = ""
 
                                 if hint_count >= N_HINTS:
-                                    return
+                                    break
                     except json.JSONDecodeError:
                         continue
 
-        logger.info(f"Streaming complete: {hint_count} hints generated")
+        end_time = time.time()
+        total_time = end_time - start_time
+        ttft = first_token_time - start_time if first_token_time else 0
+        tokens_per_sec = total_tokens / total_time if total_time > 0 else 0
+
+        logger.info(f"Streaming complete: {hint_count} hints | {total_time:.2f}s total | TTFT: {ttft:.2f}s | ~{tokens_per_sec:.1f} tokens/sec")
     except Exception as e:
         logger.error(f"Error streaming hints: {e}", exc_info=True)
         raise

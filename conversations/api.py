@@ -259,8 +259,12 @@ def stream_suggestions(request, conversation_id: UUID, body: SuggestionsRequest)
     return {"status": "streaming"}
 
 
+class HintsStreamRequest(BaseModel):
+    exclude_words: list[str] | None = Field(default=None, description="Words to exclude from hint generation")
+
+
 @api_router.post("/{conversation_id}/hints/stream", response=StreamingStatusResponse)
-def stream_hints(request, conversation_id: UUID):
+def stream_hints(request, conversation_id: UUID, body: HintsStreamRequest = None):
     """
     Start streaming hints via Pusher.
     Returns immediately; hints arrive via WebSocket events.
@@ -275,13 +279,19 @@ def stream_hints(request, conversation_id: UUID):
 
     conversation = get_conversation_or_404(conversation_id, request.user)
 
+    # Get excluded words from request body
+    exclude_words = []
+    if body and body.exclude_words:
+        exclude_words = [word.lower().strip() for word in body.exclude_words if word.strip()]
+
     channel_name = f'conversation-{conversation_id}'
 
     _stream_to_pusher(
         stream_hints_with_tools,
         channel_name,
         'hint_ready',
-        conversation
+        conversation,
+        exclude_words
     )
 
     return {"status": "streaming"}
