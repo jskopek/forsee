@@ -15,8 +15,8 @@ else:
     OpenAI = Any
 
 if TYPE_CHECKING:
-    from accounts.models import User
     from contacts.models import Contact
+    from home.models import PatientProfile
 
 
 DEFAULT_CONTACT_MODEL = os.getenv("OPENAI_MOCK_CONTACT_MODEL", "gpt-4o-mini")
@@ -184,14 +184,18 @@ class MockContactProfileGenerator:
     def generate(
         self,
         *,
-        user: "User",
+        patient_profile: "PatientProfile",
         existing_contacts: Iterable["Contact"] | None = None,
     ) -> MockContactProfile:
-        snapshot_contacts = list(existing_contacts) if existing_contacts is not None else list(
-            user.contacts.all()
-        )
+        if existing_contacts is None:
+            from contacts.models import Contact  # Local import to avoid circulars
+
+            snapshot_contacts = list(Contact.objects.all())
+        else:
+            snapshot_contacts = list(existing_contacts)
+
         archetype = _select_archetype(snapshot_contacts)
-        prompt = _build_prompt(user, snapshot_contacts, archetype)
+        prompt = _build_prompt(patient_profile, snapshot_contacts, archetype)
 
         response = self.client.responses.create(
             model=self.model,
@@ -241,10 +245,10 @@ def _select_archetype(existing_contacts: Sequence["Contact"]) -> ContactArchetyp
     return random.choice(pool)
 
 
-def _build_prompt(user: "User", contacts: Sequence["Contact"], archetype: ContactArchetype) -> str:
-    patient_snapshot = _build_patient_snapshot(user)
+def _build_prompt(patient_profile: "PatientProfile", contacts: Sequence["Contact"], archetype: ContactArchetype) -> str:
+    patient_snapshot = _build_patient_snapshot(patient_profile)
     contacts_digest = _build_contacts_digest(contacts)
-    shared_touchpoints = _build_shared_touchpoints(user, contacts)
+    shared_touchpoints = _build_shared_touchpoints(patient_profile, contacts)
 
     relationship_directives = (
         f"- Relationship archetype to embody: {archetype.label}. "
@@ -283,12 +287,12 @@ def _build_prompt(user: "User", contacts: Sequence["Contact"], archetype: Contac
     )
 
 
-def _build_patient_snapshot(user: "User") -> str:
-    name = user.full_name or user.email
-    location = user.location.strip() if user.location else ""
-    medical = _compact_text(user.medical_condition)
-    interests = _split_text_block(user.interests)
-    sports = _split_text_block(user.sports_teams)
+def _build_patient_snapshot(patient_profile: "PatientProfile") -> str:
+    name = patient_profile.full_name or "Primary communicator"
+    location = patient_profile.location.strip() if patient_profile.location else ""
+    medical = _compact_text(patient_profile.medical_condition)
+    interests = _split_text_block(patient_profile.interests)
+    sports = _split_text_block(patient_profile.sports_teams)
 
     parts = [f"- Identifier: {name}"]
     if location:
@@ -324,9 +328,9 @@ def _build_contacts_digest(contacts: Sequence["Contact"]) -> str:
     return "\n".join(rows)
 
 
-def _build_shared_touchpoints(user: "User", contacts: Sequence["Contact"]) -> str:
-    patient_interests = _split_text_block(user.interests)
-    patient_sports = _split_text_block(user.sports_teams)
+def _build_shared_touchpoints(patient_profile: "PatientProfile", contacts: Sequence["Contact"]) -> str:
+    patient_interests = _split_text_block(patient_profile.interests)
+    patient_sports = _split_text_block(patient_profile.sports_teams)
 
     already_used = []
     for contact in contacts:

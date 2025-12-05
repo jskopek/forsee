@@ -47,17 +47,12 @@ class MessageResponse(BaseModel):
     created_at: str
 
 
-def get_conversation_or_404(conversation_id: UUID, user) -> Conversation:
-    """Get conversation and verify user has access."""
+def get_conversation_or_404(conversation_id: UUID) -> Conversation:
+    """Return a conversation or raise a 404 error."""
     try:
-        conversation = Conversation.objects.get(pk=conversation_id)
+        return Conversation.objects.get(pk=conversation_id)
     except Conversation.DoesNotExist:
         raise HttpError(404, "Conversation not found")
-    
-    if conversation.owner != user and not user.is_superuser:
-        raise HttpError(404, "Conversation not found")
-    
-    return conversation
 
 
 @api_router.get("/{conversation_id}/hints", response=HintsResponse)
@@ -67,10 +62,7 @@ def get_hints(request, conversation_id: UUID):
     Returns a list of word-emoji pairs that can help the user respond.
     Note: For better performance, use /hints/stream endpoint instead.
     """
-    if not request.user.is_authenticated:
-        raise HttpError(401, "Authentication required")
-
-    conversation = get_conversation_or_404(conversation_id, request.user)
+    conversation = get_conversation_or_404(conversation_id)
 
     # Collect all hints from streaming generator
     hints = list(stream_hints_with_tools(conversation))
@@ -87,10 +79,7 @@ def get_suggestions(request, conversation_id: UUID, body: SuggestionsRequest):
     Optionally accepts a hint text to guide the suggestions.
     Note: For better performance, use /suggestions/stream endpoint instead.
     """
-    if not request.user.is_authenticated:
-        raise HttpError(401, "Authentication required")
-
-    conversation = get_conversation_or_404(conversation_id, request.user)
+    conversation = get_conversation_or_404(conversation_id)
 
     # Use hint and prefix from request body, or None if empty
     hint_text = body.hint.strip() if body.hint else None
@@ -110,10 +99,7 @@ def add_message(request, conversation_id: UUID, body: AddMessageRequest):
     Add a message to a conversation.
     Optionally specify sender ('user' or 'contact'). If not provided, alternates from last message.
     """
-    if not request.user.is_authenticated:
-        raise HttpError(401, "Authentication required")
-    
-    conversation = get_conversation_or_404(conversation_id, request.user)
+    conversation = get_conversation_or_404(conversation_id)
     
     # Validate body is not empty
     body_text = body.body.strip()
@@ -163,10 +149,7 @@ def clear_messages(request, conversation_id: UUID):
     """
     Delete all messages from a conversation.
     """
-    if not request.user.is_authenticated:
-        raise HttpError(401, "Authentication required")
-
-    conversation = get_conversation_or_404(conversation_id, request.user)
+    conversation = get_conversation_or_404(conversation_id)
 
     # Delete all messages and return count
     deleted_count, _ = conversation.messages.all().delete()
@@ -236,10 +219,7 @@ def stream_suggestions(request, conversation_id: UUID, body: SuggestionsRequest)
     - suggestion_ready_complete: {count: int}
     - suggestion_ready_error: {error: str}
     """
-    if not request.user.is_authenticated:
-        raise HttpError(401, "Authentication required")
-
-    conversation = get_conversation_or_404(conversation_id, request.user)
+    conversation = get_conversation_or_404(conversation_id)
 
     hint = body.hint.strip() if body.hint else None
     prefix = body.prefix.strip() if body.prefix else None
@@ -274,10 +254,7 @@ def stream_hints(request, conversation_id: UUID, body: HintsStreamRequest = None
     - hint_ready_complete: {count: int}
     - hint_ready_error: {error: str}
     """
-    if not request.user.is_authenticated:
-        raise HttpError(401, "Authentication required")
-
-    conversation = get_conversation_or_404(conversation_id, request.user)
+    conversation = get_conversation_or_404(conversation_id)
 
     # Get excluded words from request body
     exclude_words = []

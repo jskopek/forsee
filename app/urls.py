@@ -18,6 +18,7 @@ from django.contrib import admin
 from django.urls import path, include
 from ninja import NinjaAPI
 
+from contacts.views import ContactListView
 from conversations.api import api_router
 
 api = NinjaAPI()
@@ -26,12 +27,8 @@ api.add_router("/conversations", api_router)
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', api.urls),
-    path('accounts/', include('allauth.urls')),
-    path('hijack/', include(('hijack.urls', 'hijack'), namespace='hijack')),
-    path('administrator/', include('administrator.urls')),
-    path('', include('accounts.urls')),
     path('contacts/', include('contacts.urls')),
     path('conversations/', include('conversations.urls')),
     path('django-rq/', include('django_rq.urls')),
-    path('', include('home.urls')),
+    path('', ContactListView.as_view(), name='home'),
 ]

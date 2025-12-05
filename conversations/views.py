@@ -5,9 +5,8 @@ from typing import Any
 from contacts.models import Contact
 from django.conf import settings
 from django.contrib import messages
-from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db.models import Prefetch
-from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import redirect, render
 from django.views import View, generic
 from django.views.generic.detail import SingleObjectMixin
@@ -15,16 +14,17 @@ from django.views.generic.detail import SingleObjectMixin
 from .utils import is_htmx
 from .utils_mock_conversations import MockConversationError, create_mock_conversation
 from .models import Conversation, Message
+from home.utils import get_patient_profile
 
 
-class ConversationListView(LoginRequiredMixin, generic.ListView):
+class ConversationListView(generic.ListView):
     model = Conversation
     template_name = "conversations/conversation_list.html"
     context_object_name = "conversations"
 
     def get_queryset(self):
         return (
-            Conversation.objects.filter(owner=self.request.user)
+            Conversation.objects.all()
             .select_related("contact")
             .prefetch_related(
                 Prefetch(
@@ -37,11 +37,11 @@ class ConversationListView(LoginRequiredMixin, generic.ListView):
         )
 
 
-class ConversationCreateView(LoginRequiredMixin, View):
+class ConversationCreateView(View):
     template_name = "conversations/conversation_form.html"
 
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        contacts = Contact.objects.filter(user=request.user).order_by("name")
+        contacts = Contact.objects.order_by("name")
         return render(request, self.template_name, {"contacts": contacts})
 
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -50,7 +50,7 @@ class ConversationCreateView(LoginRequiredMixin, View):
 
         # Simple validation
         if not contact_id:
-            contacts = Contact.objects.filter(user=request.user).order_by("name")
+            contacts = Contact.objects.order_by("name")
             return render(
                 request,
                 self.template_name,
@@ -59,9 +59,9 @@ class ConversationCreateView(LoginRequiredMixin, View):
             )
 
         try:
-            contact = Contact.objects.get(id=contact_id, user=request.user)
+            contact = Contact.objects.get(id=contact_id)
         except Contact.DoesNotExist:
-            contacts = Contact.objects.filter(user=request.user).order_by("name")
+            contacts = Contact.objects.order_by("name")
             return render(
                 request,
                 self.template_name,
@@ -71,7 +71,7 @@ class ConversationCreateView(LoginRequiredMixin, View):
 
         # Validate title length
         if title and len(title) > 255:
-            contacts = Contact.objects.filter(user=request.user).order_by("name")
+            contacts = Contact.objects.order_by("name")
             return render(
                 request,
                 self.template_name,
@@ -80,41 +80,31 @@ class ConversationCreateView(LoginRequiredMixin, View):
             )
 
         conversation = Conversation.objects.create(
-            owner=contact.user,
             contact=contact,
             title=title or contact.name,
         )
         return HttpResponseRedirect(conversation.get_absolute_url())
 
 
-class ConversationQuickStartView(UserPassesTestMixin, LoginRequiredMixin, SingleObjectMixin, View):
+class ConversationQuickStartView(SingleObjectMixin, View):
     model = Contact
-
-    def test_func(self):
-        return self.get_object().user == self.request.user or self.request.user.is_superuser
 
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         contact = self.get_object()
         conversation = Conversation.objects.create(
-            owner=contact.user,
             contact=contact,
             title=contact.name,
         )
         return redirect(conversation.get_absolute_url())
 
 
-class ConversationGenerateView(UserPassesTestMixin, LoginRequiredMixin, SingleObjectMixin, View):
+class ConversationGenerateView(SingleObjectMixin, View):
     model = Contact
-
-    def test_func(self):
-        return self.get_object().user == self.request.user or self.request.user.is_superuser
 
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         contact = self.get_object()
-        if contact.user != self.request.user and not self.request.user.is_superuser:
-            return HttpResponseForbidden()
         try:
-            conversation, transcript = create_mock_conversation(user=contact.user, contact=self.get_object())
+            conversation, transcript = create_mock_conversation(contact=contact, patient_profile=get_patient_profile())
         except MockConversationError as error:
             messages.error(self.request, f"Unable to generate conversation: {error}")
             return redirect(contact.get_absolute_url())
@@ -122,14 +112,11 @@ class ConversationGenerateView(UserPassesTestMixin, LoginRequiredMixin, SingleOb
         return redirect(conversation.get_absolute_url())
 
 
-class ConversationDetailView(UserPassesTestMixin, LoginRequiredMixin, generic.DetailView):
+class ConversationDetailView(generic.DetailView):
     model = Conversation
     template_name = "conversations/conversation_detail.html"
     partial_template_name = "conversations/partials/message_list.html"
     context_object_name = "conversation"
-
-    def test_func(self):
-        return self.get_object().owner == self.request.user or self.request.user.is_superuser
 
     def get_template_names(self):
         if is_htmx(self.request) and self.partial_template_name:
@@ -147,17 +134,15 @@ class ConversationDetailView(UserPassesTestMixin, LoginRequiredMixin, generic.De
         # Pusher configuration for real-time updates
         context["pusher_key"] = settings.PUSHER_KEY
         context["pusher_cluster"] = settings.PUSHER_CLUSTER
+        context["patient_profile"] = get_patient_profile()
         return context
 
 
-class ConversationKeyboardView(UserPassesTestMixin, LoginRequiredMixin, generic.DetailView):
+class ConversationKeyboardView(generic.DetailView):
     """View to serve the keyboard UI for a conversation."""
     model = Conversation
     template_name = "conversations/keyboard.html"
     context_object_name = "conversation"
-
-    def test_func(self):
-        return self.get_object().owner == self.request.user or self.request.user.is_superuser
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
@@ -166,5 +151,4 @@ class ConversationKeyboardView(UserPassesTestMixin, LoginRequiredMixin, generic.
         # React dev server URL (adjust port if needed)
         context["react_dev_url"] = getattr(settings, 'REACT_DEV_SERVER_URL', 'http://localhost:3000')
         return context
-
 

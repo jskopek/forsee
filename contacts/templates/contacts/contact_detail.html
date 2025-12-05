@@ -10,9 +10,6 @@
             {% if object.relationship %}
                 <p class="text-gray-500 mt-1">{{ object.relationship }}</p>
             {% endif %}
-            {% if user.is_superuser %}
-                <p class="text-sm text-gray-400 mt-1">Owner: {{ object.user.email }}</p>
-            {% endif %}
         </div>
         <div class="flex items-center space-x-2">
             <a href="{% url 'contacts:update' object.pk %}" class="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">Edit</a>
@@ -26,14 +23,12 @@
                 <h2 class="text-xl font-semibold text-gray-900">Recent conversations</h2>
                 <p class="text-sm text-gray-500">Showing up to five of your latest chats with {{ object.name }}.</p>
             </div>
-            {% if object.user == user or user.is_superuser %}
-                <form action="{% url 'conversations:quick-start' object.pk %}" method="post" class="shrink-0">
-                    {% csrf_token %}
-                    <button type="submit" class="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
-                        New conversation
-                    </button>
-                </form>
-            {% endif %}
+            <form action="{% url 'conversations:quick-start' object.pk %}" method="post" class="shrink-0">
+                {% csrf_token %}
+                <button type="submit" class="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                    New conversation
+                </button>
+            </form>
         </div>
         <div class="px-6 py-5">
             {% if conversations %}
@@ -75,16 +70,14 @@
                 <p class="text-sm text-gray-500">No conversations yet. Use the actions here to get started.</p>
             {% endif %}
         </div>
-        {% if object.user == user or user.is_superuser %}
-            <div class="border-t border-gray-100 px-6 py-4">
-                <form action="{% url 'conversations:generate' object.pk %}" method="post">
-                    {% csrf_token %}
-                    <button type="submit" class="inline-flex w-full items-center justify-center rounded-md border border-green-200 bg-green-50 px-4 py-2 text-sm font-medium text-green-700 hover:bg-green-100 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
-                        Generate conversation
-                    </button>
-                </form>
-            </div>
-        {% endif %}
+        <div class="border-t border-gray-100 px-6 py-4">
+            <form action="{% url 'conversations:generate' object.pk %}" method="post">
+                {% csrf_token %}
+                <button type="submit" class="inline-flex w-full items-center justify-center rounded-md border border-green-200 bg-green-50 px-4 py-2 text-sm font-medium text-green-700 hover:bg-green-100 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
+                    Generate conversation
+                </button>
+            </form>
+        </div>
     </div>
 
     <div class="bg-white shadow rounded-lg p-6 space-y-5">

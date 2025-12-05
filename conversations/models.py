@@ -1,6 +1,5 @@
 import uuid
 
-from django.conf import settings
 from django.db import models
 from django.urls import reverse
 
@@ -9,11 +8,6 @@ class Conversation(models.Model):
     """A conversation between a user and one of their contacts (AI assisted)."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    owner = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="conversations",
-    )
     contact = models.ForeignKey(
         "contacts.Contact",
         on_delete=models.CASCADE,
@@ -27,8 +21,7 @@ class Conversation(models.Model):
     class Meta:
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["owner", "created_at"]),
-            models.Index(fields=["owner", "contact"]),
+            models.Index(fields=["contact", "created_at"]),
         ]
 
     def __str__(self) -> str:

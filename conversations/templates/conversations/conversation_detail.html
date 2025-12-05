@@ -163,20 +163,20 @@
                             <dl class="space-y-2">
                                 <div>
                                     <dt class="text-sm font-medium text-gray-500">Name</dt>
-                                    <dd>{{ conversation.owner.full_name|default:conversation.owner.email }}</dd>
+                                    <dd>{{ patient_profile.full_name|default:"Primary communicator" }}</dd>
                                 </div>
                                 <div>
                                     <dt class="text-sm font-medium text-gray-500">Location</dt>
-                                    <dd>{{ conversation.owner.location|default:"Not specified" }}</dd>
+                                    <dd>{{ patient_profile.location|default:"Not specified" }}</dd>
                                 </div>
                                 <div>
                                     <dt class="text-sm font-medium text-gray-500">Medical context</dt>
-                                    <dd>{{ conversation.owner.medical_condition|default:"Not captured" }}</dd>
+                                    <dd>{{ patient_profile.medical_condition|default:"Not captured" }}</dd>
                                 </div>
                                 <div>
                                     <dt class="text-sm font-medium text-gray-500">Interests</dt>
                                     <ul class="mt-1 space-y-1 list-disc list-inside">
-                                        {% for interest in conversation.owner.interests %}
+                                        {% for interest in patient_profile.interests_list %}
                                             <li>{{ interest }}</li>
                                         {% empty %}
                                             <li class="list-none text-gray-500">No interests recorded.</li>

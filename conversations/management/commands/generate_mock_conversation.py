@@ -6,6 +6,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError
 
 from contacts.models import Contact
+from home.utils import get_patient_profile
 from conversations.utils_mock_conversations import (
     DEFAULT_MAX_TURNS,
     DEFAULT_MAX_WORDS,
@@ -88,6 +89,8 @@ class Command(BaseCommand):
         if contact is None:
             raise CommandError(f"Could not find contact with identifier '{contact_identifier}'.")
 
+        patient_profile = get_patient_profile()
+
         count = options["count"]
         if count < 1:
             raise CommandError("--count must be at least 1.")
@@ -124,7 +127,7 @@ class Command(BaseCommand):
             try:
                 if dry_run:
                     transcript = generate_mock_conversation_transcript(
-                        user=contact.user,
+                        patient_profile=patient_profile,
                         contact=contact,
                         generator=generator,
                         min_turns=min_turns,
@@ -136,7 +139,7 @@ class Command(BaseCommand):
                     continue
 
                 conversation, transcript = create_mock_conversation(
-                    user=contact.user,
+                    patient_profile=patient_profile,
                     contact=contact,
                     generator=generator,
                     min_turns=min_turns,
@@ -155,12 +158,12 @@ class Command(BaseCommand):
         if not dry_run and created:
             self.stdout.write(
                 self.style.MIGRATE_HEADING(
-                    f"Successfully created {len(created)} conversation(s) for {contact.user} and {contact.name}."
+                    f"Successfully created {len(created)} conversation(s) for {contact.name}."
                 )
             )
 
     def _resolve_contact(self, identifier: str) -> Contact | None:
-        queryset = Contact.objects.select_related("user")
+        queryset = Contact.objects.all()
         try:
             contact_uuid = uuid.UUID(str(identifier))
         except (ValueError, TypeError):
@@ -185,4 +188,3 @@ def _transcript_to_dict(transcript):
             for message in transcript.messages
         ],
     }
-

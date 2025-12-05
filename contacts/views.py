@@ -1,6 +1,5 @@
 from crispy_forms.helper import FormHelper
 from django import forms
-from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Count, OuterRef, Subquery
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
@@ -8,15 +7,6 @@ from django.views.generic import CreateView, DeleteView, DetailView, ListView, U
 from conversations.models import Message
 
 from .models import Contact
-
-
-class ContactMixin(LoginRequiredMixin):
-    model = Contact
-
-    def get_queryset(self):
-        if self.request.user.is_superuser:
-            return Contact.objects.all()
-        return Contact.objects.filter(user=self.request.user)
 
 
 class CrispyFormMixin:
@@ -33,12 +23,15 @@ class CrispyFormMixin:
         return form
 
 
-class ContactListView(ContactMixin, ListView):
+class ContactListView(ListView):
+    model = Contact
     context_object_name = "contacts"
     paginate_by = 20
 
 
-class ContactDetailView(ContactMixin, DetailView):
+class ContactDetailView(DetailView):
+    model = Contact
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         contact = self.object
@@ -55,19 +48,18 @@ class ContactDetailView(ContactMixin, DetailView):
         return context
 
 
-class ContactCreateView(CrispyFormMixin, ContactMixin, CreateView):
-    fields = ["name", "relationship", "formality", "interests", "personality", "notes"]
-
-    def form_valid(self, form):
-        form.instance.user = self.request.user
-        return super().form_valid(form)
-
-
-class ContactUpdateView(CrispyFormMixin, ContactMixin, UpdateView):
+class ContactCreateView(CrispyFormMixin, CreateView):
+    model = Contact
     fields = ["name", "relationship", "formality", "interests", "personality", "notes"]
 
 
-class ContactDeleteView(ContactMixin, DeleteView):
+class ContactUpdateView(CrispyFormMixin, UpdateView):
+    model = Contact
+    fields = ["name", "relationship", "formality", "interests", "personality", "notes"]
+
+
+class ContactDeleteView(DeleteView):
+    model = Contact
     success_url = reverse_lazy("contacts:list")
     template_name = "confirm_delete.html"
 

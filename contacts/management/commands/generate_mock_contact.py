@@ -2,7 +2,6 @@ import json
 import os
 from typing import Any
 
-from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
 from contacts.services.mock_contact_profiles import (
@@ -11,22 +10,18 @@ from contacts.services.mock_contact_profiles import (
     MockContactProfileError,
     MockContactProfileGenerator,
 )
-from contacts.utils.mock_contacts import create_mock_contact, generate_profile_for_user
+from contacts.utils.mock_contacts import create_mock_contact, generate_profile
+from home.utils import get_patient_profile
 
 
 class Command(BaseCommand):
     help = (
-        "Generates mock contacts for a specific ALS user persona using OpenAI and "
+        "Generates mock contacts for the single ALS user profile using OpenAI and "
         "persists them as Contact records."
     )
     requires_system_checks: list[str] = []
 
     def add_arguments(self, parser) -> None:
-        parser.add_argument(
-            "--user",
-            required=True,
-            help="User identifier (primary key or email) to attach generated contacts to.",
-        )
         parser.add_argument(
             "--count",
             type=int,
@@ -62,10 +57,7 @@ class Command(BaseCommand):
         if not api_key:
             raise CommandError("OPENAI_API_KEY environment variable is not set.")
 
-        user_identifier = options["user"]
-        user = self._resolve_user(user_identifier)
-        if user is None:
-            raise CommandError(f"Could not find user with identifier '{user_identifier}'.")
+        patient_profile = get_patient_profile()
 
         count = options["count"]
         if count < 1:
@@ -88,44 +80,30 @@ class Command(BaseCommand):
 
         for _ in range(count):
             try:
-                profile = generate_profile_for_user(generator=generator, user=user)
+                profile = generate_profile(generator=generator, patient_profile=patient_profile)
             except MockContactProfileError as error:
                 raise CommandError(f"Failed to generate mock contact profile: {error}") from error
 
             if dry_run:
                 data = profile.as_contact_kwargs()
-                data["user"] = user.pk
                 self.stdout.write(json.dumps(data, indent=2))
                 continue
 
             contact, _ = create_mock_contact(
                 generator=generator,
-                user=user,
+                patient_profile=patient_profile,
                 profile=profile,
             )
             created_contacts.append(contact)
             self.stdout.write(
                 self.style.SUCCESS(
-                    f"Created mock contact {contact.name} ({contact.relationship}) for {user}"
+                    f"Created mock contact {contact.name} ({contact.relationship})"
                 )
             )
 
         if not dry_run and created_contacts:
             self.stdout.write(
                 self.style.MIGRATE_HEADING(
-                    f"Successfully created {len(created_contacts)} mock contact(s) for {user}."
+                    f"Successfully created {len(created_contacts)} mock contact(s)."
                 )
             )
-
-    def _resolve_user(self, identifier: str):
-        user_model = get_user_model()
-
-        candidate = None
-        if identifier.isdigit():
-            candidate = (
-                user_model.objects.filter(pk=int(identifier)).first()
-            )
-        if candidate:
-            return candidate
-
-        return user_model.objects.filter(email__iexact=identifier).first()

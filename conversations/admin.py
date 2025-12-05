@@ -5,16 +5,16 @@ from .models import Conversation, Message
 
 @admin.register(Conversation)
 class ConversationAdmin(admin.ModelAdmin):
-    list_display = ("id", "owner", "contact", "title", "created_at")
-    list_filter = ("owner", "contact")
-    search_fields = ("title", "contact__name", "owner__email")
+    list_display = ("id", "contact", "title", "created_at")
+    list_filter = ("contact",)
+    search_fields = ("title", "contact__name")
     ordering = ("-created_at",)
 
 
 @admin.register(Message)
 class MessageAdmin(admin.ModelAdmin):
     list_display = ("id", "conversation", "sender", "short_body", "created_at")
-    list_filter = ("sender", "conversation__owner")
+    list_filter = ("sender",)
     search_fields = ("body",)
     ordering = ("created_at",)
 

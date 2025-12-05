@@ -17,8 +17,8 @@ from .models import Conversation, Message
 
 if TYPE_CHECKING:  # pragma: no cover - typing aid
     from openai import OpenAI
-    from accounts.models import User
     from contacts.models import Contact
+    from home.models import PatientProfile
 else:  # pragma: no cover - runtime fallback
     OpenAI = Any
 
@@ -126,7 +126,7 @@ class MockConversationGenerator:
     def generate(
         self,
         *,
-        user: "User",
+        patient_profile: "PatientProfile",
         contact: "Contact",
         min_turns: int = DEFAULT_MIN_TURNS,
         max_turns: int = DEFAULT_MAX_TURNS,
@@ -143,7 +143,7 @@ class MockConversationGenerator:
 
         target_turns = random.randint(min_turns, max_turns)
         prompt_payload = self._build_prompt_payload(
-            user=user,
+            patient_profile=patient_profile,
             contact=contact,
             target_turns=target_turns,
             max_turns=max_turns,
@@ -168,13 +168,13 @@ class MockConversationGenerator:
     def _build_prompt_payload(
         self,
         *,
-        user: "User",
+        patient_profile: "PatientProfile",
         contact: "Contact",
         target_turns: int,
         max_turns: int,
         max_words: int,
     ) -> str:
-        user_snapshot = _build_user_snapshot(user)
+        user_snapshot = _build_user_snapshot(patient_profile)
         contact_snapshot = _build_contact_snapshot(contact)
         relationship = contact_snapshot.get("relationship", "")
         relationship_category = _relationship_category(relationship)
@@ -253,15 +253,15 @@ class MockConversationGenerator:
         return json.dumps(payload, indent=2)
 
 
-def _build_user_snapshot(user: "User") -> Dict[str, Any]:
+def _build_user_snapshot(patient_profile: "PatientProfile") -> Dict[str, Any]:
     return {
-        "id": _serialize_pk(getattr(user, "pk", None)),
-        "full_name": (user.full_name or "").strip(),
-        "email": (user.email or "").strip(),
-        "location": (user.location or "").strip(),
-        "medical_condition": _compact_text(getattr(user, "medical_condition", "")),
-        "interests": _split_text_block(getattr(user, "interests", "")),
-        "sports_teams": _split_text_block(getattr(user, "sports_teams", "")),
+        "id": _serialize_pk(getattr(patient_profile, "pk", None)),
+        "full_name": (patient_profile.full_name or "").strip(),
+        "email": "",
+        "location": (patient_profile.location or "").strip(),
+        "medical_condition": _compact_text(getattr(patient_profile, "medical_condition", "")),
+        "interests": _split_text_block(getattr(patient_profile, "interests", "")),
+        "sports_teams": _split_text_block(getattr(patient_profile, "sports_teams", "")),
     }
 
 
@@ -548,7 +548,7 @@ def _serialize_pk(value) -> str | None:
 # Django-specific utility functions
 def generate_mock_conversation_transcript(
     *,
-    user,
+    patient_profile,
     contact,
     generator: MockConversationGenerator | None = None,
     min_turns: int | None = None,
@@ -560,7 +560,7 @@ def generate_mock_conversation_transcript(
     """
     generator = generator or MockConversationGenerator()
     kwargs = {
-        "user": user,
+        "patient_profile": patient_profile,
         "contact": contact,
         "min_turns": min_turns or DEFAULT_MIN_TURNS,
         "max_turns": max_turns or DEFAULT_MAX_TURNS,
@@ -572,7 +572,7 @@ def generate_mock_conversation_transcript(
 @transaction.atomic
 def create_mock_conversation(
     *,
-    user,
+    patient_profile,
     contact,
     generator: MockConversationGenerator | None = None,
     min_turns: int | None = None,
@@ -583,7 +583,7 @@ def create_mock_conversation(
     Persist a newly generated conversation along with its transcript.
     """
     transcript = generate_mock_conversation_transcript(
-        user=user,
+        patient_profile=patient_profile,
         contact=contact,
         generator=generator,
         min_turns=min_turns,
@@ -595,7 +595,6 @@ def create_mock_conversation(
         max_words=max_words or DEFAULT_MAX_WORDS,
     )
     conversation = Conversation.objects.create(
-        owner=user,
         contact=contact,
         title=(trimmed.title or contact.name)[:255],
     )

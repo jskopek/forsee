@@ -6,6 +6,9 @@ from typing import Annotated
 from pydantic import Field
 from django.conf import settings
 from pydantic import BaseModel
+
+from home.utils import get_patient_profile
+
 from .models import Conversation, Message
 from .utils_prompt_openai import prompt_openai
 
@@ -14,12 +17,13 @@ logger = logging.getLogger(__name__)
 
 def generate_contact_greeting(conversation: Conversation) -> Message | None:
     messages = list(conversation.messages.order_by("created_at", "id"))
+    patient_profile = get_patient_profile()
     system_prompt = (
         f"You are {conversation.contact.name or 'a trusted friend'} sending a short opening message to "
-        f"{conversation.owner.full_name or 'the user'}. Keep it warm and no more than three sentences."
+        f"{patient_profile.full_name or 'the user'}. Keep it warm and no more than three sentences."
     )
     user_prompt = json.dumps({
-        "user_profile": conversation.owner.get_profile_data(),
+        "user_profile": patient_profile.get_profile_data(),
         "contact_profile": conversation.contact.get_profile_data(),
         "conversation_history": [{"sender": m.sender, "body": m.body} for m in messages],
     })
@@ -31,12 +35,13 @@ def generate_contact_greeting(conversation: Conversation) -> Message | None:
 
 def generate_contact_reply(conversation: Conversation, trigger_message: Message) -> Message | None:
     messages = list(conversation.messages.order_by("created_at", "id"))
+    patient_profile = get_patient_profile()
     system_prompt = (
         f"You are {conversation.contact.name or 'a trusted friend'} replying to "
-        f"{conversation.owner.full_name or 'the user'}. Respond kindly and keep it under four sentences."
+        f"{patient_profile.full_name or 'the user'}. Respond kindly and keep it under four sentences."
     )
     user_prompt = json.dumps({
-        "user_profile": conversation.owner.get_profile_data(),
+        "user_profile": patient_profile.get_profile_data(),
         "contact_profile": conversation.contact.get_profile_data(),
         "conversation_history": [{"sender": m.sender, "body": m.body} for m in messages],
     })

@@ -45,23 +45,15 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'django.contrib.sites',
     'corsheaders',
     'compressor',
     'django_rq',
-    'allauth',
-    'allauth.account',
-    'allauth.socialaccount',
-    'accounts',
     'home',
     'contacts',
-    'administrator',
     'conversations',
     'openai_analysis',
     'crispy_forms',
     'crispy_tailwind',
-    'hijack',
-    'hijack.contrib.admin',
 ]
 
 MIDDLEWARE = [
@@ -73,8 +65,6 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'allauth.account.middleware.AccountMiddleware',
-    'hijack.middleware.HijackUserMiddleware',
 ]
 
 # React dev server URL (for CORS configuration)
@@ -193,37 +183,12 @@ COMPRESS_ROOT = BASE_DIR / 'static'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Custom User Model
-AUTH_USER_MODEL = 'accounts.User'
+# Default Django auth user is unused in the product UI but remains for the admin site.
 
-# Django-allauth settings
-SITE_ID = 1
-
-AUTHENTICATION_BACKENDS = [
-    'django.contrib.auth.backends.ModelBackend',
-    'allauth.account.auth_backends.AuthenticationBackend',
-]
-
-# Allauth configuration for email-based authentication
-ACCOUNT_LOGIN_METHODS = {'email'}
-ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*']
-ACCOUNT_USER_MODEL_USERNAME_FIELD = None
-ACCOUNT_EMAIL_VERIFICATION = 'none'
-
-# Redirect URLs
-LOGIN_REDIRECT_URL = '/dashboard/'
-ACCOUNT_LOGOUT_REDIRECT_URL = '/'
-
-# Email backend for development (console output)
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+AUTHENTICATION_BACKENDS = ['django.contrib.auth.backends.ModelBackend']
 
 CRISPY_ALLOWED_TEMPLATE_PACKS = ("tailwind",)
 CRISPY_TEMPLATE_PACK = "tailwind"
-
-HIJACK_ALLOW_GET_REQUESTS = True
-HIJACK_LOGOUT_REDIRECT_URL = '/dashboard/'
-HIJACK_LOGIN_REDIRECT_URL = '/dashboard/'
-HIJACK_INSERT_BEFORE = None
 
 RQ_QUEUES = {
     "default": {
