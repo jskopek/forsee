@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This document outlines a plugin architecture for the Forsee keyboard UI that enables third-party developers to create powerful, self-contained extensions. The design moves LLM prompting logic from the server to client-side plugins, establishing a generic server-side proxy for LLM requests while giving plugins full control over prompts, callbacks, settings, and UI rendering.
+This document outlines a plugin architecture for the Forsee keyboard UI that enables third-party developers to create powerful, self-contained extensions. The design moves LLM prompting logic from the server to client-side plugins, while the server acts as a smart proxy that handles provider/model selection, API key management, and streaming. Plugins define prompts and callbacks, but the server decides which LLM provider to use based on configuration, user tier, or request characteristics.
 
 ---
 
@@ -16,13 +16,19 @@ Each plugin should be a complete, independent module containing:
 - **UI component**: React component for rendering plugin output
 - **Metadata**: Name, description, version, author
 
-### 1.2 Server as Generic Proxy
+### 1.2 Server as Smart Proxy
 The server should:
-- Accept generic LLM requests with custom prompts
+- Accept generic LLM requests with prompts and tools (but NOT provider/model specification)
+- **Intelligently select** provider and model based on:
+  - Server configuration (env vars, database settings)
+  - User tier/plan (free, premium, enterprise)
+  - Request characteristics (tool complexity, cost optimization)
+  - Availability and failover requirements
 - Stream responses back via Pusher/WebSocket
-- NOT contain plugin-specific logic
-- Support multiple LLM providers (Groq, OpenAI, Anthropic, etc.)
-- Handle authentication and rate limiting
+- NOT contain plugin-specific logic (prompts live in plugins)
+- Support multiple LLM providers (Groq, OpenAI, Anthropic, local Ollama)
+- Handle authentication, API key management, and rate limiting
+- **Keep API keys secure** - never exposed to client
 
 ### 1.3 Unified Settings Interface
 - Single settings panel in keyboard UI
@@ -42,13 +48,14 @@ The server should:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     Keyboard UI (React)                      │
+│                  NO API KEYS, NO PROVIDER LOGIC              │
 │                                                              │
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │              Plugin Manager                            │ │
 │  │  - Registers plugins                                   │ │
 │  │  - Manages plugin lifecycle                            │ │
 │  │  - Collects settings schemas                           │ │
-│  │  - Provides LLM request helper                         │ │
+│  │  - Provides LLM request helper (useLLM hook)           │ │
 │  └────────────────────────────────────────────────────────┘ │
 │                           │                                  │
 │           ┌───────────────┼───────────────┐                 │
@@ -66,53 +73,70 @@ The server should:
 │           └───────────────┼───────────────┘                 │
 │                           │                                  │
 │                    ┌──────▼──────┐                          │
-│                    │   LLM       │                          │
-│                    │  Request    │                          │
-│                    │  Client     │                          │
+│                    │  useLLM()   │                          │
+│                    │   Hook      │                          │
+│                    │ (sends only │                          │
+│                    │prompt+tools)│                          │
 │                    └──────┬──────┘                          │
 └───────────────────────────┼─────────────────────────────────┘
                             │
-                      HTTP + WebSocket
+                   HTTP: {prompt, tools, temp}
+                   WebSocket: streaming responses
                             │
 ┌───────────────────────────▼─────────────────────────────────┐
 │                  Django Server                               │
+│               SERVER DECIDES PROVIDER/MODEL                  │
 │                                                              │
 │  ┌────────────────────────────────────────────────────────┐ │
-│  │           Generic LLM Proxy API                        │ │
+│  │           Smart LLM Proxy API                          │ │
 │  │                                                        │ │
 │  │  POST /api/llm/stream                                  │ │
+│  │  CLIENT SENDS:                                         │ │
 │  │  {                                                     │ │
-│  │    provider: "groq" | "openai" | "anthropic",         │ │
-│  │    model: "llama-3.1-8b-instant",                     │ │
-│  │    system_prompt: "...",                              │ │
-│  │    messages: [{role, content}],                       │ │
+│  │    prompt: "Generate 6 suggestions...",                │ │
 │  │    tools: [{name, description, parameters}],          │ │
 │  │    temperature: 0.7,                                  │ │
 │  │    max_tokens: 500,                                   │ │
-│  │    channel_id: "conversation-123"                     │ │
+│  │    stream_id: "client-generated-uuid"                 │ │
 │  │  }                                                     │ │
 │  │                                                        │ │
-│  │  Response: {streaming_id: "xyz"}                       │ │
+│  │  SERVER CHOOSES:                                       │ │
+│  │  - Provider (Groq/OpenAI/Anthropic/Ollama)            │ │
+│  │  - Model (based on user tier, complexity, cost)       │ │
+│  │  - API key (from env/database, never client)          │ │
+│  │                                                        │ │
+│  │  Response: {stream_id: "...", status: "streaming"}    │ │
 │  │                                                        │ │
 │  │  Events streamed to Pusher:                            │ │
-│  │  - llm_token: {streaming_id, token, type}             │ │
-│  │  - llm_tool_call: {streaming_id, name, arguments}     │ │
-│  │  - llm_complete: {streaming_id, usage}                │ │
-│  │  - llm_error: {streaming_id, error}                   │ │
+│  │  - token: {stream_id, token}                          │ │
+│  │  - tool_call: {stream_id, name, arguments}            │ │
+│  │  - complete: {stream_id}                              │ │
+│  │  - error: {stream_id, message}                        │ │
 │  └────────────────────────────────────────────────────────┘ │
 │                           │                                  │
 │                    ┌──────▼──────┐                          │
-│                    │   LLM       │                          │
 │                    │  Provider   │                          │
-│                    │  Adapters   │                          │
+│                    │  Selection  │                          │
+│                    │   Logic     │                          │
+│                    │ (env vars,  │                          │
+│                    │ user tier,  │                          │
+│                    │ fallback)   │                          │
 │                    └──────┬──────┘                          │
-│              ┌────────────┼────────────┐                    │
-│         ┌────▼────┐  ┌────▼────┐  ┌────▼────┐             │
-│         │  Groq   │  │ OpenAI  │  │Anthropic│             │
-│         │ Adapter │  │ Adapter │  │ Adapter │             │
-│         └─────────┘  └─────────┘  └─────────┘             │
+│              ┌────────────┼───────────────┐                 │
+│         ┌────▼────┐  ┌────▼────┐  ┌──────▼──────┐         │
+│         │  Groq   │  │ OpenAI  │  │Local Ollama │         │
+│         │ Adapter │  │ Adapter │  │  Adapter    │         │
+│         └─────────┘  └─────────┘  └─────────────┘         │
+│                                                              │
+│  Environment Config:                                         │
+│  - LLM_PROVIDER=groq (or openai, anthropic, local)         │
+│  - LLM_MODEL=llama-3.1-8b-instant                           │
+│  - GROQ_API_KEY=***                                         │
+│  - OLLAMA_ENDPOINT=http://localhost:11434 (optional)       │
 └──────────────────────────────────────────────────────────────┘
 ```
+
+**Key Insight**: Plugins write prompts, server executes them with the right provider/model.
 
 ---
 
@@ -150,17 +174,15 @@ export interface SettingField {
 }
 
 export interface LLMRequest {
-  provider: 'groq' | 'openai' | 'anthropic';
-  model: string;
-  systemPrompt: string;
-  messages: Array<{role: 'user' | 'assistant', content: string}>;
+  prompt: string;                  // Combined system + user prompt
   tools?: Array<{
     name: string;
     description: string;
     parameters: Record<string, any>;
   }>;
-  temperature?: number;
-  maxTokens?: number;
+  temperature?: number;            // Defaults to 0.7
+  maxTokens?: number;              // Defaults to 500
+  // NOTE: No provider or model - server decides based on configuration
 }
 
 export interface LLMStreamCallbacks {
@@ -269,9 +291,8 @@ const SuggestionsPlugin: Plugin = {
         ? selectedHints.join(', ')
         : null;
 
-      const systemPrompt = `You are a helpful assistant generating natural reply suggestions for a conversation.
-
-The user needs ${settings.numSuggestions} short, natural-sounding reply suggestions.
+      // Client sends only prompt + tools; server decides provider/model
+      const prompt = `Generate ${settings.numSuggestions} natural reply suggestions.
 
 ${keyboardPrefix ? `All suggestions MUST start with: "${keyboardPrefix}"` : ''}
 ${hintText ? `Consider these hint words for guidance: ${hintText}` : ''}
@@ -285,12 +306,7 @@ Requirements:
 Use the push_suggestion tool exactly ${settings.numSuggestions} times.`;
 
       return {
-        provider: 'groq',
-        model: 'llama-3.1-8b-instant',
-        systemPrompt,
-        messages: [
-          { role: 'user', content: 'Generate suggestions now.' }
-        ],
+        prompt,
         tools: [
           {
             name: 'push_suggestion',
@@ -309,6 +325,7 @@ Use the push_suggestion tool exactly ${settings.numSuggestions} times.`;
         ],
         temperature: settings.temperature,
         maxTokens: 500
+        // No provider/model - server decides!
       };
     }, [context]);
 
@@ -455,7 +472,7 @@ const HintsPlugin: Plugin = {
     const buildPrompt = useCallback((excludeWords: string[] = []): LLMRequest => {
       const { settings } = context;
 
-      const systemPrompt = `Generate ${settings.numHints} single-word hints with emojis to guide conversation direction.
+      const prompt = `Generate ${settings.numHints} single-word hints with emojis to guide conversation direction.
 
 ${excludeWords.length > 0 ? `EXCLUDE these words: ${excludeWords.join(', ')}` : ''}
 
@@ -467,12 +484,7 @@ Requirements:
 Use the push_hint tool exactly ${settings.numHints} times.`;
 
       return {
-        provider: 'groq',
-        model: 'llama-3.1-8b-instant',
-        systemPrompt,
-        messages: [
-          { role: 'user', content: 'Generate hints now.' }
-        ],
+        prompt,
         tools: [
           {
             name: 'push_hint',
@@ -489,6 +501,7 @@ Use the push_hint tool exactly ${settings.numHints} times.`;
         ],
         temperature: settings.temperature,
         maxTokens: 800
+        // Server chooses provider/model
       };
     }, [context]);
 
@@ -839,24 +852,20 @@ const SettingField: React.FC<{
 
 ## 5. Server-Side Implementation
 
-### 5.1 Generic LLM Proxy API
+### 5.1 Smart LLM Proxy API
+
+The server receives **only** the prompt and tools from the client, then intelligently selects the provider and model.
 
 ```python
-# conversations/api_llm_proxy.py
+# conversations/api_llm.py
 
 from ninja import Router, Schema
-from typing import Literal, Optional
+from typing import Optional
 import threading
 import json
-from groq import Groq
-import openai
-from anthropic import Anthropic
+from django.conf import settings
 
 router = Router()
-
-class LLMMessage(Schema):
-    role: Literal['user', 'assistant', 'system']
-    content: str
 
 class LLMTool(Schema):
     name: str
@@ -864,56 +873,100 @@ class LLMTool(Schema):
     parameters: dict
 
 class LLMStreamRequest(Schema):
-    provider: Literal['groq', 'openai', 'anthropic']
-    model: str
-    system_prompt: str
-    messages: list[LLMMessage]
+    # CLIENT PROVIDES:
+    prompt: str
     tools: Optional[list[LLMTool]] = None
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = 500
-    channel_id: str
-    streaming_id: str
+    stream_id: str  # Client-generated UUID for matching responses
+
+    # NO provider, NO model, NO API key - server decides!
 
 @router.post("/stream")
-def stream_llm_request(request, data: LLMStreamRequest):
+def stream_llm(request, data: LLMStreamRequest):
     """
-    Generic LLM streaming endpoint.
-    Accepts a prompt and configuration, streams responses back via Pusher.
+    Smart LLM proxy endpoint.
+    Client sends prompt + tools, server decides which provider/model to use.
     """
+
+    # Server decides provider based on configuration
+    provider_config = get_provider_config(request.user)
 
     def stream_in_background():
         try:
-            if data.provider == 'groq':
-                stream_groq(data)
-            elif data.provider == 'openai':
-                stream_openai(data)
-            elif data.provider == 'anthropic':
-                stream_anthropic(data)
+            # Route to appropriate provider based on server config
+            if provider_config.provider == 'groq':
+                stream_groq(data, provider_config)
+            elif provider_config.provider == 'openai':
+                stream_openai(data, provider_config)
+            elif provider_config.provider == 'local':
+                stream_local(data, provider_config)
+            elif provider_config.provider == 'anthropic':
+                stream_anthropic(data, provider_config)
         except Exception as e:
-            _trigger_event(data.channel_id, 'llm_error', {
-                'streaming_id': data.streaming_id,
-                'error': str(e)
-            })
+            trigger_event(data.stream_id, 'error', {'message': str(e)})
 
     thread = threading.Thread(target=stream_in_background)
     thread.start()
 
-    return {"streaming_id": data.streaming_id, "status": "streaming"}
+    return {"stream_id": data.stream_id, "status": "streaming"}
 
 
-def stream_groq(data: LLMStreamRequest):
-    """Stream from Groq API with tool calling support."""
+def get_provider_config(user):
+    """
+    SERVER-SIDE INTELLIGENCE: Determine which LLM provider to use.
+    This is where deployment flexibility lives.
+    """
+    from dataclasses import dataclass
+
+    @dataclass
+    class ProviderConfig:
+        provider: str
+        model: str
+        api_key: str = None
+        endpoint: str = None
+
+    # Option 1: Global setting (simplest for self-hosted)
+    if hasattr(settings, 'LLM_PROVIDER'):
+        return ProviderConfig(
+            provider=settings.LLM_PROVIDER,
+            model=settings.LLM_MODEL,
+            api_key=getattr(settings, 'LLM_API_KEY', None),
+            endpoint=getattr(settings, 'OLLAMA_ENDPOINT', None)
+        )
+
+    # Option 2: Per-user setting (for multi-tenant SaaS)
+    if user and user.is_authenticated:
+        user_settings = getattr(user, 'llm_settings', None)
+        if user_settings:
+            return ProviderConfig(
+                provider=user_settings.provider,
+                model=user_settings.model,
+                api_key=user_settings.api_key or settings.DEFAULT_LLM_API_KEY
+            )
+
+    # Option 3: Smart routing based on request (advanced)
+    # Choose provider based on tools, complexity, cost, etc.
+    # if has_complex_tools(data.tools):
+    #     return ProviderConfig(provider='openai', model='gpt-4o')
+    # else:
+    #     return ProviderConfig(provider='groq', model='llama-3.1-8b-instant')
+
+    # Fallback to default
+    return ProviderConfig(
+        provider=getattr(settings, 'DEFAULT_PROVIDER', 'groq'),
+        model=getattr(settings, 'DEFAULT_MODEL', 'llama-3.1-8b-instant'),
+        api_key=getattr(settings, 'GROQ_API_KEY', None)
+    )
+
+
+def stream_groq(data: LLMStreamRequest, config):
+    """Stream from Groq with server-selected model."""
     from groq import Groq
 
-    client = Groq(api_key=settings.GROQ_API_KEY)
+    client = Groq(api_key=config.api_key)
 
-    messages = [
-        {"role": "system", "content": data.system_prompt}
-    ] + [
-        {"role": msg.role, "content": msg.content}
-        for msg in data.messages
-    ]
-
+    # Convert tools format
     tools = None
     if data.tools:
         tools = [
@@ -928,9 +981,10 @@ def stream_groq(data: LLMStreamRequest):
             for tool in data.tools
         ]
 
+    # Server chooses the model!
     stream = client.chat.completions.create(
-        model=data.model,
-        messages=messages,
+        model=config.model,  # e.g., 'llama-3.1-8b-instant'
+        messages=[{"role": "user", "content": data.prompt}],
         tools=tools,
         temperature=data.temperature,
         max_tokens=data.max_tokens,
@@ -942,13 +996,9 @@ def stream_groq(data: LLMStreamRequest):
     for chunk in stream:
         delta = chunk.choices[0].delta
 
-        # Handle content tokens
+        # Stream content tokens
         if delta.content:
-            _trigger_event(data.channel_id, 'llm_token', {
-                'streaming_id': data.streaming_id,
-                'token': delta.content,
-                'type': 'content'
-            })
+            trigger_event(data.stream_id, 'token', {'token': delta.content})
 
         # Handle tool calls
         if delta.tool_calls:
@@ -965,118 +1015,442 @@ def stream_groq(data: LLMStreamRequest):
                     # Try to parse complete JSON
                     try:
                         args = json.loads(current_tool_call['arguments'])
-                        _trigger_event(data.channel_id, 'llm_tool_call', {
-                            'streaming_id': data.streaming_id,
+                        trigger_event(data.stream_id, 'tool_call', {
                             'name': current_tool_call['name'],
-                            'arguments': json.dumps(args)
+                            'arguments': args
                         })
                         current_tool_call = None
                     except json.JSONDecodeError:
                         pass  # Wait for more chunks
 
-    _trigger_event(data.channel_id, 'llm_complete', {
-        'streaming_id': data.streaming_id,
-        'usage': {
-            'prompt_tokens': 0,  # TODO: Get from response
-            'completion_tokens': 0
-        }
-    })
+    trigger_event(data.stream_id, 'complete', {})
 
 
-def stream_openai(data: LLMStreamRequest):
-    """Stream from OpenAI API."""
-    # Similar implementation for OpenAI
+def stream_openai(data: LLMStreamRequest, config):
+    """Stream from OpenAI with server-selected model."""
+    import openai
+
+    client = openai.OpenAI(api_key=config.api_key)
+
+    # Similar implementation
+    # Server decides model (gpt-4o, gpt-4o-mini, etc.)
     pass
 
 
-def stream_anthropic(data: LLMStreamRequest):
-    """Stream from Anthropic API."""
-    # Similar implementation for Claude
+def stream_local(data: LLMStreamRequest, config):
+    """Stream from local Ollama instance."""
+    import requests
+
+    # Ollama endpoint (could be local or remote)
+    url = f"{config.endpoint}/api/generate"
+
+    response = requests.post(
+        url,
+        json={
+            "model": config.model,  # e.g., 'llama3.1:8b'
+            "prompt": data.prompt,
+            "stream": True
+        },
+        stream=True
+    )
+
+    for line in response.iter_lines():
+        if line:
+            chunk = json.loads(line)
+            if 'response' in chunk:
+                trigger_event(data.stream_id, 'token', {'token': chunk['response']})
+
+    trigger_event(data.stream_id, 'complete', {})
+
+
+def stream_anthropic(data: LLMStreamRequest, config):
+    """Stream from Anthropic Claude."""
+    from anthropic import Anthropic
+
+    client = Anthropic(api_key=config.api_key)
+
+    # Implementation for Claude streaming
     pass
 
 
-def _trigger_event(channel_id: str, event_name: str, data: dict):
-    """Send event to Pusher channel."""
+def trigger_event(stream_id: str, event_type: str, data: dict):
+    """Send event to client via Pusher."""
     from conversations.utils_push import get_pusher_client
 
     pusher = get_pusher_client()
-    pusher.trigger(channel_id, event_name, data)
+    pusher.trigger(
+        f'llm-stream-{stream_id}',
+        event_type,
+        {**data, 'stream_id': stream_id}
+    )
 ```
 
-### 5.2 Provider Adapters (Optional Enhancement)
-
-Create adapter classes for each LLM provider to normalize their APIs:
+### 5.2 Django Settings Configuration
 
 ```python
-# conversations/llm_adapters.py
+# app/settings.py
 
-from abc import ABC, abstractmethod
-from typing import Generator, Dict, Any
+# Simple global configuration (most common for accessibility tool)
+LLM_PROVIDER = env('LLM_PROVIDER', default='groq')
+LLM_MODEL = env('LLM_MODEL', default='llama-3.1-8b-instant')
 
-class LLMAdapter(ABC):
-    @abstractmethod
-    def stream(self, request: LLMStreamRequest) -> Generator[Dict[str, Any], None, None]:
-        """Yield normalized events: {type: 'token'|'tool_call'|'complete'|'error', data: {...}}"""
-        pass
+# Provider-specific API keys
+GROQ_API_KEY = env('GROQ_API_KEY', default=None)
+OPENAI_API_KEY = env('OPENAI_API_KEY', default=None)
+ANTHROPIC_API_KEY = env('ANTHROPIC_API_KEY', default=None)
 
-class GroqAdapter(LLMAdapter):
-    def stream(self, request: LLMStreamRequest):
-        # Implementation
-        pass
+# Local Ollama support (for privacy-focused self-hosting)
+OLLAMA_ENDPOINT = env('OLLAMA_ENDPOINT', default='http://localhost:11434')
 
-class OpenAIAdapter(LLMAdapter):
-    def stream(self, request: LLMStreamRequest):
-        # Implementation
-        pass
+# Optional: Multi-provider configuration for advanced setups
+LLM_PROVIDERS = {
+    'groq': {
+        'api_key': GROQ_API_KEY,
+        'models': {
+            'fast': 'llama-3.1-8b-instant',
+            'smart': 'llama-3.1-70b-versatile'
+        }
+    },
+    'openai': {
+        'api_key': OPENAI_API_KEY,
+        'models': {
+            'fast': 'gpt-4o-mini',
+            'smart': 'gpt-4o'
+        }
+    },
+    'local': {
+        'endpoint': OLLAMA_ENDPOINT,
+        'models': {
+            'fast': 'llama3.1:8b',
+            'smart': 'llama3.1:70b'
+        }
+    }
+}
 
-class AnthropicAdapter(LLMAdapter):
-    def stream(self, request: LLMStreamRequest):
-        # Implementation
-        pass
+DEFAULT_PROVIDER = 'groq'
+DEFAULT_MODEL_TIER = 'fast'  # or 'smart'
+```
+
+### 5.3 Environment Variables (.env)
+
+```bash
+# Groq (default for hosted version - fast & cheap)
+LLM_PROVIDER=groq
+LLM_MODEL=llama-3.1-8b-instant
+GROQ_API_KEY=gsk_...
+
+# Or OpenAI (for users who want highest quality)
+# LLM_PROVIDER=openai
+# LLM_MODEL=gpt-4o-mini
+# OPENAI_API_KEY=sk-...
+
+# Or local Ollama (for privacy-focused self-hosters)
+# LLM_PROVIDER=local
+# LLM_MODEL=llama3.1:8b
+# OLLAMA_ENDPOINT=http://localhost:11434
+```
+
+### 5.4 Deployment Scenarios
+
+**Scenario 1: Hosted Version (You provide the server)**
+```bash
+# Your server configuration
+LLM_PROVIDER=groq
+GROQ_API_KEY=your_key
+
+# Users connect to your-keyboard-server.com
+# No client configuration needed!
+# All API costs covered by you
+```
+
+**Scenario 2: Self-Hosted (Privacy-focused users)**
+```bash
+# User runs Ollama locally
+docker run -d -p 11434:11434 ollama/ollama
+ollama pull llama3.1:8b
+
+# User's Django .env
+LLM_PROVIDER=local
+OLLAMA_ENDPOINT=http://localhost:11434
+LLM_MODEL=llama3.1:8b
+
+# All data stays on their machine!
+# No external API calls
+```
+
+**Scenario 3: Enterprise (BYO API key)**
+```bash
+# Organization's configuration
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-org-...
+LLM_MODEL=gpt-4o
+
+# They control costs and compliance
+# Can use their own Azure OpenAI deployment
+```
+
+**Scenario 4: Multi-tenant SaaS**
+```python
+# Different users, different providers
+class User(models.Model):
+    llm_provider = models.CharField(choices=['groq', 'openai', 'local'])
+    llm_api_key = models.CharField(blank=True)  # Optional: BYO key
+    plan_tier = models.CharField(choices=['free', 'premium'])
+
+# In get_provider_config():
+if user.plan_tier == 'free':
+    # Free users get fast, cheap model
+    return ProviderConfig(provider='groq', model='llama-3.1-8b-instant')
+elif user.plan_tier == 'premium':
+    # Premium users get best quality
+    return ProviderConfig(provider='openai', model='gpt-4o')
 ```
 
 ---
 
-## 6. Migration Strategy
+## 6. Client-Side Implementation
 
-### Phase 1: Build Foundation (Week 1-2)
-1. ✅ Create plugin interface types (`plugin-types.ts`)
-2. ✅ Implement PluginManager class
-3. ✅ Build generic LLM proxy API endpoint
-4. ✅ Create unified settings UI component
-5. ✅ Test with simple "Hello World" plugin
+### 6.1 useLLM Hook (Simplified Client API)
 
-### Phase 2: Migrate Suggestions (Week 3)
-1. ✅ Convert Suggestions.js to SuggestionsPlugin.tsx
-2. ✅ Move prompt logic from server to plugin
-3. ✅ Test streaming and callbacks
-4. ✅ Migrate settings to unified UI
-5. ✅ Verify backwards compatibility
+```typescript
+// hooks/useLLM.ts
 
-### Phase 3: Migrate Hints (Week 4)
-1. ✅ Convert Hints.js to HintsPlugin.tsx
-2. ✅ Move prompt logic from server to plugin
-3. ✅ Test exclude_words functionality
-4. ✅ Migrate settings to unified UI
-5. ✅ Verify "More" button works
+export function useLLM({
+  prompt,
+  tools,
+  onToken,
+  onToolCall,
+  onComplete,
+  onError,
+  temperature = 0.7,
+  maxTokens = 500,
+  deps = [],
+  enabled = true,
+  debounce = 300
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const pusher = usePusher();  // Assume Pusher context
 
-### Phase 4: Deprecate Old Endpoints (Week 5)
-1. ✅ Mark old endpoints as deprecated
-2. ✅ Update documentation
-3. ✅ Remove old server-side prompt logic
-4. ✅ Clean up unused code
+  useEffect(() => {
+    if (!enabled) return;
 
-### Phase 5: Documentation & SDK (Week 6)
-1. ✅ Write plugin development guide
-2. ✅ Create plugin template repository
-3. ✅ Document plugin API
-4. ✅ Create example third-party plugins
+    const timer = setTimeout(async () => {
+      setLoading(true);
+      setError(null);
+
+      const streamId = generateId();
+
+      try {
+        // Subscribe to Pusher channel FIRST
+        const channel = pusher.subscribe(`llm-stream-${streamId}`);
+
+        channel.bind('token', (data) => {
+          onToken?.(data.token);
+        });
+
+        channel.bind('tool_call', (data) => {
+          onToolCall?.(data.name, data.arguments);
+        });
+
+        channel.bind('complete', () => {
+          setLoading(false);
+          onComplete?.();
+          pusher.unsubscribe(`llm-stream-${streamId}`);
+        });
+
+        channel.bind('error', (data) => {
+          setError(data.message);
+          setLoading(false);
+          onError?.(data.message);
+          pusher.unsubscribe(`llm-stream-${streamId}`);
+        });
+
+        // Then start the stream
+        // CLIENT DOES NOT SPECIFY PROVIDER/MODEL!
+        await fetch('/api/llm/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt,
+            tools,
+            temperature,
+            max_tokens: maxTokens,
+            stream_id: streamId
+          })
+        });
+
+      } catch (e) {
+        setError(e.message);
+        setLoading(false);
+      }
+    }, debounce);
+
+    return () => clearTimeout(timer);
+  }, deps);
+
+  return { loading, error };
+}
+```
+
+### 6.2 Example: Ultra-Clean Plugin with useLLM
+
+```typescript
+// plugins/suggestions/index.tsx
+
+export default function SuggestionsPlugin() {
+  const { keyboard, settings } = usePlugin();
+  const [suggestions, setSuggestions] = useState([]);
+
+  // Plugins just write prompts - server handles everything else!
+  const { loading } = useLLM({
+    prompt: `Generate ${settings.count} natural reply suggestions.
+
+Current text: "${keyboard.text}"
+${keyboard.prefix ? `Must start with: "${keyboard.prefix}"` : ''}
+
+Requirements:
+- Natural conversational tone
+- Max ${settings.maxWords} words each
+- Diverse options
+
+Use add_suggestion tool exactly ${settings.count} times.`,
+
+    tools: [{
+      name: 'add_suggestion',
+      description: 'Add a suggestion to the list',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'The suggestion text' }
+        },
+        required: ['text']
+      }
+    }],
+
+    onToolCall: (name, args) => {
+      if (name === 'add_suggestion') {
+        setSuggestions(prev => [...prev, args.text]);
+      }
+    },
+
+    temperature: settings.temperature,
+
+    deps: [keyboard.prefix, keyboard.text, settings.count],
+
+    enabled: Boolean(keyboard.text)  // Only fetch when there's text
+  });
+
+  return (
+    <Panel title="Suggestions" loading={loading}>
+      {suggestions.map(text => (
+        <Suggestion
+          key={text}
+          text={text}
+          onDwell={() => keyboard.speak(text)}
+        />
+      ))}
+    </Panel>
+  );
+}
+```
 
 ---
 
-## 7. Third-Party Plugin Examples
+## 7. Benefits of Server-Side Model Selection
 
-### 7.1 Translation Plugin
+### 7.1 Security
+✅ **API keys never in browser** - No risk of key exposure
+✅ **Client can't bypass rate limits** - Server enforces all limits
+✅ **No credential management in UI** - Simpler, more secure
+
+### 7.2 Deployment Flexibility
+✅ **Hosted version** - You provide server with your API keys
+✅ **Self-hosted** - Users run local Ollama, fully private
+✅ **Enterprise** - Organizations use their own API keys
+✅ **Multi-tenant** - Different users, different providers
+
+### 7.3 Cost Control
+✅ **Server chooses cheapest model** - Optimize costs automatically
+✅ **Rate limiting** - Prevent runaway costs
+✅ **Usage tracking** - Monitor costs per user/plugin
+✅ **Graceful degradation** - Fall back to cheaper models when needed
+
+### 7.4 Developer Experience
+✅ **Simpler plugins** - Just write prompts, no provider logic
+✅ **Provider-agnostic** - Switch providers without changing plugins
+✅ **Faster development** - Plugins work with any LLM backend
+✅ **Better testing** - Mock server responses easily
+
+### 7.5 User Experience
+✅ **No configuration needed** - Works out of the box
+✅ **Consistent performance** - Server picks best model
+✅ **Offline support** - Can use local Ollama
+✅ **Progressive enhancement** - Start free, upgrade later
+
+---
+
+## 8. Migration Strategy
+
+### Phase 1: Server-Side Smart Proxy (Week 1)
+1. ✅ Create `/api/llm/stream` endpoint
+2. ✅ Implement `get_provider_config()` function
+3. ✅ Build `stream_groq()` with server-side model selection
+4. ✅ Test with curl/Postman (bypass React for now)
+5. ✅ Verify Pusher events stream correctly
+
+**Deliverable**: Working server endpoint that accepts prompts and streams responses
+
+### Phase 2: Client-Side useLLM Hook (Week 2)
+1. ✅ Create `useLLM()` custom hook
+2. ✅ Implement Pusher subscription logic
+3. ✅ Handle token, tool_call, complete, error events
+4. ✅ Add debouncing and enabled flag
+5. ✅ Test with minimal example component
+
+**Deliverable**: Reusable hook for any plugin to call LLM
+
+### Phase 3: Plugin Infrastructure (Week 3)
+1. ✅ Define plugin interface types (`plugin-types.ts`)
+2. ✅ Implement PluginManager class
+3. ✅ Create unified settings UI component
+4. ✅ Build Panel component for collapsible sections
+5. ✅ Test with "Hello World" plugin
+
+**Deliverable**: Plugin registration and lifecycle management
+
+### Phase 4: Migrate Suggestions (Week 4)
+1. ✅ Convert Suggestions.js to plugin using useLLM
+2. ✅ Remove provider/model from plugin code
+3. ✅ Test streaming with Groq (server-selected)
+4. ✅ Migrate settings to unified UI
+5. ✅ Verify FIFO queue and debouncing work
+
+**Deliverable**: Working Suggestions plugin with no provider logic
+
+### Phase 5: Migrate Hints (Week 5)
+1. ✅ Convert Hints.js to plugin using useLLM
+2. ✅ Test exclude_words functionality
+3. ✅ Verify "More" button works
+4. ✅ Migrate settings to unified UI
+5. ✅ Test hint selection and keyboard integration
+
+**Deliverable**: Working Hints plugin
+
+### Phase 6: Documentation & Cleanup (Week 6)
+1. ✅ Deprecate old `/suggestions/stream` and `/hints/stream` endpoints
+2. ✅ Write plugin development guide
+3. ✅ Create plugin template repository
+4. ✅ Document deployment scenarios (hosted, self-hosted, enterprise)
+5. ✅ Create example third-party plugins
+
+**Deliverable**: Complete plugin SDK and documentation
+
+---
+
+## 9. Third-Party Plugin Examples
+
+### 9.1 Translation Plugin
 
 ```typescript
 const TranslationPlugin: Plugin = {
@@ -1128,7 +1502,7 @@ const TranslationPlugin: Plugin = {
 };
 ```
 
-### 7.2 Emoji Suggester Plugin
+### 9.2 Emoji Suggester Plugin
 
 ```typescript
 const EmojiPlugin: Plugin = {
@@ -1160,10 +1534,7 @@ const EmojiPlugin: Plugin = {
 
     const fetchEmojis = useCallback(async () => {
       const prompt = {
-        provider: 'groq',
-        model: 'llama-3.1-8b-instant',
-        systemPrompt: `Suggest ${context.settings.numEmojis} relevant emojis for this message: "${context.currentText}"`,
-        messages: [{ role: 'user', content: 'Suggest emojis now' }],
+        prompt: `Suggest ${context.settings.numEmojis} relevant emojis for this message: "${context.currentText}"`,
         tools: [{
           name: 'push_emoji',
           description: 'Add emoji to list',
@@ -1174,6 +1545,7 @@ const EmojiPlugin: Plugin = {
             }
           }
         }]
+        // Server chooses provider/model
       };
 
       await context.llmRequest(prompt, {
@@ -1206,7 +1578,7 @@ const EmojiPlugin: Plugin = {
 };
 ```
 
-### 7.3 Code Completion Plugin
+### 9.3 Code Completion Plugin
 
 ```typescript
 const CodeCompletionPlugin: Plugin = {
@@ -1257,16 +1629,14 @@ const CodeCompletionPlugin: Plugin = {
 
       const fetchCompletions = async () => {
         const prompt = {
-          provider: 'groq',
-          model: 'llama-3.1-70b-versatile', // Use larger model for code
-          systemPrompt: `You are a ${context.settings.language} code completion assistant.
-          Complete the following code:
+          prompt: `You are a ${context.settings.language} code completion assistant.
+Complete the following code:
 
-          ${context.currentText}
+${context.currentText}
 
-          ${context.settings.includeComments ? 'Include helpful comments.' : 'No comments.'}`,
-          messages: [{ role: 'user', content: 'Complete the code' }],
+${context.settings.includeComments ? 'Include helpful comments.' : 'No comments.'}`,
           temperature: 0.2
+          // Server may choose a better model for code (e.g., llama-70b, gpt-4o)
         };
 
         let fullCompletion = '';
@@ -1296,9 +1666,9 @@ const CodeCompletionPlugin: Plugin = {
 
 ---
 
-## 8. Plugin Discovery & Installation
+## 10. Plugin Discovery & Installation
 
-### 8.1 Plugin Registry (Future Enhancement)
+### 10.1 Plugin Registry (Future Enhancement)
 
 ```typescript
 // Plugin marketplace/registry
@@ -1327,7 +1697,7 @@ interface PluginManifest {
 }
 ```
 
-### 8.2 Plugin Loading Mechanisms
+### 10.2 Plugin Loading Mechanisms
 
 **Option 1: Static Import (Current)**
 ```typescript
@@ -1359,91 +1729,92 @@ pluginManager.register(module.default);
 
 ---
 
-## 9. Security Considerations
+## 11. Security Considerations
 
-### 9.1 Plugin Sandboxing
+### 11.1 Plugin Sandboxing
 - Plugins run in same context as main app (for MVP)
 - Future: Isolate plugins in Web Workers or iframes
 - Rate limiting on LLM requests per plugin
 - Token usage tracking and quotas
 
-### 9.2 API Key Management
+### 11.2 API Key Management
 - Server-side API keys never exposed to client
 - User can optionally provide their own keys (stored encrypted)
 - Per-user rate limits in database
 
-### 9.3 Content Security Policy
+### 11.3 Content Security Policy
 - Restrict plugin network access
 - Validate plugin metadata and code signatures
 - Review process for community plugins
 
 ---
 
-## 10. Performance Optimizations
+## 12. Performance Optimizations
 
-### 10.1 Caching
+### 12.1 Caching
 - Cache LLM responses for identical prompts
 - TTL-based cache (5 minutes default)
 - Per-conversation cache isolation
 
-### 10.2 Debouncing & Throttling
+### 12.2 Debouncing & Throttling
 - Debounce rapid plugin requests (300ms default)
 - Throttle LLM calls (max 10/minute per plugin)
 - Cancel in-flight requests when new one starts
 
-### 10.3 Lazy Loading
+### 12.3 Lazy Loading
 - Load plugin components on-demand
 - Code-split plugins into separate bundles
 - Defer non-visible plugin initialization
 
 ---
 
-## 11. Testing Strategy
+## 13. Testing Strategy
 
-### 11.1 Unit Tests
+### 13.1 Unit Tests
 - Plugin interface validation
 - PluginManager registration logic
 - Settings persistence
 - LLM request mocking
 
-### 11.2 Integration Tests
+### 13.2 Integration Tests
 - End-to-end plugin lifecycle
 - Pusher event handling
 - Server proxy API
 - Settings UI interactions
 
-### 11.3 Plugin Example Tests
+### 13.3 Plugin Example Tests
 - Suggestions plugin functionality
 - Hints plugin with exclusions
 - Third-party plugin template
 
 ---
 
-## 12. Documentation Deliverables
+## 14. Documentation Deliverables
 
-### 12.1 Plugin Developer Guide
+### 14.1 Plugin Developer Guide
 - Getting started tutorial
 - API reference
 - Best practices
 - Example plugins
 
-### 12.2 User Documentation
+### 14.2 User Documentation
 - Installing plugins
 - Configuring settings
 - Troubleshooting
 
-### 12.3 Architecture Decision Records (ADRs)
-- Why client-side prompts?
-- Why Pusher over SSE?
-- Settings storage strategy
+### 14.3 Architecture Decision Records (ADRs)
+- **Why client-side prompts?** - Enables third-party plugin development without server changes
+- **Why server-side provider/model selection?** - Security (no API keys in browser), deployment flexibility, cost control
+- **Why Pusher over SSE?** - Existing infrastructure, better mobile support, easier to scale
+- **Settings storage strategy** - localStorage for quick access, optional server sync for multi-device
 
 ---
 
-## 13. Open Questions & Decisions Needed
+## 15. Open Questions & Decisions Needed
 
-1. **LLM Provider Selection**:
-   - Should users choose provider per-plugin or globally?
-   - Support for local LLMs (Ollama, etc.)?
+1. **User-Selectable Providers** (Low Priority):
+   - Allow users to override server provider choice in settings?
+   - Support for BYO API keys?
 
 2. **Plugin Distribution**:
    - NPM packages, GitHub releases, or custom registry?
@@ -1463,37 +1834,42 @@ pluginManager.register(module.default);
 
 ---
 
-## 14. Success Metrics
+## 16. Success Metrics
 
 - **Developer Adoption**: Number of third-party plugins created
 - **User Engagement**: Plugin installation rate
 - **Performance**: LLM response time (target <2s to first token)
 - **Reliability**: Plugin error rate (target <1%)
 - **Extensibility**: Time to develop new plugin (target <4 hours)
+- **Deployment Flexibility**: Number of different deployment scenarios supported
 
 ---
 
-## 15. Next Steps
+## 17. Next Steps
 
-1. **Immediate**:
+1. **Immediate** (This Week):
    - Review and approve this architecture
-   - Set up TypeScript interfaces
-   - Create PluginManager skeleton
+   - Implement server-side `/api/llm/stream` endpoint
+   - Test with Groq provider (server-selected model)
+   - Verify Pusher streaming works
 
-2. **Short-term** (This Week):
-   - Implement generic LLM proxy API
-   - Build unified settings UI
-   - Convert Suggestions to plugin
+2. **Short-term** (Weeks 2-3):
+   - Create `useLLM()` hook for client
+   - Build plugin infrastructure (PluginManager, types)
+   - Create unified settings UI
+   - Convert Suggestions to plugin (no provider/model in code)
 
-3. **Medium-term** (This Month):
-   - Complete all built-in plugins
-   - Write developer documentation
-   - Create plugin template
+3. **Medium-term** (Weeks 4-6):
+   - Convert Hints to plugin
+   - Deprecate old endpoints
+   - Write plugin development guide
+   - Document deployment scenarios (hosted, self-hosted, enterprise, Ollama)
 
 4. **Long-term** (Next Quarter):
+   - Add support for OpenAI, Anthropic, local Ollama providers
+   - Implement smart provider routing (based on request complexity)
    - Launch plugin marketplace
-   - Add plugin discovery UI
-   - Support remote plugin loading
+   - Support multi-tenant SaaS with per-user providers
 
 ---
 
@@ -1506,9 +1882,11 @@ forsee/
 │   │   ├── plugins/
 │   │   │   ├── plugin-types.ts           # Plugin interface definitions
 │   │   │   ├── PluginManager.ts          # Plugin registry and orchestration
-│   │   │   ├── SuggestionsPlugin.tsx     # Built-in suggestions
-│   │   │   ├── HintsPlugin.tsx           # Built-in hints
+│   │   │   ├── SuggestionsPlugin.tsx     # Built-in suggestions (no provider logic)
+│   │   │   ├── HintsPlugin.tsx           # Built-in hints (no provider logic)
 │   │   │   └── KeyboardPlugin.tsx        # Built-in virtual keyboard
+│   │   ├── hooks/
+│   │   │   └── useLLM.ts                 # NEW: Hook for LLM requests
 │   │   ├── components/
 │   │   │   ├── UnifiedSettings.tsx       # Settings UI
 │   │   │   ├── Panel.jsx                 # Collapsible panel wrapper
@@ -1517,13 +1895,15 @@ forsee/
 │   │   └── index.tsx
 │   └── package.json
 ├── conversations/
-│   ├── api.py                            # Existing endpoints (deprecated)
-│   ├── api_llm_proxy.py                  # NEW: Generic LLM proxy
-│   ├── llm_adapters.py                   # NEW: Provider adapters
+│   ├── api.py                            # Existing endpoints (to deprecate)
+│   ├── api_llm.py                        # NEW: Smart LLM proxy (server chooses provider/model)
 │   ├── models.py
 │   └── signals.py
+├── app/
+│   └── settings.py                       # LLM provider configuration (env vars)
 └── docs/
     ├── plugin-development-guide.md       # Developer documentation
+    ├── deployment-guide.md               # Hosted, self-hosted, enterprise scenarios
     └── architecture-decision-records/
         └── 001-plugin-architecture.md    # This document
 ```
@@ -1532,19 +1912,23 @@ forsee/
 
 ## Appendix B: Glossary
 
-- **Plugin**: Self-contained module with prompts, callbacks, settings, and UI
+- **Plugin**: Self-contained module with prompts, callbacks, settings, and UI (NO provider/model logic)
 - **Plugin Manager**: Central registry and orchestrator for plugins
-- **LLM Proxy**: Generic server endpoint for executing LLM requests
+- **Smart LLM Proxy**: Server endpoint that accepts prompts and intelligently selects provider/model
+- **Provider Selection**: Server-side logic that chooses which LLM provider to use (Groq, OpenAI, Ollama, etc.)
 - **Settings Schema**: JSON-like definition of plugin configuration options
 - **Plugin Context**: Runtime environment passed to plugins with app state
-- **Streaming ID**: Unique identifier for tracking LLM streaming sessions
+- **Streaming ID**: Client-generated UUID for tracking LLM streaming sessions
 - **Tool Call**: Function call from LLM during streaming (e.g., `push_suggestion`)
 - **Dwell Time**: Hover duration before triggering selection action
+- **useLLM Hook**: React hook for making LLM requests without specifying provider
+- **Deployment Scenario**: How the system is deployed (hosted, self-hosted, enterprise, multi-tenant)
 
 ---
 
-**Document Version**: 1.0
+**Document Version**: 2.0 (Updated with server-side model selection)
 **Last Updated**: 2025-12-05
 **Author**: Claude (Anthropic)
-**Status**: Proposed
+**Status**: Revised Based on Feedback
 **Review Status**: Pending Approval
+**Key Change**: Moved provider/model selection from client to server for better security and flexibility
