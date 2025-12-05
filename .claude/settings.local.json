@@ -5,7 +5,8 @@
       "Bash(poetry show:*)",
       "Bash(npm run build:*)",
       "Bash(pip install:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(python manage.py:*)"
     ],
     "deny": [],
     "ask": []

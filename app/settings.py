@@ -113,7 +113,7 @@ PUSHER_KEY = os.getenv('PUSHER_KEY', '').strip()
 PUSHER_SECRET = os.getenv('PUSHER_API_SECRET', '').strip()
 PUSHER_CLUSTER = os.getenv('PUSHER_CLUSTER', 'us2').strip()
 
-# Groq AI settings
+# Groq AI settings (used by both old endpoints and new plugin system)
 GROQ_MODEL = os.getenv('GROQ_MODEL', 'llama-3.1-8b-instant').strip()
 
 

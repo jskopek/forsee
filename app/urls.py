@@ -19,10 +19,12 @@ from django.urls import path, include
 from ninja import NinjaAPI
 
 from conversations.api import api_router
+from conversations.api_llm import llm_router
 from conversations.views import ConversationStartView
 
 api = NinjaAPI()
 api.add_router("/conversations", api_router)
+api.add_router("/llm", llm_router)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
