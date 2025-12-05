@@ -216,7 +216,7 @@ const App = () => {
 
   return (
     <div className="text-center min-h-screen flex flex-col bg-bg-main" style={{ '--dwell-time': `${dwellTime}ms` }}>
-      <div className="flex flex-1 min-h-0 border-[20px] border-border-light rounded-[28px] bg-bg-main overflow-hidden">
+      <div className="flex flex-1 min-h-0 border-[25px] border-l-0 border-border-light bg-bg-main overflow-hidden">
         <div className="flex flex-col flex-1 min-h-0">
           {/* Top bar */}
           <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] gap-2 px-3 py-0 bg-white border-b-0 items-center">

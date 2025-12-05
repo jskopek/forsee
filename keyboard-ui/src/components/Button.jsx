@@ -6,6 +6,7 @@ const Button = ({
   color = 'green',
   dwell = true,
   loading = false,
+  variant = 'default', // 'default' or 'minimal'
   onMouseEnter,
   onMouseLeave,
   onClick,
@@ -20,6 +21,13 @@ const Button = ({
     blue: 'before:bg-primary-back after:bg-gradient-to-br after:from-primary-gradient-start after:to-primary-gradient-end after:border-primary-border hover:before:bg-primary-back-hover hover:after:from-primary-gradient-start-hover hover:after:to-primary-gradient-end-hover hover:after:border-primary-border-hover',
     neutral: 'before:bg-neutral-back after:bg-neutral-front after:border-neutral-border hover:before:bg-neutral-back-hover hover:after:bg-neutral-front-hover hover:after:border-neutral-border-hover',
     space: 'before:bg-space-back after:bg-space-front after:border-space-border hover:before:bg-space-back-hover hover:after:bg-space-front-hover hover:after:border-space-border-hover'
+  };
+
+  const minimalColorClasses = {
+    green: 'bg-key-back hover:bg-key-back-hover',
+    blue: 'bg-primary-back hover:bg-primary-back-hover',
+    neutral: 'bg-neutral-back hover:bg-neutral-back-hover',
+    space: 'bg-space-back hover:bg-space-back-hover'
   };
 
   const handleMouseEnter = () => {
@@ -74,6 +82,29 @@ const Button = ({
     );
   }
 
+  // Minimal variant for special buttons like layout toggles
+  if (variant === 'minimal') {
+    return (
+      <button
+        ref={buttonRef}
+        className={`relative flex items-center justify-center w-full h-full border-none outline-none cursor-pointer overflow-hidden transition-colors text-white ${minimalColorClasses[color] || minimalColorClasses.green} ${className}`}
+        style={style}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        onClick={onClick}
+      >
+        {/* Dwell animation overlay */}
+        <span
+          className="absolute inset-0 bg-white/28 origin-left pointer-events-none animate-dwell-fill"
+          aria-hidden="true"
+        />
+        {icon && <span className="relative z-[3]">{icon}</span>}
+        {label && <span className="relative z-[3] font-semibold">{label}</span>}
+      </button>
+    );
+  }
+
+  // Default variant for grid buttons
   return (
     <button
       ref={buttonRef}

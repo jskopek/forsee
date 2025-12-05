@@ -1,4 +1,5 @@
 import React, { useState, Children, cloneElement } from 'react';
+import Button from './Button';
 
 const Panel = ({
   children,
@@ -14,18 +15,23 @@ const Panel = ({
     return 'flex-1'; // regular state - equal height
   };
 
+  const getToggleIcon = () => {
+    if (panelState === 'expanded') return '−';
+    if (panelState === 'minimized') return '+';
+    return '○';
+  };
+
   return (
     <div className={`flex gap-0 ${getHeight()} min-h-0 transition-all duration-300`}>
       {/* Toggle button */}
-      <button
+      <Button
+        icon={getToggleIcon()}
+        color="blue"
+        dwell={true}
+        variant="minimal"
         onClick={onToggle}
-        className="w-[25px] bg-gray-700 hover:bg-gray-600 flex items-center justify-center border-r border-gray-600 transition-colors"
-        title={`${panelState === 'expanded' ? 'Collapse' : 'Expand'} ${title}`}
-      >
-        <div className="transform -rotate-90 text-xs text-gray-300 whitespace-nowrap select-none">
-          {panelState === 'expanded' ? '−' : panelState === 'minimized' ? '+' : '○'}
-        </div>
-      </button>
+        className="!w-[25px] !h-full flex-shrink-0 text-sm"
+      />
 
       {/* Panel content */}
       <div className="flex-1 min-w-0 min-h-0 flex flex-col">
