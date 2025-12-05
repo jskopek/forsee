@@ -42,9 +42,8 @@ def stream_suggestions_with_tools(conversation, hint=None, prefix=None):
     N_SUGGESTIONS = 6
     HISTORY_TURNS = 10
 
-    contact = conversation.contact
-    contact_name = getattr(contact, "name", None) or ""
-    contact_formality = getattr(contact, "formality", None) or "casual"
+    partner_name = conversation.title or ""
+    contact_formality = "casual"
 
     # Get recent messages
     from .models import Message
@@ -53,7 +52,7 @@ def stream_suggestions_with_tools(conversation, hint=None, prefix=None):
 
     def _role_line(sender: str, body: str) -> str:
         if sender == Message.Sender.CONTACT:
-            return f"Contact: {body}".strip()
+            return f"Partner: {body}".strip()
         else:
             return f"You: {body}".strip()
 
@@ -66,13 +65,13 @@ def stream_suggestions_with_tools(conversation, hint=None, prefix=None):
         f"Each suggestion: ≤{MAX_WORDS} words, natural speech, no emojis/quotes.\n"
         "If user_hint exists, prioritize it over conversation content.\n"
         "If user_prefix exists, EVERY suggestion MUST start with a complete English word matching that prefix.\n"
-        f"Formality: {contact_formality}. Use contact_name sparingly.\n"
+        f"Formality: {contact_formality}. Use the conversation title '{partner_name or 'Conversation'}' sparingly for grounding.\n"
         "Call push_suggestion once per suggestion immediately as you think of it."
     )
 
     user_payload = {
         "formality": contact_formality,
-        "contact_name": contact_name,
+        "conversation_title": partner_name,
         "transcript": transcript,
     }
     if hint:
@@ -187,9 +186,8 @@ def stream_hints_with_tools(conversation, exclude_words=None):
     N_HINTS = 20
     HISTORY_TURNS = 5
 
-    contact = conversation.contact
-    contact_name = getattr(contact, "name", None) or ""
-    contact_formality = getattr(contact, "formality", None) or "casual"
+    partner_name = conversation.title or ""
+    contact_formality = "casual"
 
     from .models import Message
     qs = conversation.messages.order_by("-created_at", "-id").values("sender", "body")[:HISTORY_TURNS]
@@ -197,7 +195,7 @@ def stream_hints_with_tools(conversation, exclude_words=None):
 
     def _role_line(sender: str, body: str) -> str:
         if sender == Message.Sender.CONTACT:
-            return f"Contact: {body}".strip()
+            return f"Partner: {body}".strip()
         else:
             return f"You: {body}".strip()
 
@@ -222,7 +220,7 @@ def stream_hints_with_tools(conversation, exclude_words=None):
 
     user_payload = {
         "formality": contact_formality,
-        "contact_name": contact_name,
+        "conversation_title": partner_name,
         "transcript": transcript,
         "last_message": last_message_text,
     }

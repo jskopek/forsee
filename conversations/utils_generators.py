@@ -15,16 +15,21 @@ from .utils_prompt_openai import prompt_openai
 logger = logging.getLogger(__name__)
 
 
+def _partner_name(conversation: Conversation) -> str:
+    return conversation.title or "a trusted partner"
+
+
 def generate_contact_greeting(conversation: Conversation) -> Message | None:
     messages = list(conversation.messages.order_by("created_at", "id"))
     patient_profile = get_patient_profile()
+    partner_name = _partner_name(conversation)
     system_prompt = (
-        f"You are {conversation.contact.name or 'a trusted friend'} sending a short opening message to "
+        f"You are {partner_name} sending a short opening message to "
         f"{patient_profile.full_name or 'the user'}. Keep it warm and no more than three sentences."
     )
     user_prompt = json.dumps({
         "user_profile": patient_profile.get_profile_data(),
-        "contact_profile": conversation.contact.get_profile_data(),
+        "conversation_title": conversation.title or "",
         "conversation_history": [{"sender": m.sender, "body": m.body} for m in messages],
     })
     text = prompt_openai(system_prompt, user_prompt)
@@ -36,13 +41,14 @@ def generate_contact_greeting(conversation: Conversation) -> Message | None:
 def generate_contact_reply(conversation: Conversation, trigger_message: Message) -> Message | None:
     messages = list(conversation.messages.order_by("created_at", "id"))
     patient_profile = get_patient_profile()
+    partner_name = _partner_name(conversation)
     system_prompt = (
-        f"You are {conversation.contact.name or 'a trusted friend'} replying to "
+        f"You are {partner_name} replying to "
         f"{patient_profile.full_name or 'the user'}. Respond kindly and keep it under four sentences."
     )
     user_prompt = json.dumps({
         "user_profile": patient_profile.get_profile_data(),
-        "contact_profile": conversation.contact.get_profile_data(),
+        "conversation_title": conversation.title or "",
         "conversation_history": [{"sender": m.sender, "body": m.body} for m in messages],
     })
     text = prompt_openai(system_prompt, user_prompt).strip()
@@ -68,9 +74,8 @@ def generate_reply_suggestions(conversation: Conversation, hint: str | None = No
     normalized_hint = (hint or "").strip()[:MAX_HINT_LEN]
     normalized_prefix = (prefix or "").strip()[:MAX_PREFIX_LEN]
 
-    contact = conversation.contact
-    contact_name = getattr(contact, "name", None) or ""
-    contact_formality = getattr(contact, "formality", None) or "casual"
+    contact_name = conversation.title or ""
+    contact_formality = "casual"
 
     # Pull only what we need; build a compact transcript string:
     # "Contact: ..." / "You: ..." lines, newest last.
@@ -79,7 +84,7 @@ def generate_reply_suggestions(conversation: Conversation, hint: str | None = No
 
     def _role_line(sender: str, body: str) -> str:
         if sender == Message.Sender.CONTACT:
-            return f"Contact: {body}".strip()
+            return f"Partner: {body}".strip()
         else:
             return f"You: {body}".strip()
 
@@ -105,7 +110,7 @@ def generate_reply_suggestions(conversation: Conversation, hint: str | None = No
     user_payload = {
         "n": N_SUGGESTIONS,
         "formality": contact_formality,
-        "contact_name": contact_name,
+        "conversation_title": contact_name,
         "transcript": transcript,
     }
     if normalized_hint:
@@ -208,9 +213,8 @@ def generate_word_hints(conversation: Conversation) -> list[dict[str, str]]:
     N_HINTS = 20  # Generate a good number of hints for the grid
     HISTORY_TURNS = 5  # Use last few messages for context
 
-    contact = conversation.contact
-    contact_name = getattr(contact, "name", None) or ""
-    contact_formality = getattr(contact, "formality", None) or "casual"
+    contact_name = conversation.title or ""
+    contact_formality = "casual"
 
     # Get recent messages for context
     qs = conversation.messages.order_by("-created_at", "-id").values("sender", "body")[:HISTORY_TURNS]
@@ -218,7 +222,7 @@ def generate_word_hints(conversation: Conversation) -> list[dict[str, str]]:
 
     def _role_line(sender: str, body: str) -> str:
         if sender == Message.Sender.CONTACT:
-            return f"Contact: {body}".strip()
+            return f"Partner: {body}".strip()
         else:
             return f"You: {body}".strip()
 
@@ -242,7 +246,7 @@ def generate_word_hints(conversation: Conversation) -> list[dict[str, str]]:
     user_payload = {
         "n": N_HINTS,
         "formality": contact_formality,
-        "contact_name": contact_name,
+        "conversation_title": contact_name,
         "transcript": transcript,
         "last_message": last_message_text,
     }

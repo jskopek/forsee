@@ -25,8 +25,7 @@ class Command(BaseCommand):
             raise CommandError("--num must be at least 1.")
 
         conversations = list(
-            Conversation.objects.select_related("contact")
-            .prefetch_related("messages")
+            Conversation.objects.prefetch_related("messages")
             .order_by("-created_at")[:num]
         )
 
@@ -64,7 +63,6 @@ class Command(BaseCommand):
         return {
             "id": str(conversation.id),
             "title": conversation.title,
-            "contact_id": conversation.contact_id,
             "last_response_job_id": conversation.last_response_job_id,
             "created_at": self._format_datetime(conversation.created_at),
             "updated_at": self._format_datetime(conversation.updated_at),

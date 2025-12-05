@@ -5,9 +5,8 @@ from .models import Conversation, Message
 
 @admin.register(Conversation)
 class ConversationAdmin(admin.ModelAdmin):
-    list_display = ("id", "contact", "title", "created_at")
-    list_filter = ("contact",)
-    search_fields = ("title", "contact__name")
+    list_display = ("id", "title", "created_at")
+    search_fields = ("title",)
     ordering = ("-created_at",)
 
 

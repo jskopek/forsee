@@ -7,46 +7,20 @@
     <h1 class="text-3xl font-semibold text-gray-900 mb-4">Welcome back</h1>
     <div class="bg-white shadow rounded-lg p-6 space-y-4">
         <p class="text-gray-700">You're signed in as <strong>{{ user_profile.email }}</strong>.</p>
-        <p class="text-gray-600">We’ll surface personalized tools for you here soon. For now, visit the <a href="{% url 'index' %}" class="text-blue-600 hover:text-blue-700">home page</a> to continue exploring.</p>
+        <p class="text-gray-600">We’ll surface personalized tools for you here soon. For now, visit the <a href="{% url 'home' %}" class="text-blue-600 hover:text-blue-700">home page</a> to continue exploring.</p>
     </div>
-    <div class="mt-8 grid gap-6 md:grid-cols-2">
-        <div class="bg-white shadow rounded-lg p-6">
-            <div class="flex items-center justify-between mb-4">
-                <h2 class="text-xl font-semibold text-gray-900">Recent Contacts</h2>
-                <a href="{% url 'contacts:create' %}" class="inline-flex items-center rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">Add Contact</a>
-            </div>
-            {% if recent_contacts %}
-                <ul class="divide-y divide-gray-200">
-                    {% for contact in recent_contacts %}
-                        <li class="py-3">
-                            <a href="{% url 'contacts:detail' contact.pk %}" class="block text-base font-medium text-gray-900 hover:text-blue-600">
-                                {{ contact.name }}
-                            </a>
-                            {% if contact.relationship %}
-                                <p class="text-sm text-gray-500 mt-1">{{ contact.relationship }}</p>
-                            {% endif %}
-                        </li>
-                    {% endfor %}
-                </ul>
-            {% else %}
-                <p class="text-sm text-gray-500">You haven’t added any contacts yet.</p>
-            {% endif %}
-        </div>
+    <div class="mt-8 grid gap-6 md:grid-cols-1">
         <div class="bg-white shadow rounded-lg p-6">
             <div class="flex items-center justify-between mb-4">
                 <h2 class="text-xl font-semibold text-gray-900">Recent Conversations</h2>
-                <a href="{% url 'conversations:create' %}" class="inline-flex items-center rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">Start Conversation</a>
+                <a href="{% url 'home' %}" class="inline-flex items-center rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">Start Conversation</a>
             </div>
             {% if recent_conversations %}
                 <ul class="divide-y divide-gray-200">
                     {% for conversation in recent_conversations %}
                         <li class="py-3">
                             <a href="{% url 'conversations:detail' conversation.pk %}" class="block text-base font-medium text-gray-900 hover:text-blue-600">
-                                {% if conversation.title %}
-                                    {{ conversation.title }}
-                                {% else %}
-                                    Conversation with {{ conversation.contact.name }}
-                                {% endif %}
+                                {{ conversation.title|default:"Untitled conversation" }}
                             </a>
                             <p class="text-sm text-gray-500 mt-1">
                                 Updated {{ conversation.updated_at|date:"M j, Y" }}

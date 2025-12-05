@@ -2,19 +2,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from contacts.models import Contact
 from django.conf import settings
-from django.contrib import messages
 from django.db.models import Prefetch
-from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
-from django.shortcuts import redirect, render
+from django.http import HttpRequest, HttpResponse
+from django.shortcuts import redirect
+from django.utils import timezone
 from django.views import View, generic
-from django.views.generic.detail import SingleObjectMixin
 
-from .utils import is_htmx
-from .utils_mock_conversations import MockConversationError, create_mock_conversation
-from .models import Conversation, Message
 from home.utils import get_patient_profile
+
+from .models import Conversation, Message
+from .utils import is_htmx
 
 
 class ConversationListView(generic.ListView):
@@ -25,7 +23,6 @@ class ConversationListView(generic.ListView):
     def get_queryset(self):
         return (
             Conversation.objects.all()
-            .select_related("contact")
             .prefetch_related(
                 Prefetch(
                     "messages",
@@ -38,78 +35,26 @@ class ConversationListView(generic.ListView):
 
 
 class ConversationCreateView(View):
-    template_name = "conversations/conversation_form.html"
-
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        contacts = Contact.objects.order_by("name")
-        return render(request, self.template_name, {"contacts": contacts})
+        conversation = get_recent_empty_conversation()
+        if conversation:
+            return redirect(conversation.get_absolute_url())
+        return redirect(create_conversation().get_absolute_url())
 
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        contact_id = request.POST.get("contact")
-        title = request.POST.get("title", "").strip()
-
-        # Simple validation
-        if not contact_id:
-            contacts = Contact.objects.order_by("name")
-            return render(
-                request,
-                self.template_name,
-                {"contacts": contacts, "error": "Please select a contact."},
-                status=400,
-            )
-
-        try:
-            contact = Contact.objects.get(id=contact_id)
-        except Contact.DoesNotExist:
-            contacts = Contact.objects.order_by("name")
-            return render(
-                request,
-                self.template_name,
-                {"contacts": contacts, "error": "Invalid contact selected."},
-                status=400,
-            )
-
-        # Validate title length
-        if title and len(title) > 255:
-            contacts = Contact.objects.order_by("name")
-            return render(
-                request,
-                self.template_name,
-                {"contacts": contacts, "error": "Title must be 255 characters or less."},
-                status=400,
-            )
-
-        conversation = Conversation.objects.create(
-            contact=contact,
-            title=title or contact.name,
-        )
-        return HttpResponseRedirect(conversation.get_absolute_url())
-
-
-class ConversationQuickStartView(SingleObjectMixin, View):
-    model = Contact
-
-    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        contact = self.get_object()
-        conversation = Conversation.objects.create(
-            contact=contact,
-            title=contact.name,
-        )
+        title = (request.POST.get("title") or "").strip()
+        conversation = get_recent_empty_conversation()
+        if conversation and title:
+            conversation.title = _clean_title(title)
+            conversation.save(update_fields=["title", "updated_at"])
+        elif not conversation:
+            conversation = create_conversation(title=title)
         return redirect(conversation.get_absolute_url())
 
 
-class ConversationGenerateView(SingleObjectMixin, View):
-    model = Contact
-
-    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        contact = self.get_object()
-        try:
-            conversation, transcript = create_mock_conversation(contact=contact, patient_profile=get_patient_profile())
-        except MockConversationError as error:
-            messages.error(self.request, f"Unable to generate conversation: {error}")
-            return redirect(contact.get_absolute_url())
-        messages.success(self.request, f"Generated conversation with {contact.name} ({len(transcript.messages)} messages).")
-        return redirect(conversation.get_absolute_url())
+class ConversationStartView(ConversationCreateView):
+    """Alias used for the homepage route."""
+    pass
 
 
 class ConversationDetailView(generic.DetailView):
@@ -135,6 +80,10 @@ class ConversationDetailView(generic.DetailView):
         context["pusher_key"] = settings.PUSHER_KEY
         context["pusher_cluster"] = settings.PUSHER_CLUSTER
         context["patient_profile"] = get_patient_profile()
+        context["recent_conversations"] = (
+            Conversation.objects.exclude(pk=self.object.pk)
+            .order_by("-updated_at", "-created_at")[:5]
+        )
         return context
 
 
@@ -152,3 +101,23 @@ class ConversationKeyboardView(generic.DetailView):
         context["react_dev_url"] = getattr(settings, 'REACT_DEV_SERVER_URL', 'http://localhost:3000')
         return context
 
+
+def create_conversation(*, title: str | None = None) -> Conversation:
+    """Create a new conversation with a friendly default title."""
+    cleaned = _clean_title(title)
+    return Conversation.objects.create(title=cleaned)
+
+
+def get_recent_empty_conversation() -> Conversation | None:
+    conversation = Conversation.objects.order_by("-created_at", "-id").first()
+    if conversation and not conversation.messages.exists():
+        return conversation
+    return None
+
+
+def _clean_title(title: str | None) -> str:
+    if title:
+        cleaned = " ".join(title.split())[:255]
+        if cleaned:
+            return cleaned
+    return timezone.localtime().strftime("Conversation %b %d, %Y %I:%M %p")
