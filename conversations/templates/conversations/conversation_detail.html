@@ -3,21 +3,16 @@
 {% block title %}Conversation · Eye Tracking Keyboard{% endblock %}
 
 {% block content %}
-<section class="max-w-4xl mx-auto px-4 py-10">
-    <div x-data="{ showDetails: false, openPanel: 'conversation' }" x-on:keydown.escape.window="showDetails = false">
-        <div class="bg-white shadow rounded-lg flex flex-col">
-            <div class="px-6 py-5 border-b border-gray-100">
-                <div class="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                        <p class="text-sm text-gray-500 uppercase tracking-wide">Live conversation</p>
-                        <h1 class="text-3xl font-semibold text-gray-900">
-                            {{ conversation.title|default:"Untitled conversation" }}
-                        </h1>
-                        <p class="text-gray-600 mt-2">
-                            Started {{ conversation.created_at|date:"M j, Y g:i a" }}
-                        </p>
-                    </div>
-                    <div class="flex items-center gap-2">
+<section class="max-w-5xl mx-auto px-4 py-10">
+    <div class="space-y-8">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+            <div>
+                <p class="text-sm text-gray-500 uppercase tracking-wide">Live conversation</p>
+                <p class="text-gray-600 mt-2">
+                    Started {{ conversation.created_at|date:"M j, Y g:i a" }}
+                </p>
+            </div>
+            <div class="flex items-center gap-2">
                         <a
                             href="{% url 'conversations:keyboard' conversation.pk %}"
                             target="_blank"
@@ -70,151 +65,17 @@
                                 </div>
                             </div>
                         </div>
-                        <button
-                            type="button"
-                            class="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                            x-on:click="showDetails = true; openPanel = 'conversation'"
-                            aria-haspopup="dialog"
-                            :aria-expanded="showDetails.toString()"
-                        >
-                            <svg class="h-5 w-5 text-gray-500" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-.75-11.5a.75.75 0 111.5 0 .75.75 0 01-1.5 0zm0 2.25a.75.75 0 000 1.5h.25v3a.75.75 0 001.5 0v-3A1.75 1.75 0 0010 8.75h-.75z" clip-rule="evenodd" />
-                            </svg>
-                            Conversation info
-                        </button>
                     </div>
                 </div>
             </div>
 
-            <div class="flex-1 overflow-y-auto px-6 py-6 space-y-6 bg-gray-50 pb-32">
+        <div class="rounded-3xl border border-white/80 bg-white/80 backdrop-blur p-6 space-y-6 shadow-sm">
+            <div class="min-h-[60vh] overflow-y-auto space-y-6 pb-20">
                 {% include "conversations/partials/message_list.html" with conversation=conversation messages=messages %}
             </div>
-
             {% include "conversations/partials/input_panel.html" with conversation=conversation suggestions=suggestions suggestion_hint=suggestion_hint %}
         </div>
 
-        <div
-            x-cloak
-            x-show="showDetails"
-            x-transition.opacity
-            class="fixed inset-0 z-40 flex items-center justify-center px-4"
-            role="dialog"
-            aria-modal="true"
-        >
-            <div class="absolute inset-0 bg-gray-900/60" x-on:click="showDetails = false; openPanel = 'conversation'"></div>
-            <div
-                x-transition
-                class="relative z-50 w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl"
-            >
-                <div class="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-                    <h2 class="text-lg font-semibold text-gray-900">Conversation info</h2>
-                    <button
-                        type="button"
-                        class="rounded-full p-2 text-gray-500 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                        x-on:click="showDetails = false; openPanel = 'conversation'"
-                    >
-                        <span class="sr-only">Close</span>
-                        <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                            <path fill-rule="evenodd" d="M4.22 4.22a.75.75 0 011.06 0L10 8.94l4.72-4.72a.75.75 0 111.06 1.06L11.06 10l4.72 4.72a.75.75 0 11-1.06 1.06L10 11.06l-4.72 4.72a.75.75 0 11-1.06-1.06L8.94 10 4.22 5.28a.75.75 0 010-1.06z" clip-rule="evenodd" />
-                        </svg>
-                    </button>
-                </div>
-                <div class="px-6 py-6 space-y-4">
-                    <div class="rounded-xl border border-gray-200">
-                        <button
-                            type="button"
-                            class="flex w-full items-center justify-between gap-4 px-4 py-3 text-left text-base font-medium text-gray-900 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                            x-on:click="openPanel = openPanel === 'conversation' ? null : 'conversation'"
-                            aria-controls="conversation-info-overview"
-                            :aria-expanded="(openPanel === 'conversation').toString()"
-                        >
-                            <span>Conversation details</span>
-                            <svg
-                                class="h-5 w-5 text-gray-500 transition-transform"
-                                :class="{ 'rotate-180': openPanel === 'conversation' }"
-                                viewBox="0 0 20 20"
-                                fill="currentColor"
-                                aria-hidden="true"
-                            >
-                                <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.19l3.71-3.96a.75.75 0 111.08 1.04l-4.25 4.54a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
-                            </svg>
-                        </button>
-                        <div
-                            id="conversation-info-overview"
-                            x-show="openPanel === 'conversation'"
-                            x-transition
-                            class="border-t border-gray-200 px-4 py-4 space-y-4 text-gray-700"
-                        >
-                            <dl class="space-y-2">
-                                <div>
-                                    <dt class="text-sm font-medium text-gray-500">Title</dt>
-                                    <dd>{{ conversation.title|default:"Untitled conversation" }}</dd>
-                                </div>
-                                <div>
-                                    <dt class="text-sm font-medium text-gray-500">Created</dt>
-                                    <dd>{{ conversation.created_at|date:"M j, Y g:i a" }}</dd>
-                                </div>
-                                <div>
-                                    <dt class="text-sm font-medium text-gray-500">Last updated</dt>
-                                    <dd>{{ conversation.updated_at|date:"M j, Y g:i a" }}</dd>
-                                </div>
-                            </dl>
-                        </div>
-                    </div>
-                    <div class="rounded-xl border border-gray-200">
-                        <button
-                            type="button"
-                            class="flex w-full items-center justify-between gap-4 px-4 py-3 text-left text-base font-medium text-gray-900 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                            x-on:click="openPanel = openPanel === 'about' ? null : 'about'"
-                            aria-controls="conversation-info-about"
-                            :aria-expanded="(openPanel === 'about').toString()"
-                        >
-                            <span>Your profile</span>
-                            <svg
-                                class="h-5 w-5 text-gray-500 transition-transform"
-                                :class="{ 'rotate-180': openPanel === 'about' }"
-                                viewBox="0 0 20 20"
-                                fill="currentColor"
-                                aria-hidden="true"
-                            >
-                                <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.19l3.71-3.96a.75.75 0 111.08 1.04l-4.25 4.54a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
-                            </svg>
-                        </button>
-                        <div
-                            id="conversation-info-about"
-                            x-show="openPanel === 'about'"
-                            x-transition
-                            class="border-t border-gray-200 px-4 py-4 space-y-3 text-gray-700"
-                        >
-                            <dl class="space-y-2">
-                                <div>
-                                    <dt class="text-sm font-medium text-gray-500">Name</dt>
-                                    <dd>{{ patient_profile.full_name|default:"Primary communicator" }}</dd>
-                                </div>
-                                <div>
-                                    <dt class="text-sm font-medium text-gray-500">Location</dt>
-                                    <dd>{{ patient_profile.location|default:"Not specified" }}</dd>
-                                </div>
-                                <div>
-                                    <dt class="text-sm font-medium text-gray-500">Medical context</dt>
-                                    <dd>{{ patient_profile.medical_condition|default:"Not captured" }}</dd>
-                                </div>
-                                <div>
-                                    <dt class="text-sm font-medium text-gray-500">Interests</dt>
-                                    <ul class="mt-1 space-y-1 list-disc list-inside">
-                                        {% for interest in patient_profile.interests_list %}
-                                            <li>{{ interest }}</li>
-                                        {% empty %}
-                                            <li class="list-none text-gray-500">No interests recorded.</li>
-                                        {% endfor %}
-                                    </ul>
-                                </div>
-                            </dl>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
     </div>
 </section>
 

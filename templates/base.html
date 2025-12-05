@@ -17,27 +17,8 @@
 
     {% block extra_head %}{% endblock %}
 </head>
-<body class="bg-gray-50">
-    <nav class="bg-white shadow-lg">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex justify-between h-16">
-                <div class="flex">
-                    <div class="flex-shrink-0 flex items-center">
-                        <a href="/" class="text-xl font-bold text-gray-800">Eye Tracking Keyboard</a>
-                    </div>
-                    <div class="ml-6 flex items-center space-x-4">
-                        <a href="{% url 'home' %}" class="text-gray-700 hover:text-gray-900">New conversation</a>
-                        <a href="{% url 'conversations:list' %}" class="text-gray-700 hover:text-gray-900">Past conversations</a>
-                    </div>
-                </div>
-                <div class="flex items-center space-x-4 text-sm text-gray-500">
-                    Single-user preview
-                </div>
-            </div>
-        </div>
-    </nav>
-
-    <main>
+<body class="bg-slate-100 min-h-screen">
+    <main class="py-6">
         {% block content %}{% endblock %}
     </main>
 

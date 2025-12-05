@@ -168,12 +168,18 @@
             if (this.showHints) {
                 this.refreshHints();
             }
+            this.$nextTick(() => {
+                if (this.$refs.messageInput) {
+                    this.$refs.messageInput.focus();
+                }
+            });
         }
     }"
     x-on:message-sent.window="handleMessageSent()"
     x-on:hint-clicked.window="toggleHint($event.detail.word, $event.detail.emoji)"
-    class="px-6 py-4 border-t border-gray-100 bg-white sticky bottom-0 z-10"
+    class="fixed inset-x-0 bottom-0 z-40 bg-white/95 backdrop-blur border-t border-slate-200 shadow-xl"
 >
+    <div class="max-w-5xl mx-auto px-6 py-4">
     <!-- Hints Panel -->
     <div 
         id="conversation-hints-panel"
@@ -244,7 +250,7 @@
             <template x-for="suggestion in suggestions" :key="suggestion">
                 <button
                     type="button"
-                    x-on:click="sendMessage(suggestion)"
+                    x-on:click="sendMessage(suggestion, 'contact')"
                     x-bind:disabled="isSubmitting"
                     class="w-full rounded-2xl border border-gray-200 bg-white px-5 py-4 text-left text-base font-medium text-gray-900 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -261,18 +267,19 @@
                 <label for="message-input" class="sr-only">Type your message</label>
                 <input
                     id="message-input"
+                    x-ref="messageInput"
                     type="text"
                     x-model="messageText"
                     placeholder="Type a message..."
                     class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-base text-gray-900 placeholder:text-gray-400 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     x-bind:disabled="isSubmitting"
-                    x-on:keydown.enter.prevent="if (messageText.trim() && !isSubmitting) sendMessage(messageText)"
+                    x-on:keydown.enter.prevent="if (messageText.trim() && !isSubmitting) sendMessage(messageText, 'contact')"
                     autocomplete="off"
                 >
             </div>
             <button
                 type="button"
-                x-on:click="sendMessage(messageText)"
+                x-on:click="sendMessage(messageText, 'contact')"
                 x-bind:disabled="isSubmitting || !messageText.trim()"
                 class="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-5 py-3 text-lg font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -290,5 +297,6 @@
         >
             Clear
         </button>
+    </div>
     </div>
 </div>
