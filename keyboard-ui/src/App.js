@@ -7,6 +7,7 @@ import Suggestions from './components/Suggestions';
 import SpeechWarningModal from './components/SpeechWarningModal';
 import Backspace from './components/Backspace';
 import Toast from './components/Toast';
+import Layout from './components/Layout';
 
 const App = () => {
   const [currentText, setCurrentText] = useState('');
@@ -319,38 +320,44 @@ const App = () => {
           )}
 
           {/* Always-on layout: Suggestions, Keyboard, Hints */}
-          <div className="flex-1 flex flex-col gap-0 p-0 min-h-0">
-            <Suggestions
-              prefix={keyboardPrefix}
-              hintText={hintText}
-              dwellTime={dwellTime}
-              conversationId={conversationId}
-              onSpeak={handleSpeak}
-              onShowToast={setToastMessage}
-              onLoadingChange={setIsSuggestionsLoading}
-              onRegisterRefresh={(callback) => {
-                console.log('[App] Registering Suggestions refresh callback');
-                suggestionsRefreshRef.current = callback;
-              }}
-              onTextChange={(suggestion) => {
-                setCurrentText(suggestion);
-                setKeyboardPrefix('');
-              }}
-            />
-            <Keyboard onDwell={handleDwell} onDwellLeave={handleDwellLeave} />
-            <Hints
-              selectedHints={selectedHints}
-              onHintToggle={handleHintToggle}
-              dwellTime={dwellTime}
-              conversationId={conversationId}
-              onShowToast={setToastMessage}
-              onLoadingChange={setIsHintsLoading}
-              onRegisterRefresh={(callback) => {
-                console.log('[App] Registering Hints refresh callback');
-                hintsRefreshRef.current = callback;
-              }}
-            />
-          </div>
+          <Layout>
+            <Layout.Panel name="suggestions" title="Suggestions">
+              <Suggestions
+                prefix={keyboardPrefix}
+                hintText={hintText}
+                dwellTime={dwellTime}
+                conversationId={conversationId}
+                onSpeak={handleSpeak}
+                onShowToast={setToastMessage}
+                onLoadingChange={setIsSuggestionsLoading}
+                onRegisterRefresh={(callback) => {
+                  console.log('[App] Registering Suggestions refresh callback');
+                  suggestionsRefreshRef.current = callback;
+                }}
+                onTextChange={(suggestion) => {
+                  setCurrentText(suggestion);
+                  setKeyboardPrefix('');
+                }}
+              />
+            </Layout.Panel>
+            <Layout.Panel name="keyboard" title="Keyboard">
+              <Keyboard onDwell={handleDwell} onDwellLeave={handleDwellLeave} />
+            </Layout.Panel>
+            <Layout.Panel name="hints" title="Hints">
+              <Hints
+                selectedHints={selectedHints}
+                onHintToggle={handleHintToggle}
+                dwellTime={dwellTime}
+                conversationId={conversationId}
+                onShowToast={setToastMessage}
+                onLoadingChange={setIsHintsLoading}
+                onRegisterRefresh={(callback) => {
+                  console.log('[App] Registering Hints refresh callback');
+                  hintsRefreshRef.current = callback;
+                }}
+              />
+            </Layout.Panel>
+          </Layout>
 
           {/* Speech warning modal */}
           <SpeechWarningModal ref={speechWarningModalRef} onSpeechEnabled={() => {
