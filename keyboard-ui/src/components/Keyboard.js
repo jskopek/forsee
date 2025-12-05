@@ -1,4 +1,5 @@
 import React from 'react';
+import Button from './Button';
 
 const Keyboard = ({ onDwell, onDwellLeave }) => {
   const keys = [
@@ -16,15 +17,16 @@ const Keyboard = ({ onDwell, onDwellLeave }) => {
           style={{ gridTemplateColumns: `repeat(${row.length}, 1fr)` }}
         >
           {row.map((key) => (
-            <button
+            <Button
               key={key}
+              label={key.toUpperCase()}
+              color="green"
+              dwell={false}
+              loading={false}
               onMouseEnter={() => onDwell(key)}
               onMouseLeave={onDwellLeave}
-              className="relative flex items-center justify-center w-full h-full border-none outline-none bg-transparent text-white text-2xl tracking-[1px] cursor-pointer overflow-hidden before:content-[''] before:absolute before:inset-0 before:bg-key-back before:transition-colors before:duration-[120ms] before:ease-in-out before:z-[1] after:content-[''] after:absolute after:inset-1 after:bg-key-front after:border after:border-key-border after:rounded-lg after:transition-colors after:duration-[120ms] after:ease-in-out after:z-[1] hover:before:bg-key-back-hover hover:after:bg-key-front-hover hover:after:border-key-border-hover group"
-            >
-              <span className="absolute inset-1 rounded-lg bg-white/28 origin-left z-[2] pointer-events-none animate-dwell-fill" aria-hidden="true" />
-              <span className="relative z-[3] font-semibold">{key.toUpperCase()}</span>
-            </button>
+              className="tracking-[1px]"
+            />
           ))}
         </div>
       ))}

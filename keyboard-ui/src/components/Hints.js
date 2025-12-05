@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import Pusher from 'pusher-js';
+import Button from './Button';
 
 const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, onShowToast, onRegisterRefresh, onLoadingChange }) => {
   const MAX_HINTS = 19; // Reserve one slot for "More" button
@@ -266,54 +267,43 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
           }
 
           return (
-            <button
+            <Button
               key={`${hint.word}-${index}`}
-              className={`relative flex flex-col items-center justify-center w-full h-full border-none outline-none bg-transparent text-white text-xl cursor-pointer overflow-hidden before:content-[''] before:absolute before:inset-0 before:transition-colors before:duration-[120ms] before:ease-in-out before:z-[1] after:content-[''] after:absolute after:inset-1 after:border after:rounded-lg after:transition-all after:duration-[120ms] after:ease-in-out after:z-[1] group ${
-                isSelected
-                  ? 'before:bg-primary-back after:bg-gradient-to-br after:from-primary-gradient-start after:to-primary-gradient-end after:border-primary-border hover:before:bg-primary-back-hover hover:after:from-primary-gradient-start-hover hover:after:to-primary-gradient-end-hover hover:after:border-primary-border-hover'
-                  : 'before:bg-key-back after:bg-key-front after:border-key-border hover:before:bg-key-back-hover hover:after:bg-key-front-hover hover:after:border-key-border-hover'
-              }`}
+              label={hint.word}
+              icon={hint.emoji}
+              color={isSelected ? 'blue' : 'green'}
+              dwell={false}
+              onMouseEnter={() => handleHintHover(hint)}
+              onMouseLeave={handleHintLeave}
+              className={`text-xl ${isSelected ? 'underline' : ''}`}
               style={{
                 gridColumn: `span ${gridColumnSpan}`,
               }}
-              onMouseEnter={() => handleHintHover(hint)}
-              onMouseLeave={handleHintLeave}
-            >
-              <span
-                className="absolute inset-1 rounded-lg bg-white/28 origin-left z-[2] pointer-events-none animate-dwell-fill"
-                aria-hidden="true"
-              />
-              <span className="relative z-[3] text-4xl mb-2">{hint.emoji}</span>
-              <span className={`relative z-[3] font-semibold ${isSelected ? 'underline' : ''}`}>
-                {hint.word}
-              </span>
-            </button>
+            />
           );
         })}
 
         {/* "More" button - always in bottom right */}
-        <button
-          className="relative flex flex-col items-center justify-center w-full h-full border-none outline-none bg-transparent text-white text-xl cursor-pointer overflow-hidden before:content-[''] before:absolute before:inset-0 before:bg-primary-back before:transition-colors before:duration-[120ms] before:ease-in-out before:z-[1] after:content-[''] after:absolute after:inset-1 after:bg-gradient-to-br after:from-primary-gradient-start after:to-primary-gradient-end after:border after:border-primary-border after:rounded-lg after:transition-all after:duration-[120ms] after:ease-in-out after:z-[1] hover:before:bg-primary-back-hover hover:after:from-primary-gradient-start-hover hover:after:to-primary-gradient-end-hover hover:after:border-primary-border-hover group"
+        <Button
+          label="More"
+          icon="🔄"
+          color="blue"
+          dwell={false}
           onMouseEnter={handleMoreHover}
           onMouseLeave={handleHintLeave}
-        >
-          <span
-            className="absolute inset-1 rounded-lg bg-white/28 origin-left z-[2] pointer-events-none animate-dwell-fill"
-            aria-hidden="true"
-          />
-          <span className="relative z-[3] text-4xl mb-2">🔄</span>
-          <span className="relative z-[3] font-semibold">More</span>
-        </button>
+          className="text-xl"
+        />
         </div>
       )}
       {/* Show loading skeletons while streaming */}
       {hints.length === 0 && isStreaming && (
         <div className="flex-1 grid grid-cols-5 gap-2 p-2">
           {Array.from({ length: 10 }, (_, index) => (
-            <div key={`skeleton-${index}`} className="relative flex flex-col items-center justify-center bg-key-front/30 border border-key-border/30 rounded-lg p-4 animate-pulse">
-              <div className="w-12 h-12 bg-gray-500/30 rounded mb-2"></div>
-              <div className="h-4 bg-gray-500/30 rounded w-16"></div>
-            </div>
+            <Button
+              key={`skeleton-${index}`}
+              loading={true}
+              icon="placeholder"
+            />
           ))}
         </div>
       )}

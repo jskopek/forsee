@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Pusher from 'pusher-js';
+import Button from './Button';
 
 const Suggestions = ({ prefix = '', hintText = '', dwellTime, conversationId, onSpeak, onShowToast, onRegisterRefresh, onLoadingChange, onTextChange }) => {
   const MAX_SUGGESTIONS = 6;
@@ -232,23 +233,22 @@ const Suggestions = ({ prefix = '', hintText = '', dwellTime, conversationId, on
             const suggestion = suggestions[index];
 
             return suggestion ? (
-              <button
+              <Button
                 key={`${suggestion}-${index}`}
-                className="relative flex items-center justify-center w-full h-full border-none outline-none bg-transparent text-white text-xl cursor-pointer overflow-hidden before:content-[''] before:absolute before:inset-0 before:bg-key-back before:transition-colors before:duration-[120ms] before:z-[1] after:content-[''] after:absolute after:inset-1 after:bg-key-front after:border after:border-key-border after:rounded-lg after:transition-colors after:duration-[120ms] after:z-[1] hover:before:bg-key-back-hover hover:after:bg-key-front-hover hover:after:border-key-border-hover group"
+                label={suggestion}
+                color="green"
+                dwell={false}
+                loading={false}
                 onMouseEnter={() => handleSuggestionHover(suggestion)}
                 onMouseLeave={handleSuggestionLeave}
                 onClick={() => applySuggestion(suggestion)}
-              >
-                <span className="absolute inset-1 rounded-lg bg-white/28 origin-left z-[2] pointer-events-none animate-dwell-fill" />
-                <span className="relative z-[3] font-semibold text-center px-4 break-words">
-                  {suggestion}
-                </span>
-              </button>
+                className="text-xl text-center px-4 break-words"
+              />
             ) : isStreaming ? (
-              // Loading skeleton
-              <div key={`skeleton-${index}`} className="relative flex items-center justify-center w-full h-full bg-key-front/30 border border-key-border/30 rounded-lg mx-1 my-0.5 animate-pulse">
-                <div className="h-4 bg-gray-500/30 rounded w-3/4"></div>
-              </div>
+              <Button
+                key={`skeleton-${index}`}
+                loading={true}
+              />
             ) : null;
           })}
         </div>
