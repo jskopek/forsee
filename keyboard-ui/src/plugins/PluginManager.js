@@ -5,32 +5,23 @@
  * Provides context to plugins for LLM requests and app interaction.
  */
 
-import Pusher from 'pusher-js';
-import type {
-  Plugin,
-  PluginContext,
-  LLMRequest,
-  LLMStreamCallbacks,
-} from './plugin-types';
-import { llmRequest } from '../hooks/useLLM';
+import { llmRequest } from '../hooks/useLLM.ts';
 
 export class PluginManager {
-  private plugins: Map<string, Plugin> = new Map();
-  private settings: Map<string, Record<string, any>> = new Map();
-  private pusher: Pusher | null = null;
-  private conversationId: string | null;
-
-  // App state getters (set by App component)
-  private getCurrentText: () => string = () => '';
-  private getKeyboardPrefix: () => string = () => '';
-  private getSelectedHints: () => string[] = () => [];
-  private getDwellTime: () => number = () => 1000;
-  private speak: (text: string) => void = () => {};
-  private addMessage: (body: string, sender: 'user' | 'contact') => Promise<void> = async () => {};
-
-  constructor(conversationId: string | null, pusher: Pusher | null = null) {
-    this.conversationId = conversationId;
+  constructor(conversationId, pusher = null) {
+    this.plugins = new Map();
+    this.settings = new Map();
     this.pusher = pusher;
+    this.conversationId = conversationId;
+
+    // App state getters (set by App component)
+    this.getCurrentText = () => '';
+    this.getKeyboardPrefix = () => '';
+    this.getSelectedHints = () => [];
+    this.getDwellTime = () => 1000;
+    this.speak = () => {};
+    this.addMessage = async () => {};
+    
     this.loadSettings();
   }
 
@@ -56,7 +47,7 @@ export class PluginManager {
   /**
    * Register a plugin
    */
-  register(plugin: Plugin): void {
+  register(plugin) {
     this.plugins.set(plugin.metadata.id, plugin);
 
     // Load plugin settings from localStorage or use defaults
@@ -72,7 +63,7 @@ export class PluginManager {
   /**
    * Unregister a plugin
    */
-  unregister(pluginId: string): void {
+  unregister(pluginId) {
     const plugin = this.plugins.get(pluginId);
     if (plugin && plugin.onUnmount) {
       plugin.onUnmount();
@@ -84,28 +75,28 @@ export class PluginManager {
   /**
    * Get all registered plugins
    */
-  getAll(): Plugin[] {
+  getAll() {
     return Array.from(this.plugins.values());
   }
 
   /**
    * Get plugin by ID
    */
-  get(id: string): Plugin | undefined {
+  get(id) {
     return this.plugins.get(id);
   }
 
   /**
    * Get plugin settings
    */
-  getSettings(pluginId: string): Record<string, any> {
+  getSettings(pluginId) {
     return this.settings.get(pluginId) || {};
   }
 
   /**
    * Update plugin settings
    */
-  updateSettings(pluginId: string, newSettings: Record<string, any>): void {
+  updateSettings(pluginId, newSettings) {
     this.settings.set(pluginId, newSettings);
     localStorage.setItem(`plugin_settings_${pluginId}`, JSON.stringify(newSettings));
 
@@ -121,17 +112,14 @@ export class PluginManager {
   /**
    * Generic LLM request helper
    */
-  async llmRequestForPlugin(
-    request: LLMRequest,
-    callbacks: LLMStreamCallbacks
-  ): Promise<string> {
+  async llmRequestForPlugin(request, callbacks) {
     return llmRequest(request, callbacks, this.conversationId || undefined);
   }
 
   /**
    * Refresh other plugins (trigger their onMessageAdded handlers)
    */
-  refreshOtherPlugins(pluginIds?: string[]): void {
+  refreshOtherPlugins(pluginIds) {
     const pluginsToRefresh = pluginIds
       ? pluginIds.map(id => this.plugins.get(id)).filter(p => p)
       : Array.from(this.plugins.values());
@@ -146,7 +134,7 @@ export class PluginManager {
   /**
    * Build plugin context
    */
-  buildContext(pluginId: string): PluginContext {
+  buildContext(pluginId) {
     return {
       conversationId: this.conversationId,
       currentText: this.getCurrentText(),
@@ -164,14 +152,14 @@ export class PluginManager {
   /**
    * Load settings from localStorage
    */
-  private loadSettings(): void {
+  loadSettings() {
     // Settings are loaded lazily when plugins are registered
   }
 
   /**
    * Notify all plugins when a message is added
    */
-  notifyMessageAdded(): void {
+  notifyMessageAdded() {
     this.plugins.forEach(plugin => {
       if (plugin.onMessageAdded) {
         plugin.onMessageAdded(this.buildContext(plugin.metadata.id));
@@ -182,7 +170,7 @@ export class PluginManager {
   /**
    * Mount all plugins (call onMount handlers)
    */
-  mountAll(): void {
+  mountAll() {
     this.plugins.forEach(plugin => {
       if (plugin.onMount) {
         plugin.onMount(this.buildContext(plugin.metadata.id));
@@ -193,7 +181,7 @@ export class PluginManager {
   /**
    * Unmount all plugins (call onUnmount handlers)
    */
-  unmountAll(): void {
+  unmountAll() {
     this.plugins.forEach(plugin => {
       if (plugin.onUnmount) {
         plugin.onUnmount();

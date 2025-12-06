@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Pusher from 'pusher-js';
 import Keyboard from './components/Keyboard';
 import Settings from './components/Settings';
-import Hints from './components/Hints';
-import Suggestions from './components/Suggestions';
 import SpeechWarningModal from './components/SpeechWarningModal';
 import Backspace from './components/Backspace';
 import Toast from './components/Toast';
 import Layout from './components/Layout';
+import PluginManager from './plugins/PluginManager';
+import SuggestionsPlugin from './plugins/SuggestionsPlugin';
+import HintsPlugin from './plugins/HintsPlugin';
 
 const App = () => {
   const [currentText, setCurrentText] = useState('');
@@ -18,19 +19,14 @@ const App = () => {
   const [conversationId, setConversationId] = useState(null);
   const speechWarningModalRef = useRef(null);
   const backspaceRef = useRef(null);
-  const suggestionsRefreshRef = useRef(null);
-  const hintsRefreshRef = useRef(null);
-  
-  // Toast state - empty string means hidden
+
+  // Toast state
   const [toastMessage, setToastMessage] = useState('');
 
-  // Loading states for suggestions and hints
-  const [isSuggestionsLoading, setIsSuggestionsLoading] = useState(false);
-  const [isHintsLoading, setIsHintsLoading] = useState(false);
-
   const keyPressTimer = useRef(null);
+  const pusherRef = useRef(null);
 
-  // Extract conversation ID from URL query parameter
+  // Extract conversation ID from URL
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const conversationIdParam = urlParams.get('id');
@@ -39,6 +35,7 @@ const App = () => {
     }
   }, []);
 
+  // Load dwell time from localStorage
   useEffect(() => {
     const savedDwellTime = localStorage.getItem('dwellTime');
     if (savedDwellTime) {
@@ -46,52 +43,76 @@ const App = () => {
     }
   }, []);
 
-  // Pusher connection for real-time updates
+  // Initialize Pusher for message_added events
   useEffect(() => {
-    if (!conversationId) {
-      console.log('[Pusher] No conversationId, skipping');
-      return;
-    }
+    if (!conversationId) return;
 
     const pusherKey = process.env.REACT_APP_PUSHER_KEY;
     const pusherCluster = process.env.REACT_APP_PUSHER_CLUSTER || 'us2';
-    
-    if (!pusherKey) {
-      console.log('[Pusher] No PUSHER_KEY configured, skipping');
-      return;
-    }
 
-    console.log('[Pusher] Connecting...');
+    if (!pusherKey) return;
+
+    console.log('[App] Connecting to Pusher...');
     const pusher = new Pusher(pusherKey, {
       cluster: pusherCluster,
     });
 
     const channel = pusher.subscribe(`conversation-${conversationId}`);
-    
+
     channel.bind('message_added', (data) => {
-      console.log('[Pusher] 🔔 New message detected:', data);
-      if (suggestionsRefreshRef.current) {
-        suggestionsRefreshRef.current();
-      }
-      if (hintsRefreshRef.current) {
-        hintsRefreshRef.current();
+      console.log('[App] Message added event:', data);
+      // PluginManager will notify plugins
+      if (pluginManagerRef.current) {
+        pluginManagerRef.current.notifyMessageAdded();
       }
     });
 
-    channel.bind('pusher:subscription_succeeded', () => {
-      console.log('[Pusher] ✅ Subscribed to channel');
-    });
-
-    channel.bind('pusher:subscription_error', (error) => {
-      console.error('[Pusher] ❌ Subscription error:', error);
-    });
+    pusherRef.current = pusher;
 
     return () => {
-      console.log('[Pusher] Cleaning up');
+      console.log('[App] Disconnecting from Pusher');
       pusher.unsubscribe(`conversation-${conversationId}`);
       pusher.disconnect();
     };
   }, [conversationId]);
+
+  // Create PluginManager
+  const pluginManagerRef = useRef(null);
+  const [pluginManagerReady, setPluginManagerReady] = useState(false);
+
+  useEffect(() => {
+    if (!conversationId) return;
+
+    console.log('[App] Creating PluginManager');
+    // Create plugin manager
+    const manager = new PluginManager(conversationId, pusherRef.current);
+
+    // Set up state getters
+    manager.setStateGetters({
+      getCurrentText: () => currentText,
+      getKeyboardPrefix: () => keyboardPrefix,
+      getSelectedHints: () => selectedHints,
+      getDwellTime: () => dwellTime,
+      speak: handleSpeak,
+      addMessage: handleAddMessage,
+    });
+
+    // Register plugins
+    manager.register(SuggestionsPlugin);
+    manager.register(HintsPlugin);
+
+    // Mount plugins
+    manager.mountAll();
+
+    pluginManagerRef.current = manager;
+    setPluginManagerReady(true);
+    console.log('[App] PluginManager ready');
+
+    return () => {
+      manager.unmountAll();
+      setPluginManagerReady(false);
+    };
+  }, [conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleKeyPress = (key) => {
     const charToAdd = key === 'space' ? ' ' : key;
@@ -100,7 +121,6 @@ const App = () => {
       setCurrentText(nextValue);
       return nextValue;
     });
-    // Reset backspace counter on any key press
     if (backspaceRef.current) {
       backspaceRef.current.reset();
     }
@@ -119,18 +139,19 @@ const App = () => {
     setCurrentText('');
   };
 
-  const handleHintToggle = (word, isSelected) => {
-    setSelectedHints((prev) => {
-      const normalizedWord = word.toLowerCase();
-      if (isSelected) {
-        return prev.filter((hint) => hint.toLowerCase() !== normalizedWord);
-      }
-      if (prev.some((hint) => hint.toLowerCase() === normalizedWord)) {
-        return prev;
-      }
-      return [...prev, word];
-    });
-  };
+  // Hint toggling handled by plugins now
+  // const handleHintToggle = (word, isSelected) => {
+  //   setSelectedHints((prev) => {
+  //     const normalizedWord = word.toLowerCase();
+  //     if (isSelected) {
+  //       return prev.filter((hint) => hint.toLowerCase() !== normalizedWord);
+  //     }
+  //     if (prev.some((hint) => hint.toLowerCase() === normalizedWord)) {
+  //       return prev;
+  //     }
+  //     return [...prev, word];
+  //   });
+  // };
 
   const handleDwell = (keyOrAction) => {
     clearTimeout(keyPressTimer.current);
@@ -148,37 +169,44 @@ const App = () => {
   };
 
   const handleSpeak = async (textToSpeak) => {
-    // Handle event objects from onClick handlers
     const phraseToUse = typeof textToSpeak === 'string' ? textToSpeak : currentText || '';
     const phrase = phraseToUse.trim();
     if (!phrase) return;
-    
-    // Send message to API if conversationId is available
-    // Always send as user when using the speak button
-    if (conversationId) {
-      try {
-        const apiBaseUrl = process.env.REACT_APP_API_BASE_URL || window.API_BASE_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '');
-        const response = await fetch(`${apiBaseUrl}/api/conversations/${conversationId}/messages`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({ body: phrase, sender: 'user' }),
-        });
 
-        if (!response.ok) {
-          throw new Error(response.status === 401 || response.status === 403 ? 'Authentication required' : response.status === 404 ? 'Conversation not found' : 'Failed to send message');
-        }
-      } catch (err) {
-        console.error('Error sending message:', err);
-        // Still proceed with speaking even if API call fails
-      }
+    // Send message to API if conversationId is available
+    if (conversationId) {
+      await handleAddMessage(phrase, 'user');
     }
-    
-    // Always try to speak - the modal will handle showing warnings if needed
+
+    // Speak via speech API
     if (speechWarningModalRef.current) {
       speechWarningModalRef.current.speak(phrase);
       setCurrentText('');
       setKeyboardPrefix('');
+    }
+  };
+
+  const handleAddMessage = async (body, sender = 'user') => {
+    if (!conversationId) return;
+
+    try {
+      const apiBaseUrl = process.env.REACT_APP_API_BASE_URL ||
+                         window.API_BASE_URL ||
+                         (process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '');
+
+      const response = await fetch(`${apiBaseUrl}/api/conversations/${conversationId}/messages`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ body, sender }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to send message');
+      }
+    } catch (err) {
+      console.error('Error sending message:', err);
+      setToastMessage('Failed to send message');
     }
   };
 
@@ -191,16 +219,11 @@ const App = () => {
     setIsSettingsOpen((prev) => !prev);
   };
 
-  const hintText = selectedHints.join(' ');
-
-  // Build display text showing prefix + hints (or current text if suggestion was selected)
   const buildDisplayText = () => {
     if (currentText) {
-      // A suggestion was selected, show it
       return currentText;
     }
 
-    // Show prefix + hints
     const parts = [];
     if (keyboardPrefix) {
       parts.push(keyboardPrefix);
@@ -213,6 +236,38 @@ const App = () => {
   };
 
   const displayText = buildDisplayText();
+
+  // Get plugin contexts for rendering
+  // Rebuild contexts when relevant state changes so plugins can react
+  const suggestionsContext = useMemo(() => {
+    console.log('[App] Building suggestionsContext', {
+      hasPluginManager: !!pluginManagerRef.current,
+      pluginManagerReady,
+      conversationId
+    });
+    if (!pluginManagerReady || !pluginManagerRef.current) {
+      console.log('[App] Plugin manager not ready, returning null');
+      return null;
+    }
+    const context = pluginManagerRef.current.buildContext('builtin.suggestions');
+    console.log('[App] Built suggestionsContext:', context);
+    return context;
+  }, [pluginManagerReady, conversationId, currentText, keyboardPrefix, selectedHints, dwellTime]);
+
+  const hintsContext = useMemo(() => {
+    console.log('[App] Building hintsContext', {
+      hasPluginManager: !!pluginManagerRef.current,
+      pluginManagerReady,
+      conversationId
+    });
+    if (!pluginManagerReady || !pluginManagerRef.current) {
+      console.log('[App] Plugin manager not ready, returning null');
+      return null;
+    }
+    const context = pluginManagerRef.current.buildContext('builtin.hints');
+    console.log('[App] Built hintsContext:', context);
+    return context;
+  }, [pluginManagerReady, conversationId, currentText, keyboardPrefix, selectedHints, dwellTime]);
 
   return (
     <div className="text-center min-h-screen flex flex-col bg-bg-main" style={{ '--dwell-time': `${dwellTime}ms` }}>
@@ -232,9 +287,7 @@ const App = () => {
               className="h-14 flex items-center justify-start bg-white border border-border-light rounded-md text-lg font-[system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji',sans-serif] px-3 min-w-0 overflow-hidden whitespace-nowrap text-ellipsis"
               title={displayText}
             >
-              {/* Show prefix and hints with visual distinction */}
               {currentText ? (
-                // Show selected suggestion
                 <span>{currentText}</span>
               ) : (
                 <>
@@ -287,9 +340,7 @@ const App = () => {
                     strokeLinejoin="round"
                     aria-hidden="true"
                   >
-                    {/* Head */}
                     <circle cx="9" cy="12" r="5" />
-                    {/* Voice waves */}
                     <path d="M17 10c1.75 1.75 1.75 3.5 0 5" />
                     <path d="M20 8c2.75 2.75 2.75 7.25 0 10" />
                   </svg>
@@ -306,56 +357,43 @@ const App = () => {
             />
           )}
 
-          {/* Floating loading indicator */}
-          {(isSuggestionsLoading || isHintsLoading) && (
-            <div className="fixed top-4 right-4 z-50 bg-primary-back/90 backdrop-blur-sm border border-primary-border rounded-lg px-4 py-2 shadow-lg">
-              <div className="flex items-center gap-2 text-white text-sm">
-                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <span>Loading...</span>
-              </div>
-            </div>
-          )}
-
-          {/* Always-on layout: Suggestions, Keyboard, Hints */}
+          {/* Main layout with plugins */}
           <Layout>
+            {/* Suggestions Plugin */}
             <Layout.Panel name="suggestions" title="Suggestions">
-              <Suggestions
-                prefix={keyboardPrefix}
-                hintText={hintText}
-                dwellTime={dwellTime}
-                conversationId={conversationId}
-                onSpeak={handleSpeak}
-                onShowToast={setToastMessage}
-                onLoadingChange={setIsSuggestionsLoading}
-                onRegisterRefresh={(callback) => {
-                  console.log('[App] Registering Suggestions refresh callback');
-                  suggestionsRefreshRef.current = callback;
-                }}
-                onTextChange={(suggestion) => {
-                  setCurrentText(suggestion);
-                  setKeyboardPrefix('');
-                }}
-              />
+              {console.log('[App] Rendering Suggestions panel', {
+                hasSuggestionsContext: !!suggestionsContext,
+                hasComponent: !!SuggestionsPlugin.Component,
+                willRender: !!(suggestionsContext && SuggestionsPlugin.Component)
+              })}
+              {suggestionsContext && SuggestionsPlugin.Component && (
+                <SuggestionsPlugin.Component
+                  context={suggestionsContext}
+                  panelState="expanded"
+                  onTogglePanel={() => {}}
+                />
+              )}
             </Layout.Panel>
+
+            {/* Keyboard */}
             <Layout.Panel name="keyboard" title="Keyboard">
               <Keyboard onDwell={handleDwell} onDwellLeave={handleDwellLeave} />
             </Layout.Panel>
+
+            {/* Hints Plugin */}
             <Layout.Panel name="hints" title="Hints">
-              <Hints
-                selectedHints={selectedHints}
-                onHintToggle={handleHintToggle}
-                dwellTime={dwellTime}
-                conversationId={conversationId}
-                onShowToast={setToastMessage}
-                onLoadingChange={setIsHintsLoading}
-                onRegisterRefresh={(callback) => {
-                  console.log('[App] Registering Hints refresh callback');
-                  hintsRefreshRef.current = callback;
-                }}
-              />
+              {console.log('[App] Rendering Hints panel', {
+                hasHintsContext: !!hintsContext,
+                hasComponent: !!HintsPlugin.Component,
+                willRender: !!(hintsContext && HintsPlugin.Component)
+              })}
+              {hintsContext && HintsPlugin.Component && (
+                <HintsPlugin.Component
+                  context={hintsContext}
+                  panelState="expanded"
+                  onTogglePanel={() => {}}
+                />
+              )}
             </Layout.Panel>
           </Layout>
 
@@ -367,12 +405,10 @@ const App = () => {
           }} />
 
           {/* Toast notification */}
-          <Toast 
-            message={toastMessage} 
+          <Toast
+            message={toastMessage}
             onClose={() => setToastMessage('')}
           />
-
-          {/* no bottom utility row */}
         </div>
       </div>
     </div>

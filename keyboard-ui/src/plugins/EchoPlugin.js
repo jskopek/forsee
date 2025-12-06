@@ -6,7 +6,6 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import type { Plugin } from './plugin-types';
 import Panel from '../components/Panel';
 
 const EchoPlugin: Plugin = {

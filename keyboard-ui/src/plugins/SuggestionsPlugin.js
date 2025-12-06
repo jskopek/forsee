@@ -6,8 +6,6 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import type { Plugin } from './plugin-types';
-import Panel from '../components/Panel';
 import Button from '../components/Button';
 
 const SuggestionsPlugin: Plugin = {
@@ -60,16 +58,24 @@ const SuggestionsPlugin: Plugin = {
   },
 
   Component: ({ context }) => {
+    console.log('[SuggestionsPlugin] Component rendering, context:', {
+      conversationId: context.conversationId,
+      keyboardPrefix: context.keyboardPrefix,
+      selectedHints: context.selectedHints,
+      hasLLMRequest: !!context.llmRequest,
+      settings: context.settings
+    });
+
     const MAX_SUGGESTIONS = context.settings.numSuggestions || 6;
 
-    const [suggestions, setSuggestions] = useState<string[]>([]);
+    const [suggestions, setSuggestions] = useState([]);
     const [isStreaming, setIsStreaming] = useState(false);
     const containerHoverRef = useRef(false);
-    const hoverTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const hoverTimerRef = useRef(null);
     const prefixRef = useRef(context.keyboardPrefix);
     const selectedHintsRef = useRef(context.selectedHints);
     const lastFetchedPrefixRef = useRef('');
-    const lastFetchedHintsRef = useRef<string[]>([]);
+    const lastFetchedHintsRef = useRef([]);
 
     // Update refs when context changes
     useEffect(() => {
@@ -81,7 +87,7 @@ const SuggestionsPlugin: Plugin = {
     }, [context.selectedHints]);
 
     // Build LLM prompt
-    const buildPrompt = useCallback((): string => {
+    const buildPrompt = useCallback(() => {
       const prefix = prefixRef.current.trim();
       const hints = selectedHintsRef.current;
       const hintText = hints.length > 0 ? hints.join(', ') : null;
@@ -108,12 +114,18 @@ const SuggestionsPlugin: Plugin = {
 
     // Fetch suggestions with LLM
     const fetchSuggestions = useCallback(async () => {
+      console.log('[SuggestionsPlugin] fetchSuggestions called', {
+        conversationId: context.conversationId,
+        containerHover: containerHoverRef.current,
+        hasLLMRequest: !!context.llmRequest
+      });
+
       if (!context.conversationId || containerHoverRef.current) {
-        console.log('[SuggestionsPlugin] Skipping fetch');
+        console.log('[SuggestionsPlugin] Skipping fetch - no conversationId or hovering');
         return;
       }
 
-      console.log('[SuggestionsPlugin] Starting fetch');
+      console.log('[SuggestionsPlugin] Starting fetch, building prompt...');
       setSuggestions([]);
       setIsStreaming(true);
 
@@ -123,6 +135,7 @@ const SuggestionsPlugin: Plugin = {
       lastFetchedHintsRef.current = [...currentHints];
 
       try {
+        console.log('[SuggestionsPlugin] Calling context.llmRequest with prompt:', buildPrompt());
         await context.llmRequest(
           {
             prompt: buildPrompt(),
@@ -146,7 +159,7 @@ const SuggestionsPlugin: Plugin = {
             maxTokens: 500,
           },
           {
-            onToolCall: (toolName: string, args: Record<string, any>) => {
+            onToolCall: (toolName, args) => {
               if (toolName === 'push_suggestion' && args.suggestion) {
                 setSuggestions((prev) => {
                   const newSuggestions = [...prev, args.suggestion];
@@ -162,7 +175,7 @@ const SuggestionsPlugin: Plugin = {
               setIsStreaming(false);
               console.log('[SuggestionsPlugin] Streaming complete');
             },
-            onError: (error: string) => {
+            onError: (error) => {
               console.error('[SuggestionsPlugin] Error:', error);
               setIsStreaming(false);
             },
@@ -174,19 +187,54 @@ const SuggestionsPlugin: Plugin = {
       }
     }, [context, buildPrompt, MAX_SUGGESTIONS]);
 
-    // Auto-fetch on mount and when prefix/hints change
+    // Initial fetch on mount
     useEffect(() => {
-      if (!context.conversationId) return;
+      console.log('[SuggestionsPlugin] Initial mount effect', {
+        conversationId: context.conversationId
+      });
 
+      if (!context.conversationId) {
+        console.log('[SuggestionsPlugin] No conversationId on mount, skipping');
+        return;
+      }
+
+      console.log('[SuggestionsPlugin] Making initial fetch on mount');
+      fetchSuggestions();
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Auto-fetch when prefix/hints change
+    useEffect(() => {
+      console.log('[SuggestionsPlugin] Prefix/hints change effect triggered', {
+        conversationId: context.conversationId,
+        keyboardPrefix: context.keyboardPrefix,
+        selectedHints: context.selectedHints
+      });
+
+      if (!context.conversationId) {
+        console.log('[SuggestionsPlugin] No conversationId, skipping');
+        return;
+      }
+
+      // Skip if this is the initial state (empty prefix and no hints)
+      if (context.keyboardPrefix === '' && context.selectedHints.length === 0) {
+        console.log('[SuggestionsPlugin] Initial state, skipping (will use mount effect)');
+        return;
+      }
+
+      console.log('[SuggestionsPlugin] Setting debounce timer for fetch...');
       const debounceTimer = setTimeout(() => {
+        console.log('[SuggestionsPlugin] Debounce timer fired, calling fetchSuggestions');
         fetchSuggestions();
       }, 300);
 
-      return () => clearTimeout(debounceTimer);
+      return () => {
+        console.log('[SuggestionsPlugin] Clearing debounce timer');
+        clearTimeout(debounceTimer);
+      };
     }, [context.conversationId, context.keyboardPrefix, context.selectedHints, fetchSuggestions]);
 
     // Handle suggestion selection
-    const applySuggestion = (suggestion: string) => {
+    const applySuggestion = (suggestion) => {
       if (hoverTimerRef.current) {
         clearTimeout(hoverTimerRef.current);
         hoverTimerRef.current = null;
@@ -194,7 +242,7 @@ const SuggestionsPlugin: Plugin = {
       context.speak(suggestion);
     };
 
-    const handleSuggestionHover = (suggestion: string) => {
+    const handleSuggestionHover = (suggestion) => {
       if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
 
       hoverTimerRef.current = setTimeout(() => {

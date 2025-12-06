@@ -8,6 +8,7 @@ import logging
 import json
 import os
 from typing import Optional
+from uuid import UUID
 
 from ninja import Router
 from pydantic import BaseModel, Field
