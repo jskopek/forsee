@@ -4,10 +4,12 @@ import threading
 import logging
 from uuid import UUID
 
-from ninja import Router
+from ninja import Router, Form, File
 from ninja.errors import HttpError
+from ninja.files import UploadedFile
 from pydantic import BaseModel, Field
 
+from . import voice_stream
 from .models import Conversation, Message
 from .utils_prompt_groq import stream_suggestions_with_tools, stream_hints_with_tools
 from .signals import get_pusher_client
@@ -209,6 +211,17 @@ class StreamingStatusResponse(BaseModel):
     status: str
 
 
+class VoiceStartResponse(BaseModel):
+    stream_id: str
+    status: str
+
+
+class VoiceChunkResponse(BaseModel):
+    status: str
+    received: int
+    seq: int | None = None
+
+
 def _stream_to_pusher(generator_func, channel_name, event_name, *args):
     """
     Helper to stream from generator to Pusher in a thread.
@@ -316,3 +329,59 @@ def stream_hints(request, conversation_id: UUID, body: HintsStreamRequest = None
     )
 
     return {"status": "streaming"}
+
+
+# ============================================================================
+# VOICE STREAMING (MIC) ENDPOINTS
+# ============================================================================
+
+
+@api_router.post("/{conversation_id}/voice/start", response=VoiceStartResponse)
+def start_voice_stream(request, conversation_id: UUID):
+    """Start a microphone streaming session for this conversation."""
+    conversation = get_conversation_or_404(conversation_id)
+    session = voice_stream.create_session(conversation.id)
+    return {"stream_id": str(session.stream_id), "status": "ready"}
+
+
+@api_router.post("/{conversation_id}/voice/chunk", response=VoiceChunkResponse)
+def ingest_voice_chunk(
+    request,
+    conversation_id: UUID,
+    stream_id: UUID = Form(...),
+    is_final: bool = Form(False),
+    seq: int | None = Form(default=None),
+    audio: UploadedFile = File(...),
+):
+    """Accept a chunk of audio, transcribe, and persist completed sentences."""
+    conversation = get_conversation_or_404(conversation_id)
+    session = voice_stream.get_session(stream_id, conversation.id)
+    if not session:
+        raise HttpError(404, "Voice stream not found")
+
+    try:
+        chunk_bytes = audio.read()
+    except Exception:
+        chunk_bytes = b""
+
+    try:
+        voice_stream.append_chunk(session, chunk_bytes)
+    except ValueError as exc:
+        raise HttpError(400, str(exc))
+
+    saved = voice_stream.maybe_transcribe(session, conversation, is_final=is_final)
+    if saved:
+        logger.info(
+            "Voice chunk saved sentences | stream_id=%s | sentences=%s",
+            stream_id,
+            saved,
+        )
+
+    if is_final:
+        voice_stream.close_session(stream_id)
+
+    return {
+        "status": "received",
+        "received": len(chunk_bytes or b""),
+        "seq": seq,
+    }

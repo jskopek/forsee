@@ -111,6 +111,7 @@ PUSHER_CLUSTER = os.getenv('PUSHER_CLUSTER', 'us2').strip()
 
 # Groq AI settings (used by both old endpoints and new plugin system)
 GROQ_MODEL = os.getenv('GROQ_MODEL', 'llama-3.1-8b-instant').strip()
+GROQ_AUDIO_MODEL = os.getenv('GROQ_AUDIO_MODEL', 'whisper-large-v3').strip()
 
 
 # Database
