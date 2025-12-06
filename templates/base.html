@@ -22,9 +22,14 @@
         {% block content %}{% endblock %}
     </main>
 
-    {% compress js %}
-    <script src="{% static 'dist/bundle.js' %}"></script>
-    {% endcompress %}
+    <script defer src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.14.0/dist/cdn.min.js"></script>
+    <script>
+        document.addEventListener("alpine:init", () => {
+            window.Alpine = Alpine;
+            console.log("Eye Tracking Keyboard initialized");
+        });
+    </script>
 
     {% block extra_js %}{% endblock %}
 </body>

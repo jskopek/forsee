@@ -29,7 +29,5 @@ api.add_router("/llm", llm_router)
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', api.urls),
-    path('conversations/', include('conversations.urls')),
-    path('django-rq/', include('django_rq.urls')),
-    path('', ConversationStartView.as_view(), name='home'),
+    path('', include('conversations.urls')),
 ]
