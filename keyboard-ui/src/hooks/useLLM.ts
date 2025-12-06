@@ -139,7 +139,6 @@ export function useLLM(options: UseLLMOptions): UseLLMResult {
         }
 
         const result = await response.json();
-        console.log(`[useLLM] Stream started: ${result.stream_id}`);
       } catch (e: any) {
         const errorMsg = e.message || 'Failed to start LLM stream';
         setError(errorMsg);

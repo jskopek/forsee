@@ -36,8 +36,6 @@ const Suggestions = ({ prefix = '', hintText = '', dwellTime, conversationId, on
     const channel = pusher.subscribe(`conversation-${conversationId}`);
 
     channel.bind('suggestion_ready', (data) => {
-      console.log(`[Suggestions] Received: ${data.data}`);
-
       setSuggestions(prev => {
         // FIFO: Add new to end, remove from start if > MAX
         const updated = [...prev, data.data];
@@ -49,7 +47,6 @@ const Suggestions = ({ prefix = '', hintText = '', dwellTime, conversationId, on
     });
 
     channel.bind('suggestion_ready_complete', (data) => {
-      console.log(`[Suggestions] Streaming complete: ${data.count} suggestions`);
       setIsStreaming(false);
       if (onLoadingChange) onLoadingChange(false);
     });
@@ -70,12 +67,10 @@ const Suggestions = ({ prefix = '', hintText = '', dwellTime, conversationId, on
 
   const fetchSuggestions = useCallback(async () => {
     if (!conversationId || containerHoverRef.current) {
-      console.log('[Suggestions] Skipping fetch - no conversationId or hovering');
       return;
     }
 
     // Clear existing and start streaming
-    console.log('[Suggestions] Starting new stream');
     setSuggestions([]);
     setIsStreaming(true);
     if (onLoadingChange) onLoadingChange(true);
@@ -108,8 +103,6 @@ const Suggestions = ({ prefix = '', hintText = '', dwellTime, conversationId, on
       if (!response.ok) {
         throw new Error('Failed to start streaming');
       }
-
-      console.log('[Suggestions] Streaming request sent successfully');
     } catch (err) {
       console.error('[Suggestions] Error:', err);
       setIsStreaming(false);
@@ -133,24 +126,19 @@ const Suggestions = ({ prefix = '', hintText = '', dwellTime, conversationId, on
   useEffect(() => {
     if (onRegisterRefresh) {
       const refreshHandler = () => {
-        console.log('[Suggestions] Refresh handler called');
         if (containerHoverRef.current) {
-          console.log('[Suggestions] Currently hovering, queueing refresh');
           pendingRefreshRef.current = true;
           if (onShowToast) {
             onShowToast('New suggestions available - will update when you move away');
           }
         } else {
-          console.log('[Suggestions] Not hovering, refreshing immediately');
           fetchSuggestions();
         }
       };
 
-      console.log('[Suggestions] Registering refresh handler');
       onRegisterRefresh(refreshHandler);
 
       return () => {
-        console.log('[Suggestions] Unregistering refresh handler');
         if (onRegisterRefresh) {
           onRegisterRefresh(null);
         }
@@ -183,12 +171,10 @@ const Suggestions = ({ prefix = '', hintText = '', dwellTime, conversationId, on
   };
 
   const handleContainerMouseEnter = () => {
-    console.log('[Suggestions] Container hover started');
     containerHoverRef.current = true;
   };
 
   const handleContainerMouseLeave = () => {
-    console.log('[Suggestions] Container hover ended');
     containerHoverRef.current = false;
 
     const currentPrefix = prefixRef.current.trim();
@@ -197,10 +183,8 @@ const Suggestions = ({ prefix = '', hintText = '', dwellTime, conversationId, on
       currentPrefix !== lastFetchedPrefixRef.current ||
       currentHint !== lastFetchedHintRef.current
     ) {
-      console.log('[Suggestions] Prefix/hint changed while hovering, refetching suggestions');
       fetchSuggestions();
     } else if (pendingRefreshRef.current) {
-      console.log('[Suggestions] Executing pending refresh');
       pendingRefreshRef.current = false;
       fetchSuggestions();
     }

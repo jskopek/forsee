@@ -22,11 +22,9 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
     const hintsToRemove = selectedHints.filter(hint => !currentHintWords.has(hint.toLowerCase()));
 
     if (hintsToRemove.length > 0) {
-      console.log('[Hints] Auto-unselecting hints no longer in list:', hintsToRemove);
       hintsToRemove.forEach(hint => {
-        // Unselect each hint that's no longer available
         if (onHintToggle) {
-          onHintToggle(hint, true); // true means it's currently selected, so toggle it off
+          onHintToggle(hint, true);
         }
       });
     }
@@ -43,20 +41,16 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
     const channel = pusher.subscribe(`conversation-${conversationId}`);
 
     channel.bind('hint_ready', (data) => {
-      console.log(`[Hints] Received: ${data.data.word}`);
-
       setHints(prev => {
-        // FIFO: Add new to end, remove from start if > MAX
         const updated = [...prev, data.data];
         if (updated.length > MAX_HINTS) {
-          return updated.slice(-MAX_HINTS); // Keep last 20
+          return updated.slice(-MAX_HINTS);
         }
         return updated;
       });
     });
 
     channel.bind('hint_ready_complete', (data) => {
-      console.log(`[Hints] Streaming complete: ${data.count} hints`);
       setIsStreaming(false);
       if (onLoadingChange) onLoadingChange(false);
     });
@@ -78,12 +72,10 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
   const fetchHints = useCallback(async (excludeWords = [], forceRefresh = false) => {
     // Skip if hovering UNLESS it's a forced refresh (from "More" button)
     if (!conversationId || (containerHoverRef.current && !forceRefresh)) {
-      console.log('[Hints] Skipping fetch - no conversationId or hovering');
       return;
     }
 
     // Clear existing and start streaming
-    console.log('[Hints] Starting new stream', excludeWords.length > 0 ? `(excluding ${excludeWords.length} hints)` : '');
     setHints([]);
     setIsStreaming(true);
     if (onLoadingChange) onLoadingChange(true);
@@ -108,8 +100,6 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
       if (!response.ok) {
         throw new Error('Failed to start streaming');
       }
-
-      console.log('[Hints] Streaming request sent successfully');
     } catch (err) {
       console.error('[Hints] Error:', err);
       setIsStreaming(false);
@@ -129,24 +119,19 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
   useEffect(() => {
     if (onRegisterRefresh) {
       const refreshHandler = () => {
-        console.log('[Hints] Refresh handler called');
         if (containerHoverRef.current) {
-          console.log('[Hints] Currently hovering, queueing refresh');
           pendingRefreshRef.current = true;
           if (onShowToast) {
             onShowToast('New hints available - will update when you move away');
           }
         } else {
-          console.log('[Hints] Not hovering, refreshing immediately');
           fetchHints();
         }
       };
 
-      console.log('[Hints] Registering refresh handler');
       onRegisterRefresh(refreshHandler);
 
       return () => {
-        console.log('[Hints] Unregistering refresh handler');
         if (onRegisterRefresh) {
           onRegisterRefresh(null);
         }
@@ -195,25 +180,20 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
     }
 
     hoverTimerRef.current = setTimeout(() => {
-      // Get all current hint words to exclude
       const currentWords = hints.map(h => h.word);
-      console.log('[Hints] "More" button activated - fetching new hints excluding:', currentWords);
       fetchHints(currentWords, true); // Force refresh even while hovering
     }, dwellTime);
   };
 
   const handleContainerMouseEnter = () => {
-    console.log('[Hints] Container hover started');
     containerHoverRef.current = true;
   };
 
   const handleContainerMouseLeave = () => {
-    console.log('[Hints] Container hover ended');
     containerHoverRef.current = false;
 
     // If there's a pending refresh, do it now
     if (pendingRefreshRef.current) {
-      console.log('[Hints] Executing pending refresh');
       pendingRefreshRef.current = false;
       fetchHints();
     }

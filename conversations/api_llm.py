@@ -124,7 +124,7 @@ def stream_llm(request, data: LLMStreamRequest):
         for tool in data.tools:
             shellviz.table([''], id=f"tool-{tool.name}", append=False)
 
-    shellviz.log(data.prompt)
+    shellviz.log(data.prompt, id="prompt")
     try:
         stream = client.chat.completions.create(
             model=groq_model,

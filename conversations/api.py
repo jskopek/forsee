@@ -47,12 +47,56 @@ class MessageResponse(BaseModel):
     created_at: str
 
 
+class ConversationContextMessage(BaseModel):
+    id: str
+    sender: str
+    body: str
+    created_at: str
+
+
+class ConversationContextResponse(BaseModel):
+    conversation_id: str
+    title: str
+    messages: list[ConversationContextMessage]
+
+
 def get_conversation_or_404(conversation_id: UUID) -> Conversation:
     """Return a conversation or raise a 404 error."""
     try:
         return Conversation.objects.get(pk=conversation_id)
     except Conversation.DoesNotExist:
         raise HttpError(404, "Conversation not found")
+
+
+@api_router.get("/{conversation_id}/context", response=ConversationContextResponse)
+def get_conversation_context(request, conversation_id: UUID, limit: int = 12):
+    """
+    Lightweight conversation context for the keyboard UI.
+    Returns the title and the most recent messages (oldest-first ordering).
+    """
+    conversation = get_conversation_or_404(conversation_id)
+
+    qs = (
+        conversation.messages
+        .order_by("-created_at", "-id")
+        .values("id", "sender", "body", "created_at")[:limit]
+    )
+    # Oldest-first for a readable transcript
+    recent_messages = list(reversed(list(qs)))
+
+    return {
+        "conversation_id": str(conversation.id),
+        "title": conversation.title or "",
+        "messages": [
+            {
+                "id": str(m["id"]),
+                "sender": m["sender"],
+                "body": m["body"],
+                "created_at": m["created_at"].isoformat() if m.get("created_at") else "",
+            }
+            for m in recent_messages
+        ],
+    }
 
 
 @api_router.get("/{conversation_id}/hints", response=HintsResponse)

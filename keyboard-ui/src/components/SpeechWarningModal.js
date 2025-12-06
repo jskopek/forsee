@@ -45,7 +45,6 @@ const SpeechWarningModal = forwardRef(({ onSpeechEnabled }, ref) => {
       };
       
       utterance.onerror = (event) => {
-        console.log('Speech synthesis error:', event.error);
         if (!speechStarted) {
           // If speech didn't start, it might not be enabled
           if (event.error === 'not-allowed' || event.error === 'network' || event.error === 'interrupted') {

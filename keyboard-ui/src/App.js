@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Pusher from 'pusher-js';
 import Keyboard from './components/Keyboard';
 import Settings from './components/Settings';
@@ -14,11 +14,25 @@ const App = () => {
   const [currentText, setCurrentText] = useState('');
   const [keyboardPrefix, setKeyboardPrefix] = useState('');
   const [selectedHints, setSelectedHints] = useState([]);
+  const [conversationTitle, setConversationTitle] = useState('');
+  const [recentMessages, setRecentMessages] = useState([]);
   const [dwellTime, setDwellTime] = useState(1000);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [conversationId, setConversationId] = useState(null);
   const speechWarningModalRef = useRef(null);
   const backspaceRef = useRef(null);
+  const currentTextRef = useRef('');
+  const keyboardPrefixRef = useRef('');
+  const selectedHintsRef = useRef([]);
+  const dwellTimeRef = useRef(1000);
+  const recentMessagesRef = useRef([]);
+  const setSelectedHintsWithRef = useCallback((updater) => {
+    setSelectedHints((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      selectedHintsRef.current = next;
+      return next;
+    });
+  }, []);
 
   // Toast state
   const [toastMessage, setToastMessage] = useState('');
@@ -35,6 +49,26 @@ const App = () => {
     }
   }, []);
 
+  const fetchConversationContext = useCallback(async (conversationIdToFetch) => {
+    if (!conversationIdToFetch) return;
+
+    try {
+      const apiBaseUrl = process.env.REACT_APP_API_BASE_URL ||
+                         window.API_BASE_URL ||
+                         (process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '');
+
+      const response = await fetch(`${apiBaseUrl}/api/conversations/${conversationIdToFetch}/context`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch conversation context (${response.status})`);
+      }
+      const data = await response.json();
+      setConversationTitle(data.title || '');
+      setRecentMessages(data.messages || []);
+    } catch (err) {
+      console.error('[App] Error fetching conversation context:', err);
+    }
+  }, []);
+
   // Load dwell time from localStorage
   useEffect(() => {
     const savedDwellTime = localStorage.getItem('dwellTime');
@@ -42,6 +76,27 @@ const App = () => {
       setDwellTime(parseInt(savedDwellTime, 10));
     }
   }, []);
+
+  // Keep refs in sync with state to avoid stale closures in plugin contexts
+  useEffect(() => {
+    currentTextRef.current = currentText;
+  }, [currentText]);
+
+  useEffect(() => {
+    keyboardPrefixRef.current = keyboardPrefix;
+  }, [keyboardPrefix]);
+
+  useEffect(() => {
+    selectedHintsRef.current = selectedHints;
+  }, [selectedHints]);
+
+  useEffect(() => {
+    dwellTimeRef.current = dwellTime;
+  }, [dwellTime]);
+
+  useEffect(() => {
+    recentMessagesRef.current = recentMessages;
+  }, [recentMessages]);
 
   // Initialize Pusher for message_added events
   useEffect(() => {
@@ -52,7 +107,6 @@ const App = () => {
 
     if (!pusherKey) return;
 
-    console.log('[App] Connecting to Pusher...');
     const pusher = new Pusher(pusherKey, {
       cluster: pusherCluster,
     });
@@ -60,7 +114,7 @@ const App = () => {
     const channel = pusher.subscribe(`conversation-${conversationId}`);
 
     channel.bind('message_added', (data) => {
-      console.log('[App] Message added event:', data);
+      fetchConversationContext(conversationId);
       // PluginManager will notify plugins
       if (pluginManagerRef.current) {
         pluginManagerRef.current.notifyMessageAdded();
@@ -70,11 +124,10 @@ const App = () => {
     pusherRef.current = pusher;
 
     return () => {
-      console.log('[App] Disconnecting from Pusher');
       pusher.unsubscribe(`conversation-${conversationId}`);
       pusher.disconnect();
     };
-  }, [conversationId]);
+  }, [conversationId, fetchConversationContext]);
 
   // Create PluginManager
   const pluginManagerRef = useRef(null);
@@ -83,18 +136,22 @@ const App = () => {
   useEffect(() => {
     if (!conversationId) return;
 
-    console.log('[App] Creating PluginManager');
+    fetchConversationContext(conversationId);
+
     // Create plugin manager
     const manager = new PluginManager(conversationId, pusherRef.current);
 
     // Set up state getters
     manager.setStateGetters({
-      getCurrentText: () => currentText,
-      getKeyboardPrefix: () => keyboardPrefix,
-      getSelectedHints: () => selectedHints,
-      getDwellTime: () => dwellTime,
+      getCurrentText: () => currentTextRef.current,
+      getKeyboardPrefix: () => keyboardPrefixRef.current,
+      getSelectedHints: () => selectedHintsRef.current,
+      getConversationTitle: () => conversationTitle,
+      getRecentMessages: () => recentMessagesRef.current,
+      getDwellTime: () => dwellTimeRef.current,
       speak: handleSpeak,
       addMessage: handleAddMessage,
+      setSelectedHints: (updater) => setSelectedHintsWithRef(updater),
     });
 
     // Register plugins
@@ -106,19 +163,18 @@ const App = () => {
 
     pluginManagerRef.current = manager;
     setPluginManagerReady(true);
-    console.log('[App] PluginManager ready');
-
     return () => {
       manager.unmountAll();
       setPluginManagerReady(false);
     };
-  }, [conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [conversationId, fetchConversationContext]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleKeyPress = (key) => {
     const charToAdd = key === 'space' ? ' ' : key;
     setKeyboardPrefix((prev) => {
       const nextValue = prev + charToAdd;
       setCurrentText(nextValue);
+      console.log('[Keyboard] key press', { key, nextValue });
       return nextValue;
     });
     if (backspaceRef.current) {
@@ -168,7 +224,7 @@ const App = () => {
     clearTimeout(keyPressTimer.current);
   };
 
-  const handleSpeak = async (textToSpeak) => {
+  const handleSpeak = useCallback(async (textToSpeak) => {
     const phraseToUse = typeof textToSpeak === 'string' ? textToSpeak : currentText || '';
     const phrase = phraseToUse.trim();
     if (!phrase) return;
@@ -184,9 +240,9 @@ const App = () => {
       setCurrentText('');
       setKeyboardPrefix('');
     }
-  };
+  }, [conversationId, currentText]);
 
-  const handleAddMessage = async (body, sender = 'user') => {
+  const handleAddMessage = useCallback(async (body, sender = 'user') => {
     if (!conversationId) return;
 
     try {
@@ -204,11 +260,30 @@ const App = () => {
       if (!response.ok) {
         throw new Error('Failed to send message');
       }
+
+      // Refresh local conversation context after sending
+      fetchConversationContext(conversationId);
     } catch (err) {
       console.error('Error sending message:', err);
       setToastMessage('Failed to send message');
     }
-  };
+  }, [conversationId, fetchConversationContext]);
+
+  // Keep PluginManager getters in sync with latest state
+  useEffect(() => {
+    if (!pluginManagerRef.current) return;
+    pluginManagerRef.current.setStateGetters({
+      getCurrentText: () => currentText,
+      getKeyboardPrefix: () => keyboardPrefix,
+      getSelectedHints: () => selectedHints,
+      getConversationTitle: () => conversationTitle,
+      getRecentMessages: () => recentMessages,
+      getDwellTime: () => dwellTime,
+      speak: handleSpeak,
+      addMessage: handleAddMessage,
+      setSelectedHints: (updater) => setSelectedHintsWithRef(updater),
+    });
+  }, [currentText, keyboardPrefix, selectedHints, conversationTitle, recentMessages, dwellTime, handleSpeak, handleAddMessage, setSelectedHintsWithRef]);
 
   const handleDwellTimeChange = (newDwellTime) => {
     setDwellTime(newDwellTime);
@@ -238,36 +313,54 @@ const App = () => {
   const displayText = buildDisplayText();
 
   // Get plugin contexts for rendering
-  // Rebuild contexts when relevant state changes so plugins can react
+  // Build contexts directly with current state to avoid stale getter issues
   const suggestionsContext = useMemo(() => {
-    console.log('[App] Building suggestionsContext', {
-      hasPluginManager: !!pluginManagerRef.current,
-      pluginManagerReady,
-      conversationId
-    });
     if (!pluginManagerReady || !pluginManagerRef.current) {
-      console.log('[App] Plugin manager not ready, returning null');
       return null;
     }
-    const context = pluginManagerRef.current.buildContext('builtin.suggestions');
-    console.log('[App] Built suggestionsContext:', context);
-    return context;
-  }, [pluginManagerReady, conversationId, currentText, keyboardPrefix, selectedHints, dwellTime]);
+    // Build context directly with current state instead of using getters
+    // to avoid race condition where getters are updated in an effect
+    const manager = pluginManagerRef.current;
+    console.log('[App] Building suggestionsContext', { selectedHints });
+    return {
+      conversationId,
+      conversationTitle,
+      recentMessages,
+      currentText,
+      keyboardPrefix,
+      selectedHints,
+      setSelectedHints: setSelectedHintsWithRef,
+      dwellTime,
+      settings: manager.getSettings('builtin.suggestions'),
+      llmRequest: manager.llmRequestForPlugin.bind(manager),
+      refreshOtherPlugins: manager.refreshOtherPlugins.bind(manager),
+      speak: handleSpeak,
+      addMessage: handleAddMessage,
+    };
+  }, [pluginManagerReady, conversationId, currentText, keyboardPrefix, selectedHints, conversationTitle, recentMessages, dwellTime, handleSpeak, handleAddMessage, setSelectedHintsWithRef]);
 
   const hintsContext = useMemo(() => {
-    console.log('[App] Building hintsContext', {
-      hasPluginManager: !!pluginManagerRef.current,
-      pluginManagerReady,
-      conversationId
-    });
     if (!pluginManagerReady || !pluginManagerRef.current) {
-      console.log('[App] Plugin manager not ready, returning null');
       return null;
     }
-    const context = pluginManagerRef.current.buildContext('builtin.hints');
-    console.log('[App] Built hintsContext:', context);
-    return context;
-  }, [pluginManagerReady, conversationId, currentText, keyboardPrefix, selectedHints, dwellTime]);
+    // Build context directly with current state instead of using getters
+    const manager = pluginManagerRef.current;
+    return {
+      conversationId,
+      conversationTitle,
+      recentMessages,
+      currentText,
+      keyboardPrefix,
+      selectedHints,
+      setSelectedHints: setSelectedHintsWithRef,
+      dwellTime,
+      settings: manager.getSettings('builtin.hints'),
+      llmRequest: manager.llmRequestForPlugin.bind(manager),
+      refreshOtherPlugins: manager.refreshOtherPlugins.bind(manager),
+      speak: handleSpeak,
+      addMessage: handleAddMessage,
+    };
+  }, [pluginManagerReady, conversationId, currentText, keyboardPrefix, selectedHints, conversationTitle, recentMessages, dwellTime, handleSpeak, handleAddMessage, setSelectedHintsWithRef]);
 
   return (
     <div className="text-center min-h-screen flex flex-col bg-bg-main" style={{ '--dwell-time': `${dwellTime}ms` }}>
@@ -361,11 +454,6 @@ const App = () => {
           <Layout>
             {/* Suggestions Plugin */}
             <Layout.Panel name="suggestions" title="Suggestions">
-              {console.log('[App] Rendering Suggestions panel', {
-                hasSuggestionsContext: !!suggestionsContext,
-                hasComponent: !!SuggestionsPlugin.Component,
-                willRender: !!(suggestionsContext && SuggestionsPlugin.Component)
-              })}
               {suggestionsContext && SuggestionsPlugin.Component && (
                 <SuggestionsPlugin.Component
                   context={suggestionsContext}
@@ -382,11 +470,6 @@ const App = () => {
 
             {/* Hints Plugin */}
             <Layout.Panel name="hints" title="Hints">
-              {console.log('[App] Rendering Hints panel', {
-                hasHintsContext: !!hintsContext,
-                hasComponent: !!HintsPlugin.Component,
-                willRender: !!(hintsContext && HintsPlugin.Component)
-              })}
               {hintsContext && HintsPlugin.Component && (
                 <HintsPlugin.Component
                   context={hintsContext}

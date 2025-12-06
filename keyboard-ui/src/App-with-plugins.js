@@ -51,7 +51,6 @@ const App = () => {
 
     if (!pusherKey) return;
 
-    console.log('[App] Connecting to Pusher...');
     const pusher = new Pusher(pusherKey, {
       cluster: pusherCluster,
     });
@@ -59,7 +58,6 @@ const App = () => {
     const channel = pusher.subscribe(`conversation-${conversationId}`);
 
     channel.bind('message_added', (data) => {
-      console.log('[App] Message added event:', data);
       // PluginManager will notify plugins
       if (pluginManagerRef.current) {
         pluginManagerRef.current.notifyMessageAdded();
@@ -69,7 +67,6 @@ const App = () => {
     pusherRef.current = pusher;
 
     return () => {
-      console.log('[App] Disconnecting from Pusher');
       pusher.unsubscribe(`conversation-${conversationId}`);
       pusher.disconnect();
     };

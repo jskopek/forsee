@@ -58,14 +58,6 @@ const SuggestionsPlugin: Plugin = {
   },
 
   Component: ({ context }) => {
-    console.log('[SuggestionsPlugin] Component rendering, context:', {
-      conversationId: context.conversationId,
-      keyboardPrefix: context.keyboardPrefix,
-      selectedHints: context.selectedHints,
-      hasLLMRequest: !!context.llmRequest,
-      settings: context.settings
-    });
-
     const MAX_SUGGESTIONS = context.settings.numSuggestions || 6;
 
     const [suggestions, setSuggestions] = useState([]);
@@ -83,62 +75,83 @@ const SuggestionsPlugin: Plugin = {
     }, [context.keyboardPrefix]);
 
     useEffect(() => {
+      console.log('[SuggestionsPlugin] selectedHints context updated', context.selectedHints);
       selectedHintsRef.current = context.selectedHints;
     }, [context.selectedHints]);
 
-    // Build LLM prompt
+    const buildTranscript = useCallback((messages = []) => {
+      return messages
+        .map((m) => {
+          if (!m || !m.body) return null;
+          const role = m.sender === 'contact' ? 'Partner' : 'You';
+          return `${role}: ${m.body}`.trim();
+        })
+        .filter(Boolean)
+        .join('\n');
+    }, []);
+
+    // Build LLM prompt mirroring server behavior
     const buildPrompt = useCallback(() => {
       const prefix = prefixRef.current.trim();
-      const hints = selectedHintsRef.current;
+      const hints = context.selectedHints || [];
       const hintText = hints.length > 0 ? hints.join(', ') : null;
 
-      let prompt = `Generate ${context.settings.numSuggestions} natural reply suggestions.\n\n`;
+      const systemLines = [
+        `Generate ${context.settings.numSuggestions} short reply suggestions by calling push_suggestion exactly ${context.settings.numSuggestions} times.`,
+        `Each suggestion: \u2264${context.settings.maxWords} words, natural speech, no emojis/quotes.`,
+        'If user_hint exists, prioritize it over conversation content.',
+        'If user_prefix exists, EVERY suggestion MUST start with a complete English word matching that prefix.',
+        'Call push_suggestion once per suggestion immediately as you think of it.',
+      ];
 
-      if (prefix) {
-        prompt += `All suggestions MUST start with: "${prefix}"\n`;
-      }
+      const transcript = buildTranscript(context.recentMessages || []);
+
+      const userPayload = {
+        formality: 'casual',
+        conversation_title: '', // ignored per requirement
+        transcript,
+      };
 
       if (hintText) {
-        prompt += `Consider these hint words for guidance: ${hintText}\n`;
+        userPayload.user_hint = hintText;
+      }
+      if (prefix) {
+        userPayload.user_prefix = prefix;
       }
 
-      prompt += `\nRequirements:\n`;
-      prompt += `- Each suggestion must be ${context.settings.maxWords} words or fewer\n`;
-      prompt += `- Natural, conversational tone\n`;
-      prompt += `- No emojis, no quotes\n`;
-      prompt += `- Diverse options (different directions/tones)\n\n`;
-      prompt += `Use the push_suggestion tool exactly ${context.settings.numSuggestions} times.`;
-
+      const prompt = `${systemLines.join('\n')}\n\nUser:\n${JSON.stringify(userPayload)}`;
+      console.log('[SuggestionsPlugin] buildPrompt', {
+        prefix,
+        hintCount: hints.length,
+        hints,
+        transcriptLines: (context.recentMessages || []).length,
+      });
       return prompt;
-    }, [context.settings]);
+    }, [context.settings, context.recentMessages, context.selectedHints, buildTranscript]);
 
     // Fetch suggestions with LLM
     const fetchSuggestions = useCallback(async () => {
-      console.log('[SuggestionsPlugin] fetchSuggestions called', {
-        conversationId: context.conversationId,
-        containerHover: containerHoverRef.current,
-        hasLLMRequest: !!context.llmRequest
-      });
-
       if (!context.conversationId || containerHoverRef.current) {
-        console.log('[SuggestionsPlugin] Skipping fetch - no conversationId or hovering');
         return;
       }
 
-      console.log('[SuggestionsPlugin] Starting fetch, building prompt...');
+      const currentPrefix = prefixRef.current.trim();
+      const currentHints = context.selectedHints || [];
+      console.log('[SuggestionsPlugin] fetchSuggestions', {
+        prefix: currentPrefix,
+        hints: currentHints,
+      });
       setSuggestions([]);
       setIsStreaming(true);
 
-      const currentPrefix = prefixRef.current.trim();
-      const currentHints = selectedHintsRef.current;
       lastFetchedPrefixRef.current = currentPrefix;
       lastFetchedHintsRef.current = [...currentHints];
 
       try {
-        console.log('[SuggestionsPlugin] Calling context.llmRequest with prompt:', buildPrompt());
+        const prompt = buildPrompt();
         await context.llmRequest(
           {
-            prompt: buildPrompt(),
+            prompt,
             tools: [
               {
                 name: 'push_suggestion',
@@ -173,7 +186,6 @@ const SuggestionsPlugin: Plugin = {
             },
             onComplete: () => {
               setIsStreaming(false);
-              console.log('[SuggestionsPlugin] Streaming complete');
             },
             onError: (error) => {
               console.error('[SuggestionsPlugin] Error:', error);
@@ -189,49 +201,32 @@ const SuggestionsPlugin: Plugin = {
 
     // Initial fetch on mount
     useEffect(() => {
-      console.log('[SuggestionsPlugin] Initial mount effect', {
-        conversationId: context.conversationId
-      });
-
       if (!context.conversationId) {
-        console.log('[SuggestionsPlugin] No conversationId on mount, skipping');
         return;
       }
-
-      console.log('[SuggestionsPlugin] Making initial fetch on mount');
       fetchSuggestions();
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Auto-fetch when prefix/hints change
     useEffect(() => {
-      console.log('[SuggestionsPlugin] Prefix/hints change effect triggered', {
+      console.log('[SuggestionsPlugin] Auto-fetch effect triggered', {
         conversationId: context.conversationId,
         keyboardPrefix: context.keyboardPrefix,
-        selectedHints: context.selectedHints
+        selectedHints: context.selectedHints,
       });
-
+      
       if (!context.conversationId) {
-        console.log('[SuggestionsPlugin] No conversationId, skipping');
         return;
       }
 
-      // Skip if this is the initial state (empty prefix and no hints)
-      if (context.keyboardPrefix === '' && context.selectedHints.length === 0) {
-        console.log('[SuggestionsPlugin] Initial state, skipping (will use mount effect)');
-        return;
-      }
-
-      console.log('[SuggestionsPlugin] Setting debounce timer for fetch...');
       const debounceTimer = setTimeout(() => {
-        console.log('[SuggestionsPlugin] Debounce timer fired, calling fetchSuggestions');
         fetchSuggestions();
       }, 300);
 
       return () => {
-        console.log('[SuggestionsPlugin] Clearing debounce timer');
         clearTimeout(debounceTimer);
       };
-    }, [context.conversationId, context.keyboardPrefix, context.selectedHints, fetchSuggestions]);
+    }, [context.conversationId, context.keyboardPrefix, context.selectedHints, context.recentMessages, fetchSuggestions]);
 
     // Handle suggestion selection
     const applySuggestion = (suggestion) => {
@@ -271,7 +266,6 @@ const SuggestionsPlugin: Plugin = {
         currentPrefix !== lastFetchedPrefixRef.current ||
         JSON.stringify(currentHints) !== JSON.stringify(lastFetchedHintsRef.current)
       ) {
-        console.log('[SuggestionsPlugin] Refetching after hover');
         fetchSuggestions();
       }
     };
@@ -330,7 +324,6 @@ const SuggestionsPlugin: Plugin = {
   onMessageAdded: (context) => {
     // Trigger re-fetch when message is added
     // The component will handle this via useEffect
-    console.log('[SuggestionsPlugin] Message added, component will refresh');
   },
 };
 

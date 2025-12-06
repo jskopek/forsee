@@ -48,12 +48,6 @@ const HintsPlugin: Plugin = {
   },
 
   Component: ({ context }) => {
-    console.log('[HintsPlugin] Component rendering, context:', {
-      conversationId: context.conversationId,
-      hasLLMRequest: !!context.llmRequest,
-      settings: context.settings
-    });
-
     const MAX_HINTS = context.settings.numHints || 19;
 
     const [hints, setHints] = useState([]);
@@ -62,11 +56,26 @@ const HintsPlugin: Plugin = {
     const hoverTimerRef = useRef(null);
     const pendingRefreshRef = useRef(false);
 
+    const buildTranscript = useCallback((messages = []) => {
+      return messages
+        .map((m) => {
+          if (!m || !m.body) return null;
+          const role = m.sender === 'contact' ? 'Partner' : 'You';
+          return `${role}: ${m.body}`.trim();
+        })
+        .filter(Boolean)
+        .join('\n');
+    }, []);
+
     // Memoize selected hints set for performance
     const selectedHintsSet = useMemo(
       () => new Set(context.selectedHints.map((word) => word.toLowerCase())),
       [context.selectedHints]
     );
+
+    useEffect(() => {
+      console.log('[HintsPlugin] selectedHints updated', context.selectedHints);
+    }, [context.selectedHints]);
 
     // Auto-unselect hints that are no longer in the list
     useEffect(() => {
@@ -77,52 +86,55 @@ const HintsPlugin: Plugin = {
         hint => !currentHintWords.has(hint.toLowerCase())
       );
 
-      if (hintsToRemove.length > 0) {
-        console.log('[HintsPlugin] Auto-unselecting hints no longer in list:', hintsToRemove);
-        // Note: This would require adding an onHintUnselect callback to context
-        // For now, we'll just log it
+      if (hintsToRemove.length > 0 && context.setSelectedHints) {
+        context.setSelectedHints((prev) =>
+          prev.filter(h => !hintsToRemove.map(w => w.toLowerCase()).includes(h.toLowerCase()))
+        );
       }
-    }, [hints, context.selectedHints]);
+    }, [hints, context.selectedHints, context.setSelectedHints]);
 
-    // Build LLM prompt
     const buildPrompt = useCallback((excludeWords = []) => {
-      let prompt = `Generate ${MAX_HINTS} single-word hints with emojis to guide conversation direction.\n\n`;
+      const systemLines = [
+        `Generate ${MAX_HINTS} single-word hints by calling push_hint exactly ${MAX_HINTS} times.`,
+        'Each hint: ONE word (no spaces/hyphens) + ONE emoji.',
+        'Cover diverse response directions: emotions, actions, topics.',
+      ];
 
       if (excludeWords.length > 0) {
-        prompt += `EXCLUDE these words: ${excludeWords.join(', ')}\n\n`;
+        systemLines.push(`IMPORTANT: Do NOT use any of these words: ${excludeWords.join(', ')}.`);
+        systemLines.push('Generate completely different words that are not in this exclusion list.');
       }
 
-      prompt += `Requirements:\n`;
-      prompt += `- Each hint is ONE word + ONE emoji\n`;
-      prompt += `- Diverse directions (topics, emotions, actions)\n`;
-      prompt += `- Appropriate emojis that match the word\n\n`;
-      prompt += `Use the push_hint tool exactly ${MAX_HINTS} times.`;
+      systemLines.push('Call push_hint immediately as you think of each hint.');
 
-      return prompt;
-    }, [MAX_HINTS]);
+      const transcript = buildTranscript(context.recentMessages || []);
+      const lastMessage = (context.recentMessages || []).slice(-1)[0];
+      const lastMessageText = lastMessage?.body || '';
+
+      const userPayload = {
+        formality: 'casual',
+        conversation_title: '', // ignored per requirement
+        transcript,
+        last_message: lastMessageText,
+      };
+
+      if (excludeWords.length > 0) {
+        userPayload.excluded_words = excludeWords;
+      }
+
+      return `${systemLines.join('\n')}\n\nUser:\n${JSON.stringify(userPayload)}`;
+    }, [MAX_HINTS, buildTranscript, context.recentMessages]);
 
     // Fetch hints with LLM
     const fetchHints = useCallback(async (excludeWords = [], forceRefresh = false) => {
-      console.log('[HintsPlugin] fetchHints called', {
-        conversationId: context.conversationId,
-        containerHover: containerHoverRef.current,
-        forceRefresh,
-        excludeWords: excludeWords.length,
-        hasLLMRequest: !!context.llmRequest
-      });
-
-      // Skip if hovering UNLESS it's a forced refresh (from "More" button)
       if (!context.conversationId || (containerHoverRef.current && !forceRefresh)) {
-        console.log('[HintsPlugin] Skipping fetch - no conversationId or hovering (and not forced)');
         return;
       }
 
-      console.log('[HintsPlugin] Starting fetch', excludeWords.length > 0 ? `(excluding ${excludeWords.length} hints)` : '', 'Building prompt...');
       setHints([]);
       setIsStreaming(true);
 
       try {
-        console.log('[HintsPlugin] Calling context.llmRequest with prompt:', buildPrompt(excludeWords));
         await context.llmRequest(
           {
             prompt: buildPrompt(excludeWords),
@@ -153,8 +165,12 @@ const HintsPlugin: Plugin = {
             onToolCall: (toolName, args) => {
               if (toolName === 'push_hint' && args.word && args.emoji) {
                 setHints((prev) => {
+                  const already = prev.find(
+                    (h) => h.word.toLowerCase() === args.word.toLowerCase()
+                  );
+                  if (already) return prev;
+
                   const newHints = [...prev, { word: args.word, emoji: args.emoji }];
-                  // FIFO: Keep only last MAX_HINTS
                   if (newHints.length > MAX_HINTS) {
                     return newHints.slice(-MAX_HINTS);
                   }
@@ -164,7 +180,6 @@ const HintsPlugin: Plugin = {
             },
             onComplete: () => {
               setIsStreaming(false);
-              console.log('[HintsPlugin] Streaming complete');
             },
             onError: (error) => {
               console.error('[HintsPlugin] Error:', error);
@@ -180,16 +195,9 @@ const HintsPlugin: Plugin = {
 
     // Auto-fetch on mount
     useEffect(() => {
-      console.log('[HintsPlugin] Initial mount effect', {
-        conversationId: context.conversationId
-      });
-
       if (!context.conversationId) {
-        console.log('[HintsPlugin] No conversationId, skipping initial fetch');
         return;
       }
-
-      console.log('[HintsPlugin] Calling fetchHints on mount');
       fetchHints();
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -203,24 +211,30 @@ const HintsPlugin: Plugin = {
       return { cols, rows, itemsInLastRow, lastRowIsIncomplete };
     }, [hints]);
 
+    const toggleHintSelection = useCallback((hintWord) => {
+      if (!context.setSelectedHints) return;
+      context.setSelectedHints((prev) => {
+        const normalized = hintWord.toLowerCase();
+        const exists = prev.some((h) => h.toLowerCase() === normalized);
+        const nextSelection = exists ? prev.filter((h) => h.toLowerCase() !== normalized) : [...prev, hintWord];
+        console.log('[HintsPlugin] toggle', { hint: hintWord, action: exists ? 'deselect' : 'select', next: nextSelection });
+        return nextSelection;
+      });
+      
+      // Note: We don't manually call refreshOtherPlugins here because that would
+      // trigger an immediate fetch with a stale context (before React re-renders).
+      // Instead, SuggestionsPlugin will auto-refresh via its useEffect watching
+      // context.selectedHints, which will fire after React updates with the new hints.
+    }, [context]);
+
     // Handle hint selection
     const handleHintHover = (hint) => {
       if (hoverTimerRef.current) {
         clearTimeout(hoverTimerRef.current);
       }
 
-      const normalized = hint.word.toLowerCase();
-      const isSelected = selectedHintsSet.has(normalized);
-
       hoverTimerRef.current = setTimeout(() => {
-        // Toggle hint selection
-        // Note: We need to implement hint selection via context
-        console.log('[HintsPlugin] Hint selected:', hint.word, 'isSelected:', isSelected);
-        
-        // For now, just speak the hint word to demonstrate functionality
-        if (!isSelected) {
-          context.speak(hint.word);
-        }
+        toggleHintSelection(hint.word);
       }, context.dwellTime);
     };
 
@@ -239,24 +253,20 @@ const HintsPlugin: Plugin = {
 
       hoverTimerRef.current = setTimeout(() => {
         const currentWords = hints.map(h => h.word);
-        console.log('[HintsPlugin] "More" button activated - fetching new hints excluding:', currentWords);
         fetchHints(currentWords, true); // Force refresh even while hovering
       }, context.dwellTime);
     };
 
     // Container hover handlers for pending refresh
     const handleContainerMouseEnter = () => {
-      console.log('[HintsPlugin] Container hover started');
       containerHoverRef.current = true;
     };
 
     const handleContainerMouseLeave = () => {
-      console.log('[HintsPlugin] Container hover ended');
       containerHoverRef.current = false;
 
       // If there's a pending refresh, do it now
       if (pendingRefreshRef.current) {
-        console.log('[HintsPlugin] Executing pending refresh');
         pendingRefreshRef.current = false;
         fetchHints();
       }
@@ -357,7 +367,6 @@ const HintsPlugin: Plugin = {
 
   onMessageAdded: (context) => {
     // Trigger re-fetch when message is added
-    console.log('[HintsPlugin] Message added, triggering refresh');
   },
 };
 

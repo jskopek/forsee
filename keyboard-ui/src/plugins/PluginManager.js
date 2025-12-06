@@ -18,9 +18,12 @@ export class PluginManager {
     this.getCurrentText = () => '';
     this.getKeyboardPrefix = () => '';
     this.getSelectedHints = () => [];
+    this.getConversationTitle = () => '';
+    this.getRecentMessages = () => [];
     this.getDwellTime = () => 1000;
     this.speak = () => {};
     this.addMessage = async () => {};
+    this.setSelectedHints = () => {};
     
     this.loadSettings();
   }
@@ -32,16 +35,22 @@ export class PluginManager {
     getCurrentText: () => string;
     getKeyboardPrefix: () => string;
     getSelectedHints: () => string[];
+    getConversationTitle: () => string;
+    getRecentMessages: () => Array<{sender: string, body: string}>;
     getDwellTime: () => number;
     speak: (text: string) => void;
     addMessage: (body: string, sender: 'user' | 'contact') => Promise<void>;
+    setSelectedHints: (updater: ((prev: string[]) => string[]) | string[]) => void;
   }) {
     this.getCurrentText = getters.getCurrentText;
     this.getKeyboardPrefix = getters.getKeyboardPrefix;
     this.getSelectedHints = getters.getSelectedHints;
+    this.getConversationTitle = getters.getConversationTitle;
+    this.getRecentMessages = getters.getRecentMessages;
     this.getDwellTime = getters.getDwellTime;
     this.speak = getters.speak;
     this.addMessage = getters.addMessage;
+    this.setSelectedHints = getters.setSelectedHints;
   }
 
   /**
@@ -57,7 +66,6 @@ export class PluginManager {
       savedSettings ? JSON.parse(savedSettings) : plugin.settings.defaults
     );
 
-    console.log(`[PluginManager] Registered plugin: ${plugin.metadata.id}`);
   }
 
   /**
@@ -69,7 +77,6 @@ export class PluginManager {
       plugin.onUnmount();
     }
     this.plugins.delete(pluginId);
-    console.log(`[PluginManager] Unregistered plugin: ${pluginId}`);
   }
 
   /**
@@ -106,7 +113,6 @@ export class PluginManager {
       plugin.onSettingsChange(newSettings, this.buildContext(pluginId));
     }
 
-    console.log(`[PluginManager] Updated settings for plugin: ${pluginId}`);
   }
 
   /**
@@ -137,9 +143,12 @@ export class PluginManager {
   buildContext(pluginId) {
     return {
       conversationId: this.conversationId,
+      conversationTitle: this.getConversationTitle(),
+      recentMessages: this.getRecentMessages(),
       currentText: this.getCurrentText(),
       keyboardPrefix: this.getKeyboardPrefix(),
       selectedHints: this.getSelectedHints(),
+      setSelectedHints: this.setSelectedHints,
       dwellTime: this.getDwellTime(),
       settings: this.getSettings(pluginId),
       llmRequest: this.llmRequestForPlugin.bind(this),

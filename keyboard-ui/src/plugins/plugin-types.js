@@ -69,9 +69,12 @@ export interface LLMStreamCallbacks {
 
 export interface PluginContext {
   conversationId: string | null;
+  conversationTitle: string;    // Conversation title for grounding
+  recentMessages: Array<{sender: string, body: string}>; // Recent transcript lines
   currentText: string;          // Current suggestion text
   keyboardPrefix: string;       // Typed prefix
   selectedHints: string[];      // Selected hint words
+  setSelectedHints: (updater: ((prev: string[]) => string[]) | string[]) => void; // Replace or update hints
   dwellTime: number;            // Hover delay (ms)
   settings: Record<string, any>; // Plugin's current settings
   llmRequest: (request: LLMRequest, callbacks: LLMStreamCallbacks) => Promise<string>;

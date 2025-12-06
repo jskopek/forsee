@@ -49,7 +49,6 @@ const App = () => {
   // Pusher connection for real-time updates
   useEffect(() => {
     if (!conversationId) {
-      console.log('[Pusher] No conversationId, skipping');
       return;
     }
 
@@ -57,11 +56,9 @@ const App = () => {
     const pusherCluster = process.env.REACT_APP_PUSHER_CLUSTER || 'us2';
     
     if (!pusherKey) {
-      console.log('[Pusher] No PUSHER_KEY configured, skipping');
       return;
     }
 
-    console.log('[Pusher] Connecting...');
     const pusher = new Pusher(pusherKey, {
       cluster: pusherCluster,
     });
@@ -69,7 +66,6 @@ const App = () => {
     const channel = pusher.subscribe(`conversation-${conversationId}`);
     
     channel.bind('message_added', (data) => {
-      console.log('[Pusher] 🔔 New message detected:', data);
       if (suggestionsRefreshRef.current) {
         suggestionsRefreshRef.current();
       }
@@ -78,16 +74,11 @@ const App = () => {
       }
     });
 
-    channel.bind('pusher:subscription_succeeded', () => {
-      console.log('[Pusher] ✅ Subscribed to channel');
-    });
-
     channel.bind('pusher:subscription_error', (error) => {
       console.error('[Pusher] ❌ Subscription error:', error);
     });
 
     return () => {
-      console.log('[Pusher] Cleaning up');
       pusher.unsubscribe(`conversation-${conversationId}`);
       pusher.disconnect();
     };
@@ -331,7 +322,6 @@ const App = () => {
                 onShowToast={setToastMessage}
                 onLoadingChange={setIsSuggestionsLoading}
                 onRegisterRefresh={(callback) => {
-                  console.log('[App] Registering Suggestions refresh callback');
                   suggestionsRefreshRef.current = callback;
                 }}
                 onTextChange={(suggestion) => {
@@ -352,7 +342,6 @@ const App = () => {
                 onShowToast={setToastMessage}
                 onLoadingChange={setIsHintsLoading}
                 onRegisterRefresh={(callback) => {
-                  console.log('[App] Registering Hints refresh callback');
                   hintsRefreshRef.current = callback;
                 }}
               />
