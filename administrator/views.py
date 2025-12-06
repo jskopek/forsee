@@ -5,9 +5,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect
 from django.urls import reverse, reverse_lazy
-from django.views.generic import DeleteView, DetailView, ListView, UpdateView, View
-from accounts.services.mock_user_profiles import MockUserProfileError, MockUserProfileGenerator
-from accounts.utils.mock_users import create_mock_user
+from django.views.generic import DeleteView, DetailView, ListView, UpdateView
 
 User = get_user_model()
 
@@ -84,11 +82,3 @@ class UserDeleteView(SuperuserRequiredMixin, DeleteView):
         context["cancel_url"] = reverse_lazy("administrator:dashboard")
         return context
 
-
-class GenerateUsersView(SuperuserRequiredMixin, View):
-    def post(self, request):
-        try:
-            user, _ = create_mock_user(generator=MockUserProfileGenerator())
-        except MockUserProfileError as error:
-            return redirect("administrator:dashboard")
-        return redirect("administrator:user-detail", pk=user.pk)
