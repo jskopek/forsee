@@ -1,6 +1,6 @@
 import React, { useState, useRef, useImperativeHandle, forwardRef, useEffect } from 'react';
 
-const Backspace = forwardRef(({ dwellTime, onBackspace, onClear, hasText, onShowToast }, ref) => {
+const Backspace = forwardRef(({ dwellTime, onBackspace, onClear, hasText, onShowToast, className = '' }, ref) => {
   const [consecutiveBackspaceCount, setConsecutiveBackspaceCount] = useState(0);
   const [isHoveringBackspace, setIsHoveringBackspace] = useState(false);
   const backspaceIntervalRef = useRef(null);
@@ -69,9 +69,9 @@ const Backspace = forwardRef(({ dwellTime, onBackspace, onClear, hasText, onShow
   };
 
   return (
-    <div className="relative h-14 w-full flex items-center">
+    <div className={`relative w-full flex items-stretch ${className}`}>
       <button
-        className="relative h-14 w-full px-4 rounded-none border-none bg-transparent text-base cursor-pointer overflow-hidden text-white before:content-[''] before:absolute before:inset-0 before:bg-danger-back before:transition-colors before:duration-[120ms] before:ease-in-out before:rounded-none before:z-[1] after:content-[''] after:absolute after:inset-1 after:bg-danger-front after:border after:border-danger-border after:rounded-lg after:transition-colors after:duration-[120ms] after:ease-in-out after:z-[1] hover:before:bg-danger-back-hover hover:after:bg-danger-front-hover hover:after:border-danger-border-hover group"
+        className="relative h-full w-full px-4 rounded-none border-none bg-transparent text-base cursor-pointer overflow-hidden text-white before:content-[''] before:absolute before:inset-0 before:bg-danger-back before:transition-colors before:duration-[120ms] before:ease-in-out before:rounded-none before:z-[1] after:content-[''] after:absolute after:inset-1 after:bg-danger-front after:border after:border-danger-border after:rounded-lg after:transition-colors after:duration-[120ms] after:ease-in-out after:z-[1] hover:before:bg-danger-back-hover hover:after:bg-danger-front-hover hover:after:border-danger-border-hover group"
         onClick={handleClick}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}

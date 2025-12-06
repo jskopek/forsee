@@ -174,6 +174,18 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
     }
   };
 
+  const handleHintClick = (hint) => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    const normalized = hint.word.toLowerCase();
+    const isSelected = selectedHintsSet.has(normalized);
+    if (onHintToggle) {
+      onHintToggle(hint.word, isSelected);
+    }
+  };
+
   const handleMoreHover = () => {
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current);
@@ -183,6 +195,15 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
       const currentWords = hints.map(h => h.word);
       fetchHints(currentWords, true); // Force refresh even while hovering
     }, dwellTime);
+  };
+
+  const handleMoreClick = () => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    const currentWords = hints.map(h => h.word);
+    fetchHints(currentWords, true);
   };
 
   const handleContainerMouseEnter = () => {
@@ -255,6 +276,7 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
               dwell={false}
               onMouseEnter={() => handleHintHover(hint)}
               onMouseLeave={handleHintLeave}
+              onClick={() => handleHintClick(hint)}
               className={`text-xl ${isSelected ? 'underline' : ''}`}
               style={{
                 gridColumn: `span ${gridColumnSpan}`,
@@ -271,6 +293,7 @@ const Hints = ({ selectedHints = [], onHintToggle, dwellTime, conversationId, on
           dwell={false}
           onMouseEnter={handleMoreHover}
           onMouseLeave={handleHintLeave}
+          onClick={handleMoreClick}
           className="text-xl"
         />
         </div>

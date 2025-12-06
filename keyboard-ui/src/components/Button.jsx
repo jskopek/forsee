@@ -56,6 +56,17 @@ const Button = ({
     }
   };
 
+  const handleClick = (event) => {
+    if (hoverTimerRef.current) {
+      // Prevent double invocation when a click happens before dwell finishes
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    if (onClick) {
+      onClick(event);
+    }
+  };
+
   useEffect(() => {
     return () => {
       if (hoverTimerRef.current) {
@@ -91,7 +102,7 @@ const Button = ({
         style={style}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
-        onClick={onClick}
+        onClick={handleClick}
       >
         {/* Dwell animation overlay */}
         <span
@@ -112,7 +123,7 @@ const Button = ({
       style={style}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      onClick={onClick}
+      onClick={handleClick}
     >
       {/* Always show dwell animation - controlled by CSS --dwell-time variable */}
       <span
