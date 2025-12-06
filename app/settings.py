@@ -50,7 +50,6 @@ INSTALLED_APPS = [
     'django_rq',
     'home',
     'conversations',
-    'openai_analysis',
     'crispy_forms',
     'crispy_tailwind',
 ]
