@@ -73,38 +73,55 @@ def stream_llm(request, data: LLMStreamRequest):
 
     def trigger_event(event_type: str, event_data: dict):
         """Helper to send Pusher events."""
-        pusher.trigger(
-            f'llm-stream-{data.stream_id}',
-            event_type,
-            {**event_data, 'stream_id': data.stream_id}
-        )
+        try:
+            pusher.trigger(
+                f'llm-stream-{data.stream_id}',
+                event_type,
+                {**event_data, 'stream_id': data.stream_id}
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"[LLM Proxy] Failed to send {event_type}: {exc}", exc_info=True)
+
+    def emit_error(message: str, exc: Exception | None = None):
+        if exc:
+            logger.error(f"[LLM Proxy] {message}: {exc}", exc_info=True)
+        else:
+            logger.error(f"[LLM Proxy] {message}")
+        trigger_event('error', {'message': message})
+        return {"stream_id": data.stream_id, "status": "error"}
+
+    groq_model = getattr(settings, "GROQ_MODEL", None)
+    if not groq_model:
+        return emit_error("GROQ model not configured")
+
+    groq_api_key = os.getenv('GROQ_API_KEY')
+    if not groq_api_key:
+        return emit_error("GROQ_API_KEY not set")
+
+    logger.info(
+        f"[LLM Proxy] Stream {data.stream_id} using Groq/{groq_model} | prompt: {data.prompt}"
+    )
 
     try:
-        # Get Groq config from Django settings
-        groq_model = settings.GROQ_MODEL
-        groq_api_key = os.getenv('GROQ_API_KEY')
-
-        logger.info(f"[LLM Proxy] Stream {data.stream_id} using Groq/{groq_model}")
-
-        # Create Groq client
         client = Groq(api_key=groq_api_key)
+    except Exception as exc:  # noqa: BLE001
+        return emit_error("Failed to initialize Groq client", exc)
 
-        # Convert tools format
-        tools = None
-        if data.tools:
-            tools = [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": tool.name,
-                        "description": tool.description,
-                        "parameters": tool.parameters
-                    }
+    tools = None
+    if data.tools:
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters
                 }
-                for tool in data.tools
-            ]
+            }
+            for tool in data.tools
+        ]
 
-        # Start streaming from Groq
+    try:
         stream = client.chat.completions.create(
             model=groq_model,
             messages=[{"role": "user", "content": data.prompt}],
@@ -113,10 +130,14 @@ def stream_llm(request, data: LLMStreamRequest):
             max_tokens=data.max_tokens,
             stream=True
         )
+    except Exception as exc:  # noqa: BLE001
+        return emit_error("Failed to start Groq stream", exc)
 
-        current_tool_call = None
-        token_count = 0
+    current_tool_call = None
+    token_count = 0
+    content_parts: list[str] = []
 
+    try:
         # Stream chunks to client via Pusher
         for chunk in stream:
             delta = chunk.choices[0].delta
@@ -125,6 +146,7 @@ def stream_llm(request, data: LLMStreamRequest):
             if delta.content:
                 trigger_event('token', {'token': delta.content})
                 token_count += 1
+                content_parts.append(delta.content)
 
             # Handle tool calls
             if delta.tool_calls:
@@ -141,6 +163,12 @@ def stream_llm(request, data: LLMStreamRequest):
                         # Try to parse complete JSON
                         try:
                             args = json.loads(current_tool_call['arguments'])
+                            logger.info(
+                                "[LLM Proxy] Tool call received | stream_id=%s | tool=%s | args=%s",
+                                data.stream_id,
+                                current_tool_call['name'],
+                                args,
+                            )
                             trigger_event('tool_call', {
                                 'name': current_tool_call['name'],
                                 'arguments': args
@@ -148,13 +176,16 @@ def stream_llm(request, data: LLMStreamRequest):
                             current_tool_call = None
                         except json.JSONDecodeError:
                             pass  # Wait for more chunks
+    except Exception as exc:  # noqa: BLE001
+        return emit_error("Streaming interrupted", exc)
 
-        # Send completion event
-        trigger_event('complete', {'tokens': token_count})
-        logger.info(f"[LLM Proxy] Stream complete: {token_count} tokens")
-
-    except Exception as e:
-        logger.error(f"[LLM Proxy] Error: {e}", exc_info=True)
-        trigger_event('error', {'message': str(e)})
+    trigger_event('complete', {'tokens': token_count})
+    full_response = "".join(content_parts)
+    logger.info(
+        "[LLM Proxy] Stream complete | stream_id=%s | tokens=%s | response=%s",
+        data.stream_id,
+        token_count,
+        full_response,
+    )
 
     return {"stream_id": data.stream_id, "status": "streaming"}
