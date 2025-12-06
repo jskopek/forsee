@@ -48,7 +48,6 @@ INSTALLED_APPS = [
     'corsheaders',
     'compressor',
     'django_rq',
-    'home',
     'conversations',
     'crispy_forms',
     'crispy_tailwind',

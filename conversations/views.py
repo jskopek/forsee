@@ -9,8 +9,6 @@ from django.shortcuts import redirect
 from django.utils import timezone
 from django.views import View, generic
 
-from home.utils import get_patient_profile
-
 from .models import Conversation, Message
 from .utils import is_htmx
 
@@ -79,7 +77,6 @@ class ConversationDetailView(generic.DetailView):
         # Pusher configuration for real-time updates
         context["pusher_key"] = settings.PUSHER_KEY
         context["pusher_cluster"] = settings.PUSHER_CLUSTER
-        context["patient_profile"] = get_patient_profile()
         context["recent_conversations"] = (
             Conversation.objects.exclude(pk=self.object.pk)
             .order_by("-updated_at", "-created_at")[:5]
