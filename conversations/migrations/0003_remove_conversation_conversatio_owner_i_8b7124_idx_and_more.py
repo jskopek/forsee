@@ -6,7 +6,6 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('contacts', '0004_remove_contact_contacts_co_user_id_1e9490_idx_and_more'),
         ('conversations', '0002_remove_snapshots'),
     ]
 

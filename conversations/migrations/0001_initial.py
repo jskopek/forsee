@@ -11,7 +11,6 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('contacts', '0002_contact_interests_contact_personality'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
@@ -26,7 +25,7 @@ class Migration(migrations.Migration):
                 ('last_response_job_id', models.CharField(blank=True, max_length=255)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
-                ('contact', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='conversations', to='contacts.contact')),
+                ('contact', models.UUIDField(blank=True, null=True)),
                 ('owner', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='conversations', to=settings.AUTH_USER_MODEL)),
             ],
             options={

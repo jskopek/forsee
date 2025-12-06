@@ -49,7 +49,6 @@ INSTALLED_APPS = [
     'compressor',
     'django_rq',
     'home',
-    'contacts',
     'conversations',
     'openai_analysis',
     'crispy_forms',
