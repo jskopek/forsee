@@ -5,6 +5,7 @@ Streams LLM responses from Groq using Django settings.
 from __future__ import annotations
 
 import logging
+import shellviz
 import json
 import os
 from typing import Optional
@@ -65,6 +66,8 @@ def stream_llm(request, data: LLMStreamRequest):
     - 'error': {stream_id, message} - Error occurred
     """
 
+    # shellviz.clear()
+    shellviz.log("Starting LLM stream", data.stream_id)
     # Get Pusher client
     pusher = get_pusher_client()
     if not pusher:
@@ -98,9 +101,6 @@ def stream_llm(request, data: LLMStreamRequest):
     if not groq_api_key:
         return emit_error("GROQ_API_KEY not set")
 
-    logger.info(
-        f"[LLM Proxy] Stream {data.stream_id} using Groq/{groq_model} | prompt: {data.prompt}"
-    )
 
     try:
         client = Groq(api_key=groq_api_key)
@@ -121,6 +121,10 @@ def stream_llm(request, data: LLMStreamRequest):
             for tool in data.tools
         ]
 
+        for tool in data.tools:
+            shellviz.table([''], id=f"tool-{tool.name}", append=False)
+
+    shellviz.log(data.prompt)
     try:
         stream = client.chat.completions.create(
             model=groq_model,
@@ -163,6 +167,7 @@ def stream_llm(request, data: LLMStreamRequest):
                         # Try to parse complete JSON
                         try:
                             args = json.loads(current_tool_call['arguments'])
+                            shellviz.table(list(args.values()), id=f"tool-{current_tool_call['name']}", append=True)
                             logger.info(
                                 "[LLM Proxy] Tool call received | stream_id=%s | tool=%s | args=%s",
                                 data.stream_id,
