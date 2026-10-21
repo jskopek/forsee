@@ -5,7 +5,6 @@ Streams LLM responses from Groq using Django settings.
 from __future__ import annotations
 
 import logging
-import shellviz
 import json
 import os
 from typing import Optional
@@ -19,6 +18,15 @@ from django.conf import settings
 from .signals import get_pusher_client
 
 logger = logging.getLogger(__name__)
+
+try:
+    import shellviz
+except ImportError:  # optional local debugging tool; see NEXT_STEPS_TO_REVIVE_PROJECT.md
+    class _NoopShellviz:
+        def __getattr__(self, name):
+            return lambda *args, **kwargs: None
+
+    shellviz = _NoopShellviz()
 
 llm_router = Router(tags=["llm"])
 
