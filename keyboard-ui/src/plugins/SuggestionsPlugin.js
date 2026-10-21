@@ -80,7 +80,8 @@ const SuggestionsPlugin: Plugin = {
     }, [context.selectedHints]);
 
     const buildTranscript = useCallback((messages = []) => {
-      return messages
+      const lastMessages = messages.slice(-10); // limit context to last 10 lines
+      return lastMessages
         .map((m) => {
           if (!m || !m.body) return null;
           const role = m.sender === 'contact' ? 'Partner' : 'You';
@@ -92,16 +93,16 @@ const SuggestionsPlugin: Plugin = {
 
     // Build LLM prompt mirroring server behavior
     const buildPrompt = useCallback(() => {
-      const prefix = prefixRef.current.trim();
+      const prefix = prefixRef.current.trim().slice(0, 40); // align with old prompt guard
       const hints = context.selectedHints || [];
-      const hintText = hints.length > 0 ? hints.join(', ') : null;
+      const hintText = hints.length > 0 ? hints.join(', ').slice(0, 160) : null;
 
       const systemLines = [
         `Generate ${context.settings.numSuggestions} short reply suggestions by calling push_suggestion exactly ${context.settings.numSuggestions} times.`,
         `Each suggestion: \u2264${context.settings.maxWords} words, natural speech, no emojis/quotes.`,
         'If user_hint exists, prioritize it over conversation content.',
         'If user_prefix exists, EVERY suggestion MUST start with a complete English word matching that prefix.',
-        'Call push_suggestion once per suggestion immediately as you think of it.',
+        'Formality: casual. Call push_suggestion once per suggestion immediately as you think of it.',
       ];
 
       const transcript = buildTranscript(context.recentMessages || []);
@@ -119,14 +120,20 @@ const SuggestionsPlugin: Plugin = {
         userPayload.user_prefix = prefix;
       }
 
-      const prompt = `${systemLines.join('\n')}\n\nUser:\n${JSON.stringify(userPayload)}`;
+      const prompt = [
+        { role: 'system', content: systemLines.join('\n') },
+        { role: 'user', content: JSON.stringify(userPayload) },
+      ];
+
+      // Preserve string payload for backend while keeping structure explicit
+      const promptString = JSON.stringify(prompt);
       console.log('[SuggestionsPlugin] buildPrompt', {
         prefix,
         hintCount: hints.length,
         hints,
         transcriptLines: (context.recentMessages || []).length,
       });
-      return prompt;
+      return promptString;
     }, [context.settings, context.recentMessages, context.selectedHints, buildTranscript]);
 
     // Fetch suggestions with LLM

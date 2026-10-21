@@ -21,12 +21,16 @@ const App = () => {
   const [dwellTime, setDwellTime] = useState(1000);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [conversationId, setConversationId] = useState(null);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const speechWarningModalRef = useRef(null);
   const currentTextRef = useRef('');
   const keyboardPrefixRef = useRef('');
   const selectedHintsRef = useRef([]);
   const dwellTimeRef = useRef(1000);
   const recentMessagesRef = useRef([]);
+  const isMutedRef = useRef(false);
+  const wasRecordingBeforeSpeechRef = useRef(false);
   const apiBaseUrl = getApiBaseUrl();
 
   const setSelectedHintsWithRef = useCallback((updater) => {
@@ -46,6 +50,7 @@ const App = () => {
     conversationId,
     apiBaseUrl,
     onError: setToastMessage,
+    isMutedRef,
   });
 
   // Extract conversation ID from URL
@@ -97,6 +102,10 @@ const App = () => {
   useEffect(() => {
     dwellTimeRef.current = dwellTime;
   }, [dwellTime]);
+
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+  }, [isMuted]);
 
   useEffect(() => {
     recentMessagesRef.current = recentMessages;
@@ -187,24 +196,6 @@ const App = () => {
   //   });
   // };
 
-  const handleSpeak = useCallback(async (textToSpeak) => {
-    const phraseToUse = typeof textToSpeak === 'string' ? textToSpeak : currentText || '';
-    const phrase = phraseToUse.trim();
-    if (!phrase) return;
-
-    // Send message to API if conversationId is available
-    if (conversationId) {
-      await handleAddMessage(phrase, 'user');
-    }
-
-    // Speak via speech API
-    if (speechWarningModalRef.current) {
-      speechWarningModalRef.current.speak(phrase);
-      setCurrentText('');
-      setKeyboardPrefix('');
-    }
-  }, [conversationId, currentText]);
-
   const handleAddMessage = useCallback(async (body, sender = 'user') => {
     if (!conversationId) return;
 
@@ -227,6 +218,39 @@ const App = () => {
       setToastMessage('Failed to send message');
     }
   }, [apiBaseUrl, conversationId, fetchConversationContext]);
+
+  const handleSpeak = useCallback(async (textToSpeak) => {
+    const phraseToUse = typeof textToSpeak === 'string' ? textToSpeak : currentText || '';
+    const phrase = phraseToUse.trim();
+    if (!phrase) return;
+
+    // Capture current recording state (for informational purposes only; we no longer auto-toggle the mic)
+    const wasRecording = recordingStatus === 'recording' || recordingStatus === 'starting' || isRecording;
+    wasRecordingBeforeSpeechRef.current = wasRecording;
+
+    // Send message to API if conversationId is available
+    if (conversationId) {
+      await handleAddMessage(phrase, 'user');
+    }
+
+    // Speak via speech API
+    if (speechWarningModalRef.current) {
+      // Enter muted state immediately so the mic cannot be toggled and chunks are suppressed
+      setIsMuted(true);
+      speechWarningModalRef.current.speak(phrase, {
+        onStart: () => {
+          setIsSpeaking(true);
+        },
+        onEnd: () => {
+          setIsSpeaking(false);
+          setIsMuted(false);
+          wasRecordingBeforeSpeechRef.current = false;
+        },
+      });
+      setCurrentText('');
+      setKeyboardPrefix('');
+    }
+  }, [conversationId, currentText, isRecording, recordingStatus, startVoiceRecording, stopVoiceRecording, handleAddMessage]);
 
   // Keep PluginManager getters in sync with latest state
   useEffect(() => {
@@ -372,6 +396,7 @@ const App = () => {
                 status={recordingStatus}
                 onStart={startVoiceRecording}
                 onStop={stopVoiceRecording}
+                disabled={isSpeaking || isMuted}
               />
               <button
                 className="relative h-14 px-4 rounded-none border-none bg-transparent text-base cursor-pointer overflow-hidden text-text-dark before:content-[''] before:absolute before:inset-0 before:bg-neutral-back before:transition-colors before:duration-[120ms] before:ease-in-out before:rounded-none before:z-[1] after:content-[''] after:absolute after:inset-1 after:bg-neutral-front after:border after:border-neutral-border after:rounded-lg after:transition-colors after:duration-[120ms] after:ease-in-out after:z-[1] hover:before:bg-neutral-back-hover hover:after:bg-neutral-front-hover hover:after:border-neutral-border-hover group"

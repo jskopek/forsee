@@ -22,8 +22,19 @@ const SpeechWarningModal = forwardRef(({ onSpeechEnabled }, ref) => {
     return false;
   };
 
-  const handleSpeak = (phrase) => {
+  const handleSpeak = (phrase, options = {}) => {
     if (!phrase) return;
+
+    const { onStart, onEnd } = options;
+    let completed = false;
+
+    const finish = (reason) => {
+      if (completed) return;
+      completed = true;
+      if (typeof onEnd === 'function') {
+        onEnd(reason);
+      }
+    };
     
     // Click handler - this is a direct user gesture, so speech synthesis should work
     try {
@@ -39,6 +50,10 @@ const SpeechWarningModal = forwardRef(({ onSpeechEnabled }, ref) => {
         setShowWarning(false);
         setPendingText(null);
         
+        if (typeof onStart === 'function') {
+          onStart();
+        }
+
         if (onSpeechEnabled) {
           onSpeechEnabled(phrase);
         }
@@ -53,11 +68,13 @@ const SpeechWarningModal = forwardRef(({ onSpeechEnabled }, ref) => {
             setShowWarning(true);
           }
         }
+        finish('error');
       };
       
       utterance.onend = () => {
         // Speech completed successfully
         speechSynthesisUsed.current = true;
+        finish('end');
       };
       
       // Try to speak - this will work if speech synthesis is enabled
@@ -75,6 +92,7 @@ const SpeechWarningModal = forwardRef(({ onSpeechEnabled }, ref) => {
       }
       setShowWarning(true);
       speechSynthesisUsed.current = false;
+      finish('error');
     }
   };
 

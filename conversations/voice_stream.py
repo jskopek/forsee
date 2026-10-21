@@ -185,9 +185,10 @@ def maybe_transcribe(session: VoiceStreamSession, conversation, is_final: bool =
     for sentence in new_sentences:
         if not sentence.strip():
             continue
+        # Voice-captured messages should appear as coming from the contact, not the user
         Message.objects.create(
             conversation=conversation,
-            sender=Message.Sender.USER,
+            sender=Message.Sender.CONTACT,
             body=sentence.strip(),
         )
         saved.append(sentence.strip())

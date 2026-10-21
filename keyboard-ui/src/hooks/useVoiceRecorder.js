@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 const MAX_VOICE_RECORDING_MS = 45000;
 
-export function useVoiceRecorder({ conversationId, apiBaseUrl, onError }) {
+export function useVoiceRecorder({ conversationId, apiBaseUrl, onError, isMutedRef }) {
   const [isRecording, setIsRecording] = useState(false);
   const [status, setStatus] = useState('idle'); // idle | starting | recording | stopping
 
@@ -37,6 +37,8 @@ export function useVoiceRecorder({ conversationId, apiBaseUrl, onError }) {
   const sendVoiceChunk = useCallback(
     async (audioBlob, isFinal = false) => {
       if (!voiceStreamIdRef.current || !conversationId) return;
+      // Suppress streaming while muted
+      if (isMutedRef?.current) return;
 
       const formData = new FormData();
       formData.append('stream_id', voiceStreamIdRef.current);
@@ -91,6 +93,11 @@ export function useVoiceRecorder({ conversationId, apiBaseUrl, onError }) {
   const start = useCallback(async () => {
     if (!conversationId) {
       notifyError('Open a conversation to record');
+      return;
+    }
+
+    if (isMutedRef?.current) {
+      notifyError('Microphone is muted');
       return;
     }
 
