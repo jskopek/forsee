@@ -73,7 +73,11 @@ importers:
         specifier: ^8.3.8
         version: 8.3.8(@types/node@26.6.6)(jiti@1.21.7)
 
-  packages/core: {}
+  packages/core:
+    dependencies:
+      '@forsee/plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
 
   packages/gaze: {}
 
