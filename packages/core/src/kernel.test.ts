@@ -159,14 +159,43 @@ describe('createKernel', () => {
     await expect(
       kernel.commands.execute('composition.insert', {} as { text: string }),
     ).rejects.toMatchObject({
-      code: 'handler-error',
+      code: 'invalid-argument',
     });
     await expect(
       kernel.commands.execute(
         'composition.acceptPrediction',
         undefined as unknown as { text: string },
       ),
-    ).rejects.toMatchObject({ code: 'handler-error' });
+    ).rejects.toMatchObject({ code: 'invalid-argument' });
+  });
+
+  it('declares which permissions other plugins need for the built-in commands', () => {
+    const { kernel } = setup();
+    const byId = new Map(kernel.commands.list().map((d) => [d.id, d]));
+    for (const id of [
+      'composition.insert',
+      'composition.deleteGrapheme',
+      'composition.deleteWord',
+      'composition.clear',
+      'composition.undo',
+      'composition.acceptPrediction',
+    ]) {
+      expect(byId.get(id)).toMatchObject({ public: true, requires: ['composition.write'] });
+    }
+    expect(byId.get('speech.speak')).toMatchObject({ public: true, requires: ['speech.output'] });
+    for (const id of ['speech.stop', 'gaze.pause', 'gaze.resume']) {
+      expect(byId.get(id)).toMatchObject({ public: true, requires: [] });
+    }
+
+    const typist = { pluginId: 'community.typist', hasPermission: () => false };
+    let denied: unknown;
+    try {
+      kernel.commands.authorize('composition.insert', typist);
+    } catch (error) {
+      denied = error;
+    }
+    expect(denied).toMatchObject({ code: 'permission-denied' });
+    expect(() => kernel.commands.authorize('speech.stop', typist)).not.toThrow();
   });
 
   it('speech.speak commits the composition, logs it and calls the speech service', async () => {

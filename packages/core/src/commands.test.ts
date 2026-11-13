@@ -10,8 +10,15 @@ describe('CommandRegistry', () => {
     registry.register('composition.insert', handler, { title: 'Type' });
     registry.register('plugin.x', () => 'x', { title: 'X', owner: 'plugin', description: 'd' });
     expect(registry.list()).toEqual([
-      { id: 'composition.insert', title: 'Type', owner: 'app' },
-      { id: 'plugin.x', title: 'X', owner: 'plugin', description: 'd' },
+      { id: 'composition.insert', title: 'Type', owner: 'app', public: true, requires: [] },
+      {
+        id: 'plugin.x',
+        title: 'X',
+        owner: 'plugin',
+        description: 'd',
+        public: false,
+        requires: [],
+      },
     ]);
     await expect(registry.execute('composition.insert', { text: 'abc' }, 'keyboard')).resolves.toBe(
       3,
@@ -72,6 +79,116 @@ describe('CommandRegistry', () => {
     expect((error as ForseeError).cause).toEqual(new Error('bad'));
     expect(failed).toHaveBeenCalledTimes(1);
     expect(did).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'throws',
+      'invalid-argument' as const,
+      () => {
+        throw new ForseeError('invalid-argument', 'needs text');
+      },
+    ],
+    [
+      'rejects',
+      'permission-denied' as const,
+      () => Promise.reject(new ForseeError('permission-denied', 'no')),
+    ],
+  ])(
+    'passes on a ForseeError that a handler %s, keeping its code',
+    async (_label, code, handler) => {
+      const registry = new CommandRegistry();
+      registry.register('a.b', handler, { title: 'A' });
+      const failed = vi.fn();
+      registry.events.on('failed', failed);
+      const error: unknown = await registry.execute('a.b').catch((e: unknown) => e);
+      expect(isForseeError(error, code)).toBe(true);
+      expect(failed).toHaveBeenCalledTimes(1);
+      expect(failed).toHaveBeenCalledWith(expect.objectContaining({ error }));
+    },
+  );
+
+  describe('authorize', () => {
+    const caller = (pluginId: string, held: readonly string[] = []) => ({
+      pluginId,
+      hasPermission: (scope: string) => held.includes(scope),
+    });
+    const attempt = (registry: CommandRegistry, id: string, by: ReturnType<typeof caller>) => {
+      try {
+        registry.authorize(id, by);
+      } catch (error) {
+        return error;
+      }
+      return undefined;
+    };
+
+    it('describes app commands as public and plugin commands as private by default', () => {
+      const registry = new CommandRegistry();
+      registry.register('app.do', () => 1, { title: 'App' });
+      registry.register('community.a.do', () => 1, { title: 'A', owner: 'community.a' });
+      registry.register('community.b.do', () => 1, {
+        title: 'B',
+        owner: 'community.b',
+        public: true,
+        requires: ['speech.output'],
+      });
+      expect(registry.list()).toEqual([
+        { id: 'app.do', title: 'App', owner: 'app', public: true, requires: [] },
+        { id: 'community.a.do', title: 'A', owner: 'community.a', public: false, requires: [] },
+        {
+          id: 'community.b.do',
+          title: 'B',
+          owner: 'community.b',
+          public: true,
+          requires: ['speech.output'],
+        },
+      ]);
+    });
+
+    it('lets a plugin execute its own command even when it is private', () => {
+      const registry = new CommandRegistry();
+      registry.register('community.a.do', () => 1, {
+        title: 'A',
+        owner: 'community.a',
+        requires: ['speech.output'],
+      });
+      expect(attempt(registry, 'community.a.do', caller('community.a'))).toBeUndefined();
+    });
+
+    it("denies another plugin's private command, whatever the caller holds", () => {
+      const registry = new CommandRegistry();
+      registry.register('community.a.do', () => 1, { title: 'A', owner: 'community.a' });
+      const denied = attempt(registry, 'community.a.do', caller('community.b', ['speech.output']));
+      expect(isForseeError(denied, 'permission-denied')).toBe(true);
+    });
+
+    it('requires every listed scope for a public command and names the missing ones', () => {
+      const registry = new CommandRegistry();
+      registry.register('community.a.say', () => 1, {
+        title: 'Say',
+        owner: 'community.a',
+        public: true,
+        requires: ['speech.output', 'composition.read'],
+      });
+      const all = caller('community.b', ['speech.output', 'composition.read']);
+      expect(attempt(registry, 'community.a.say', all)).toBeUndefined();
+      const denied = attempt(registry, 'community.a.say', caller('community.b', ['speech.output']));
+      expect(isForseeError(denied, 'permission-denied')).toBe(true);
+      expect((denied as ForseeError).details).toEqual({ missing: ['composition.read'] });
+    });
+
+    it('reports an unknown command', () => {
+      const registry = new CommandRegistry();
+      expect(
+        isForseeError(attempt(registry, 'nope', caller('community.a')), 'unknown-command'),
+      ).toBe(true);
+    });
+
+    it('does not restrict execute itself, which trusts its caller', async () => {
+      const registry = new CommandRegistry();
+      registry.register('community.a.do', () => 7, { title: 'A', owner: 'community.a' });
+      await expect(registry.execute('community.a.do', undefined, 'keyboard')).resolves.toBe(7);
+    });
   });
 
   it('emits willExecute and didExecute with duration', async () => {

@@ -1,5 +1,5 @@
 import type { Disposable, JsonValue } from './common';
-import type { CommandArgs, CommandDescriptor, CommandHandler } from './commands';
+import type { CommandArgs, CommandDescriptor, CommandExposure, CommandHandler } from './commands';
 import type { CompositionState } from './composition';
 import type { ContextEntry, ContextEntryInput } from './context';
 import type {
@@ -65,21 +65,30 @@ export interface ForseeApi {
 /** Commands: execute any command, register the plugin's own. */
 export interface CommandsApi {
   /**
-   * Executes a command. Rejects with `unknown-command` or `handler-error`.
-   * Executing a command is subject to the permissions its effect needs
-   * (`composition.*` commands need `composition.write`, `speech.speak` needs `speech.output`).
+   * Executes a command. Rejects with `unknown-command`, with
+   * `permission-denied`, with the handler's own `ForseeErrorData` code (for
+   * example `invalid-argument`), or with `handler-error` for any other failure.
+   *
+   * A plugin can always execute its own commands. It can execute a command
+   * owned by the app or by another plugin only if that command is public
+   * and the plugin holds every scope the command requires (see
+   * `CommandDescriptor`): the `composition.*` built-ins require
+   * `composition.write` and `speech.speak` requires `speech.output`. Another
+   * plugin's private commands always reject with `permission-denied`.
    */
   execute<K extends string>(id: K, args?: CommandArgs<K>): Promise<unknown>;
   /** Lists every registered command. */
   list(): Promise<readonly CommandDescriptor[]>;
   /**
    * Registers a command. The id must start with the plugin id followed by
-   * `.` or `/`. Rejects with `duplicate` if taken.
+   * `.` or `/`. Rejects with `duplicate` if taken. The command is private to
+   * this plugin unless `descriptor.public` is true; `descriptor.requires`
+   * lists the scopes another plugin must hold to execute it.
    */
   register(
     id: string,
     handler: CommandHandler,
-    descriptor: { readonly title: string; readonly description?: string },
+    descriptor: { readonly title: string; readonly description?: string } & CommandExposure,
   ): Promise<Disposable>;
 }
 

@@ -6,6 +6,7 @@ import type {
   Disposable,
   ExtensionChange,
   LocaleTag,
+  PermissionScope,
   RegionState,
   SettingChange,
   TextTransformTrigger,
@@ -233,42 +234,76 @@ export function createKernel(options: KernelOptions): Kernel {
     id: K,
     title: string,
     handler: (args: CommandArgsMap[K]) => unknown,
+    requires: readonly PermissionScope[] = [],
   ): void => {
-    disposables.add(commands.register(id, (args) => handler(args as CommandArgsMap[K]), { title }));
+    disposables.add(
+      commands.register(id, (args) => handler(args as CommandArgsMap[K]), {
+        title,
+        public: true,
+        requires,
+      }),
+    );
   };
+  const writesComposition: readonly PermissionScope[] = ['composition.write'];
 
-  register('composition.insert', 'Type text', (args) => {
-    if (typeof args?.text !== 'string') {
-      throw new ForseeError('invalid-argument', 'composition.insert needs { text: string }');
-    }
-    composition.insert(args.text, args.distribution);
-    if (WORD_BOUNDARY.test(args.text)) applyWordBoundaryTransforms();
-  });
-  register('composition.deleteGrapheme', 'Delete letter', () => composition.deleteGrapheme());
-  register('composition.deleteWord', 'Delete word', () => composition.deleteWord());
-  register('composition.clear', 'Clear', () => composition.clear());
-  register('composition.undo', 'Undo', () => composition.undo());
-  register('composition.acceptPrediction', 'Accept prediction', (args) => {
-    if (typeof args?.text !== 'string') {
-      throw new ForseeError(
-        'invalid-argument',
-        'composition.acceptPrediction needs { text: string }',
-      );
-    }
-    composition.acceptPrediction(args.text);
-  });
-  register('speech.speak', 'Speak', async (args): Promise<SpeakCommandResult> => {
-    const raw = args?.text !== undefined ? args.text.trim() : composition.commit();
-    if (raw === '') return { spoken: false, text: '', recordId: null };
-    const text = (await runTextTransforms('commit', raw)).trim();
-    if (text === '') return { spoken: false, text: '', recordId: null };
-    const record = args?.log === false ? null : conversation.append({ body: text, sender: 'user' });
-    const recordId = record?.id ?? null;
-    bus.emit('speech.requested', { text, recordId });
-    if (!speech) return { spoken: false, text, recordId };
-    speech.speak(text).catch((error: unknown) => reportError(error, 'speech.speak'));
-    return { spoken: true, text, recordId };
-  });
+  register(
+    'composition.insert',
+    'Type text',
+    (args) => {
+      if (typeof args?.text !== 'string') {
+        throw new ForseeError('invalid-argument', 'composition.insert needs { text: string }');
+      }
+      composition.insert(args.text, args.distribution);
+      if (WORD_BOUNDARY.test(args.text)) applyWordBoundaryTransforms();
+    },
+    writesComposition,
+  );
+  register(
+    'composition.deleteGrapheme',
+    'Delete letter',
+    () => composition.deleteGrapheme(),
+    writesComposition,
+  );
+  register(
+    'composition.deleteWord',
+    'Delete word',
+    () => composition.deleteWord(),
+    writesComposition,
+  );
+  register('composition.clear', 'Clear', () => composition.clear(), writesComposition);
+  register('composition.undo', 'Undo', () => composition.undo(), writesComposition);
+  register(
+    'composition.acceptPrediction',
+    'Accept prediction',
+    (args) => {
+      if (typeof args?.text !== 'string') {
+        throw new ForseeError(
+          'invalid-argument',
+          'composition.acceptPrediction needs { text: string }',
+        );
+      }
+      composition.acceptPrediction(args.text);
+    },
+    writesComposition,
+  );
+  register(
+    'speech.speak',
+    'Speak',
+    async (args): Promise<SpeakCommandResult> => {
+      const raw = args?.text !== undefined ? args.text.trim() : composition.commit();
+      if (raw === '') return { spoken: false, text: '', recordId: null };
+      const text = (await runTextTransforms('commit', raw)).trim();
+      if (text === '') return { spoken: false, text: '', recordId: null };
+      const record =
+        args?.log === false ? null : conversation.append({ body: text, sender: 'user' });
+      const recordId = record?.id ?? null;
+      bus.emit('speech.requested', { text, recordId });
+      if (!speech) return { spoken: false, text, recordId };
+      speech.speak(text).catch((error: unknown) => reportError(error, 'speech.speak'));
+      return { spoken: true, text, recordId };
+    },
+    ['speech.output'],
+  );
   register('speech.stop', 'Stop speaking', () => {
     if (!speech) return false;
     speech.stop();

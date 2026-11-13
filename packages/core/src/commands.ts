@@ -2,11 +2,13 @@ import type {
   CommandArgs,
   CommandContext,
   CommandDescriptor,
+  CommandExposure,
   CommandHandler,
   Disposable,
+  PermissionScope,
 } from '@forsee/plugin-api';
 import { toDisposable } from './disposable';
-import { ForseeError } from './errors';
+import { ForseeError, isForseeError } from './errors';
 import { EventBus, type EventBusOptions } from './event-bus';
 import type { Clock } from './platform';
 
@@ -38,6 +40,20 @@ export interface CommandEventMap {
 export interface CommandRegistryOptions extends EventBusOptions {
   /** For `durationMs`. Without it durations are 0. */
   readonly clock?: Clock;
+}
+
+/** Owner id of commands registered by the app itself. */
+export const APP_COMMAND_OWNER = 'app';
+
+/**
+ * A plugin asking to execute a command, as seen by `CommandRegistry.authorize`.
+ * The plugin host builds one per plugin from its granted permissions.
+ */
+export interface CommandCaller {
+  /** The calling plugin's id. */
+  readonly pluginId: string;
+  /** Whether the calling plugin currently holds `scope`. */
+  hasPermission(scope: PermissionScope): boolean;
 }
 
 interface Entry {
@@ -72,7 +88,11 @@ export class CommandRegistry implements Disposable {
   register<K extends string>(
     id: K,
     handler: CommandHandler<CommandArgs<K>>,
-    descriptor: { readonly title: string; readonly description?: string; readonly owner?: string },
+    descriptor: {
+      readonly title: string;
+      readonly description?: string;
+      readonly owner?: string;
+    } & CommandExposure,
   ): Disposable {
     if (id === '') throw new ForseeError('invalid-argument', 'Command id must not be empty');
     if (this.entries.has(id)) {
@@ -82,7 +102,10 @@ export class CommandRegistry implements Disposable {
       descriptor: {
         id,
         title: descriptor.title,
-        owner: descriptor.owner ?? 'app',
+        owner: descriptor.owner ?? APP_COMMAND_OWNER,
+        // App commands are public unless stated otherwise; plugin commands are private.
+        public: descriptor.public ?? (descriptor.owner ?? APP_COMMAND_OWNER) === APP_COMMAND_OWNER,
+        requires: [...(descriptor.requires ?? [])],
         ...(descriptor.description === undefined ? {} : { description: descriptor.description }),
       },
       handler: handler as CommandHandler<unknown>,
@@ -112,6 +135,39 @@ export class CommandRegistry implements Disposable {
    * Executes a command.
    * @param source who invoked it (`"app"`, `"keyboard"`, a plugin id); default `"app"`.
    */
+  /**
+   * Checks whether a plugin may execute a command, without running it. The
+   * plugin host must call this before `execute` for every call that
+   * originates from a plugin; `execute` itself trusts its caller (the app,
+   * layout keys, tests).
+   *
+   * Rules: a plugin may always execute its own commands. Any other command
+   * must be public, and the plugin must hold every scope in its `requires`.
+   *
+   * @throws ForseeError `unknown-command` if no such command is registered,
+   * `permission-denied` if the rules above are not met.
+   */
+  authorize(id: string, caller: CommandCaller): void {
+    const entry = this.entries.get(id);
+    if (!entry) throw new ForseeError('unknown-command', `Unknown command: ${id}`);
+    const { owner, requires } = entry.descriptor;
+    if (owner === caller.pluginId) return;
+    if (!entry.descriptor.public) {
+      throw new ForseeError(
+        'permission-denied',
+        `Command ${id} is private to ${owner} and cannot be executed by ${caller.pluginId}`,
+      );
+    }
+    const missing = requires.filter((scope) => !caller.hasPermission(scope));
+    if (missing.length > 0) {
+      throw new ForseeError(
+        'permission-denied',
+        `Command ${id} requires ${missing.join(', ')}, which ${caller.pluginId} does not hold`,
+        { details: { missing } },
+      );
+    }
+  }
+
   execute<K extends string>(id: K, args?: CommandArgs<K>, source = 'app'): Promise<unknown> {
     const entry = this.entries.get(id);
     if (!entry) {
@@ -123,8 +179,12 @@ export class CommandRegistry implements Disposable {
     this.events.emit('willExecute', { id, args, source });
     const context: CommandContext = { commandId: id, source };
     const fail = (cause: unknown): Promise<never> => {
+      // A handler's own ForseeError keeps its code (`invalid-argument`,
+      // `permission-denied`, ...); anything else becomes `handler-error`.
       const message = cause instanceof Error ? cause.message : String(cause);
-      const error = new ForseeError('handler-error', `Command ${id} failed: ${message}`, { cause });
+      const error = isForseeError(cause)
+        ? cause
+        : new ForseeError('handler-error', `Command ${id} failed: ${message}`, { cause });
       this.events.emit('failed', { id, args, source, error });
       return Promise.reject(error);
     };

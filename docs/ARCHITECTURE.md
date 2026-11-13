@@ -162,6 +162,8 @@ Where the plan was silent or ambiguous, A2 chose as follows.
 22. **`BuiltinCommandId` is an explicit union** rather than `keyof CommandArgsMap`, because other packages extend that map.
 23. **UTF-8 helpers** (`encodeUtf8`, `decodeUtf8` in `core/src/utf8.ts`) exist because `TextEncoder` is not in the ES2022 library that engine packages compile against.
 24. **Test doubles ship in the main entry of `@forsee/core`** (`FakeClock`, `SequentialIdSource`, `MemoryFileSystem`), so no subpath exports or extra tsconfig wiring is needed.
+25. **Commands are private to their plugin by default.** A `CommandDescriptor` carries `public` and `requires`. A plugin can always run its own commands; it can run an app command or another plugin's command only if that command is public and the plugin holds every scope in `requires`. The built-in `composition.*` commands require `composition.write` and `speech.speak` requires `speech.output`. `CommandRegistry.authorize(id, caller)` implements the check; `execute` itself trusts its caller, so **the plugin host must call `authorize` before `execute` for every plugin-originated call** (B9, B10).
+26. **Command failures keep their error code.** A `ForseeError` thrown or rejected by a handler reaches the caller unchanged (`invalid-argument`, `permission-denied`, ...). Only other failures are wrapped as `handler-error`.
 
 ## Things that will trip you up
 

@@ -1,5 +1,6 @@
 import type { JsonObject } from './common';
 import type { KeyDistribution } from './gaze';
+import type { PermissionScope } from './manifest';
 
 /**
  * Commands (plan section 4): every action has an id. Keys, plugins and tests
@@ -87,6 +88,28 @@ export interface CommandDescriptor {
   readonly description?: string;
   /** Plugin id that registered it, or `"app"` for built-ins. */
   readonly owner: string;
+  /**
+   * Whether plugins other than the owner may execute it. Built-ins are
+   * public; a plugin's commands are private unless it registers them with
+   * `public: true`. The owner, the app and layout keys can always execute it.
+   */
+  readonly public: boolean;
+  /**
+   * Permission scopes a plugin other than the owner must hold to execute a
+   * public command (for example `composition.write` for `composition.insert`).
+   * Empty when none. Ignored for private commands, which other plugins cannot
+   * execute at all.
+   */
+  readonly requires: readonly PermissionScope[];
+}
+
+/**
+ * How a command is exposed to other plugins (see `CommandDescriptor.public`
+ * and `CommandDescriptor.requires`). Omitted fields mean private, no scopes.
+ */
+export interface CommandExposure {
+  readonly public?: boolean;
+  readonly requires?: readonly PermissionScope[];
 }
 
 /** Context the registry passes to every handler. */

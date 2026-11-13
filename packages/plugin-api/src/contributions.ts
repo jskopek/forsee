@@ -1,5 +1,5 @@
 import type { LocaleTag, Rect } from './common';
-import type { CommandHandler } from './commands';
+import type { CommandExposure, CommandHandler } from './commands';
 import type { ContextEntryInput } from './context';
 import type { DwellClass, GazeSource } from './gaze';
 import type { LayoutDefinition } from './layout';
@@ -131,7 +131,7 @@ export interface SettingsContribution {
 // ---------------------------------------------------------------- commands
 
 /** A command a plugin adds (bindable to keys). */
-export interface CommandContribution {
+export interface CommandContribution extends CommandExposure {
   readonly id: string;
   readonly title: string;
   readonly description?: string;
