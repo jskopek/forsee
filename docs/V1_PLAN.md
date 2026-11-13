@@ -2,6 +2,8 @@
 
 Written 2026-11-13. This plan covers v1 only: a free, open-source, fully offline eye-tracking keyboard for spoken conversation that runs on macOS, Windows, iPadOS/iOS and Android, with a plugin system. Server-side AI, sync and the "conversation speed" research are v2 and arrive as plugins.
 
+Revised the same day after a deep dive into on-device AI. The full findings, with evidence tags, are in [`reports/On device AI for speech keyboard.md`](../reports/On%20device%20AI%20for%20speech%20keyboard.md).
+
 Working name in this document: **EyeSpeak** (package scope `@eyespeak/*`). The repo currently uses EyeSpeak, EyeSight and Forsee in different places; see [Open decisions](#12-open-decisions).
 
 ## Contents
@@ -88,10 +90,22 @@ Conclusion: the cheapest large wins are **adjustable per-class dwell**, **dwell 
 ### Offline speech and prediction
 
 - **Voices:** operating-system voices are the reliable offline default. The browser speech API is missing in Android's web view. Apple Personal Voice is available to third-party apps through a native authorisation call. Windows does not let apps use its newer "natural" voices.
-- **Neural voices:** most open engines (Piper, Kokoro) depend on espeak-ng, which is GPL-3 and must stay out of an MIT core. Kyutai Pocket TTS (MIT code, CC-BY weights, about 200 ms to first audio on a laptop, clones a voice from a recording) and Supertonic appear to avoid it. sherpa-onnx (Apache-2.0) is the practical cross-platform runtime.
-- **Prediction:** a small n-gram engine with a per-user adaptive layer answers in a few milliseconds on any device. On-device language models manage roughly 6–18 tokens per second on mid-range phones, which is too slow to be the default.
+- **Neural voices:** most open engines (Piper, Kokoro) depend on espeak-ng, which is GPL-3 and must stay out of an MIT core. Kyutai Pocket TTS avoids it: MIT code, about 200 ms to first audio on a laptop, and it clones a voice from a few seconds of clean audio. Its weights licence has not been verified. Supertonic, an earlier candidate, is now archived and has no cloning route. sherpa-onnx (Apache-2.0) is the practical cross-platform runtime.
+- **Prediction:** a small n-gram engine with a per-user adaptive layer answers in well under a millisecond on any device. General on-device language models of 1B parameters and up manage roughly 6–18 tokens per second on mid-range phones, which is too slow to run on every keystroke. Keyboard-sized models are a different matter; see the deep dive below.
 - **The prototype's word list is a licence problem.** SUBTLEX-US is reported as CC BY-NC-ND. It must be replaced.
 - **Message banking** is established clinical practice: people record whole phrases in their own voice before losing it. A phrase tile must be able to play a recording instead of synthesised speech.
+
+### On-device AI deep dive
+
+A second research pass looked at what local models can do today. Its conclusions, which change parts of this plan:
+
+- **Word prediction does not need a large model.** Keyboard models are 25–40 million parameters. An open example (Typeling-25M, Apache-2.0, November 2026) is 28 MB, answers a full keystroke query in about 25 ms on a laptop processor, and saves 58% of keystrokes with a three-word bar against 49% for a trigram. These are the project's own benchmarks, not independently replicated, and nothing has been measured on a tablet.
+- **Such a model is cheap to train.** Continued training on 150 million tokens took 40–55 minutes on one laptop graphics card, using permissively licensed text.
+- **It tolerates noisy input better.** With every longer word mistyped, the trigram's savings fell by 9 points and the neural model's by 4. That matters for gaze, where the wrong key is hit often.
+- **Models cannot run in the mobile web view.** On iPhone and iPad a web view reliably gets only about 300 MB for this kind of work and fails by silently reloading the page.
+- **Two permissive native libraries cover all four platforms:** llama.cpp (MIT) for language models and sherpa-onnx (Apache-2.0) for speech.
+- **Operating-system models cannot be the only engine.** Apple's, Google's and Microsoft's built-in models have content filters, short context and narrow device support.
+- **Sentence-level replies and partner transcription remain v2.** The hardware can do it on recent Macs and flagship phones, but the only rigorous eye-gaze evidence is a two-person study.
 
 ## 3. What "best" means: feature scope
 
@@ -147,9 +161,10 @@ Priorities: **P0** is required for v1, **P1** is what makes v1 better than the i
 | Always-available "get attention" alarm target | P0 |
 | Message banking: phrase tiles that play a recording of the user's own voice | P1 |
 | Phrase suggestions recalled from the user's own history | P1 |
+| Neural keyboard model that refines word predictions, on devices measured to be fast enough | P1 |
 | Partner display: second window or screen showing text as it is composed, with a "composing" indicator | P1 |
 | Apple Personal Voice | P1 |
-| Downloadable neural voice pack | P2 |
+| Downloadable neural voice pack, including a voice cloned from the user's own recordings with their consent | P2 |
 | Expressive controls (emphasis, tone presets) | P2 |
 
 ### Platform, plugins and care
@@ -184,6 +199,7 @@ Cloud AI suggestions, partner speech transcription, camera context, sync, accoun
 | Desktop shell | Electron | Consistent Chromium for camera ML and audio; easy sidecar processes |
 | Mobile shell | Capacitor 8 | Obsidian's route; mature iOS and Android web view shells |
 | Camera ML | MediaPipe Tasks Vision (WASM), WebGPU when present | Apache-2.0, runs in all four web views |
+| Model inference | Native service behind the host bridge: llama.cpp for language models, sherpa-onnx for speech | Mobile web views cannot hold models; both libraries are permissive and cover all four platforms |
 | Storage | Plain files: JSON and append-only JSONL | See [section 7](#storage) |
 | CI | GitHub Actions | Lint, typecheck, unit tests, headless end-to-end tests, shell builds |
 
@@ -192,7 +208,8 @@ Cloud AI suggestions, partner speech transcription, camera context, sync, accoun
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ Shells: apps/web (dev + demo) · apps/desktop · apps/mobile     │
-│   each implements HostBridge: files, voices, windows, sidecars │
+│   each implements HostBridge: files, voices, windows,          │
+│   sidecars, model inference                                    │
 ├──────────────────────────────────────────────────────────────┤
 │ UI (packages/ui): regions, GazeTarget, keyboard view, settings │
 ├──────────────────────────────────────────────────────────────┤
@@ -211,6 +228,8 @@ Rules that keep this portable:
 - **Engine packages never touch the DOM, Node or Electron.** They run in a browser, a worker, Node tests and both shells unchanged.
 - **Everything platform-specific goes through `HostBridge`.** Plugins never see it; they see the plugin API, which the host implements on top of it.
 - **Native device drivers are separate processes** speaking a small JSON protocol over a local WebSocket. A driver can be written in any language and carries its own licence, which keeps proprietary SDKs out of the MIT repo.
+- **Models run in native code, never in the web view or a plugin sandbox.** The host exposes an inference service (load a model, score next tokens, generate, transcribe, synthesise). On desktop it runs in an Electron utility process; on mobile it is one in-house Capacitor plugin. Plugins ask the host to run a model; they do not load weights themselves.
+- **Nothing in the default install depends on a model.** The app must be fully usable with no model downloaded.
 
 ### Repository layout
 
@@ -232,10 +251,11 @@ packages/
   storage/        Profile store, history log, export/import
   layouts/        Layout schema, validator, built-in layouts
   plugin-host/    Loader, permission manager, sandbox, installer
+  inference/      Inference service interface, capability tiers, model registry
   ui/             React components and themes
 plugins/          First-party plugins and sample plugins
 sidecars/         Driver protocol, mock driver, native drivers
-tools/            Language-model builder, directory validator
+tools/            Language-model builder, typing evaluation harness, directory validator
 directory/        Community plugin directory format (moves to its own repo later)
 docs/             This plan, architecture decisions, plugin and driver guides
 ```
@@ -249,6 +269,19 @@ docs/             This plan, architecture decisions, plugin and driver guides
 - **Settings registry:** each setting has a typed schema (carried over from the prototype's `SettingField`), so the settings screen is generated and is gaze-operable for free.
 - **Extension registry:** named contribution points that plugins fill; see [section 6](#6-the-plugin-system).
 - **Regions:** the screen is divided into named regions (composition bar, quick-fire bar, prediction strip, main area, side panels). Plugins contribute panels to regions; the user's profile decides which are shown and how large.
+
+### Capability tiers
+
+The app detects what the device can hold and offers features accordingly. Tier 0 is the default install and the fallback when the device is hot or low on battery. The memory figures and device mapping are engineering estimates that need validation on real devices.
+
+| Tier | Contents | Resident memory | Typical devices | Version |
+|---|---|---|---|---|
+| 0 | n-gram and user cache, operating-system voice, nothing to download | Under 100 MB | Any device | v1 |
+| 1 | Keyboard language model, small neural voice; later voice detection and small streaming transcription | 0.5–1 GB | 4–6 GB Android, older iPads, 8 GB Windows laptops | v1 for the keyboard model; rest later |
+| 2 | Tier 1 plus a 1B-class model loaded on demand | 1.5–2.5 GB | 8 GB phones and tablets, 8 GB Macs, 16 GB Windows laptops | v2 |
+| 3 | Tier 2 plus a 3–4B model and a heavier cloned voice | 3.5–6 GB | 16 GB Macs, M-series iPads, flagship phones | v2 |
+
+Model weights are downloaded after install, on the user's request, and are stored outside the profile folder so that profiles stay small.
 
 ## 5. The input pipeline
 
@@ -292,6 +325,7 @@ UI elements do not handle hover themselves. Each selectable element registers a 
 - **Scale dwell time per target** from the language model (adaptive dwell).
 - **Apply one consistent feedback style** (progress fill, click sound) everywhere, including inside third-party plugin panels.
 - **Withhold raw gaze from plugins** unless they hold the `gaze.read` permission.
+- **Report uncertainty to the predictor.** Each selection carries a probability over the nearby keys, not only the key that fired. A predictor that accepts this can correct a fixation that landed between two letters.
 
 ### Selection methods
 
@@ -339,6 +373,8 @@ Selection methods and input filters are first-party only in v1. They are safety-
 
 **Context providers and prediction providers are deliberately separate.** A context provider writes facts into a shared context store ("it is evening", later "Sam is in the room"). Any prediction provider with permission can read them. That separation is what will let the v2 autocompletion research proceed as independent plugins.
 
+**Plugins do not load models.** A prediction, voice or transcription plugin that needs a model asks the host's inference service to run one, under the `inference` permission. This keeps large weights out of sandboxed frames, lets several plugins share one loaded model, and lets the host refuse or unload models when the device is short of memory or hot.
+
 ### Three tiers of trust
 
 1. **Declarative plugins contain no code.** JSON only; the host renders everything and owns all interaction. This should cover most community plugins and is safe on every platform, including under Apple's rules.
@@ -384,6 +420,7 @@ First-party plugins run in the main context for performance, on exactly the same
 | `camera`, `microphone` | Device streams, mediated by the host |
 | `network:<host>` | Requests to one named host |
 | `lm.read` / `lm.write` | The user's personal language data |
+| `inference` | Run a model through the host's inference service |
 | `native.sidecar` | Launch a driver process (desktop only) |
 
 A plugin's own private storage needs no permission. Consent is requested at install and again at first use of each sensitive scope, is recorded per plugin, and can be revoked. History, camera and microphone are never granted silently.
@@ -418,15 +455,21 @@ interface VoiceProvider {
 
 Also in the speech package: an utterance queue with immediate stop, the three speak modes, and a **recorded-message provider** that plays an audio file for message banking.
 
-The neural voice pack (P2) goes behind the same interface as a separately installed plugin, which keeps GPL components and large model files out of the core.
+The neural voice pack (P2) goes behind the same interface as a separately installed plugin that runs through the host's inference service, which keeps GPL components and large model files out of the core. Kyutai Pocket TTS is the first candidate: it clones a voice from a few seconds of clean audio and needs no phonemizer. Before it ships, its weights licence must be read, a person must judge whether the cloned voice sounds like the user, and the app needs a consent step that is recorded with the voice. Cloning tools copy impaired speech, so recordings from before the illness matter.
 
 ### Prediction
 
-- **Engine:** our own TypeScript n-gram model (word trigrams with backoff) in a compact binary format, plus a character model for unknown words.
-- **User layer:** counts of the user's own words and word sequences, interpolated with the base model, weighted towards recent use, with a visible list the user can edit and delete.
-- **Outputs:** word completions, next-word candidates, per-letter probabilities (which drive adaptive dwell and, later, the swipe decoder), and whole-phrase suggestions recalled from the user's history.
-- **Data:** a build tool turns any text corpus into a model file. The shipped English model must come from text whose licence allows redistribution, shipped as a separately licensed data file. Tatoeba sentences (CC BY) and public-domain text are the first candidates to verify. Until that is settled, development uses a small seed vocabulary written for this project.
-- **Language models as providers:** on-device or cloud LLMs plug in as additional prediction providers. Nothing in v1 depends on one.
+A two-speed predictor behind one interface.
+
+- **Instant layer (tier 0):** our own TypeScript n-gram model (word trigrams with backoff) in a compact binary format, plus a character model for unknown words. It answers in well under a millisecond and drives adaptive dwell.
+- **User layer:** counts of the user's own words and word sequences, interpolated with the base model, weighted towards recent use, with a visible list the user can edit and delete. This is the personalisation method with evidence behind it.
+- **Neural layer (tier 1, P1):** a 25–50 million parameter keyboard model run by the host's inference service. It refines the instant answer within roughly 20–50 ms. It is enabled per device only after that device class has been measured.
+- **Interface:** a prediction request returns the instant answer synchronously and may be followed by a refined answer; the UI replaces candidates without moving the one the user is already dwelling on. Requests carry the typed context and, where available, the per-key probabilities from the input pipeline.
+- **Outputs:** word completions, next-word candidates, per-letter probabilities (which drive adaptive dwell and, later, the swipe decoder), and whole-phrase suggestions recalled from the user's history. One constrained search over the neural model can produce the first three together.
+- **Evaluation harness:** built before any model. It simulates typing real conversational text letter by letter and reports keystroke savings, top-three accuracy and latency percentiles, with variants for gaze noise and for the time cost of reading candidates. Every prediction change is measured with it.
+- **Data:** a build tool turns any text corpus into a model file. Shipped models must come from text whose licence allows redistribution, shipped as separately licensed data files. Candidates to verify: Tatoeba (CC BY), public-domain text, and the permissive set another project trained on (FineWeb, WildChat, OpenAssistant, Ubuntu IRC). DailyDialog is non-commercial and must not be used. Until that is settled, development uses a small seed vocabulary written for this project.
+- **Our own model:** training a purpose-built conversational keyboard model is realistic (under an hour per run on a laptop graphics card) and is the most valuable custom-engineering project identified. It needs a machine with a graphics card, so it is stage D work.
+- **Larger models as providers:** general on-device or cloud LLMs plug in as additional prediction providers for sentence-level work in v2. Operating-system models are optional providers only, because of their content filters. Nothing in v1 depends on one.
 
 ### Storage
 
@@ -446,6 +489,7 @@ profile/
 
 - **Why files and not SQLite in v1:** at 10–20 words per minute a user produces a few kilobytes a day. Plain files avoid a native database dependency on four platforms, are readable and backed up by any tool, and can be synced by any file-sync service on day one.
 - **Ready for sync later:** every history record carries a UUID, a device id and a hybrid logical clock; history is append-only; deletions are tombstones. A database can be added behind the same `Store` interface if queries ever need it.
+- **Revisit when retrieval arrives:** recalling relevant past conversations for sentence prediction (v2) wants a vector index, which plain files do not give. That index can be a derived cache rebuilt from the files, so the files stay the source of truth.
 - **Privacy:** nothing leaves the folder. Export and import are a zip of it.
 
 ## 8. Platform notes
@@ -507,7 +551,7 @@ Everything in stage B depends only on A2.
 | B1 | Gaze engine | Sample types, One Euro filter (written from the paper), fixation detection, target registry with expansion and hysteresis, dwell selector with classes, decay and likelihood scaling, direct and switch selectors, rest and pause logic | Yes: synthetic sample streams and a fake clock |
 | B2 | Sources and calibration | Pointer source, tap-only source, WebSocket source, driver protocol document, mock driver, calibration fitting and quality score, drift-correction model | Yes |
 | B3 | Webcam source | MediaPipe face-landmark estimator behind an interface, feature extraction, per-user regression, head-movement compensation | Maths only; accuracy needs a camera and a person |
-| B4 | Prediction engine | Tokeniser, model format and runtime, user-adaptive layer, completions, next word, letter probabilities, phrase recall, the model build tool, seed vocabulary | Yes |
+| B4 | Prediction engine | Two-speed provider interface (instant answer, optional refined answer, per-key probabilities as input); tokeniser, n-gram model format and runtime, user-adaptive layer, completions, next word, letter probabilities, phrase recall, the model build tool, seed vocabulary | Yes |
 | B5 | Speech | Provider interface, utterance queue, speak modes, web speech provider limited to local voices, recorded-message provider | Queue and modes yes; audio output no |
 | B6 | Storage | `Store` interface, profile folder layout, settings, JSONL history with ids and clocks, crash-recovery snapshot, schema migrations, export/import; browser and Node file implementations | Yes |
 | B7 | Layouts | JSON schema and validator, layout-to-rectangle model, key behaviours (repeat, escalate, page switch), built-in precise and coarse layouts, numbers and punctuation | Yes |
@@ -516,6 +560,8 @@ Everything in stage B depends only on A2.
 | B10 | Plugin host, part 2 | Sandboxed frame and worker runtime, RPC layer, panel target-registration protocol, plugin SDK helper | Yes in Chromium; iOS web view needs a device |
 | B11 | Desktop shell | Electron app implementing `HostBridge`: profile folder on disk, full screen, keep-awake, sidecar launch, second window for the partner display, packaging config, CI build on macOS and Windows runners | Builds yes; signing and real use no |
 | B12 | Mobile shell | Capacitor app implementing `HostBridge`: files, native voice plugins, keep-awake, camera permission; CI debug builds | Android build yes; iOS needs a macOS runner; devices no |
+| B13 | Typing evaluation harness | Simulated typist over test text; keystroke savings, top-three accuracy, latency percentiles; gaze-noise and reading-time variants; runs against any prediction provider | Yes |
+| B14 | Inference service | `packages/inference` interface, capability-tier detection, model registry and download manager; desktop implementation in an Electron utility process using llama.cpp bindings; a stub that reports tier 0 elsewhere | Interface and desktop yes, with a tiny test model; mobile no |
 
 ### Stage C: the product, as first-party plugins (parallel after B)
 
@@ -531,6 +577,7 @@ Everything in stage B depends only on A2.
 | C8 | Sample plugins for each tier, plugin developer guide, directory format and validator, in-app plugin browser and installer | B9, B10 |
 | C9 | Reliability: crash recovery end to end, zero-network test, performance budget, end-to-end typing tests with synthetic gaze | C1–C4 |
 | C10 | Swipe decoder and UI (stretch) | B1, B4, C1 |
+| C11 | Neural prediction provider: constrained search over a keyboard model for completions, next words and letter probabilities; mixes with the n-gram; measured with the harness | B4, B13, B14, C2 |
 
 ### Stage D: needs people and hardware
 
@@ -544,6 +591,9 @@ Everything in stage B depends only on A2.
 | D6 | Signing, notarisation, store submissions, auto-update |
 | D7 | Sessions with 5–10 daily gaze users and speech therapists; revise defaults from what they show |
 | D8 | README, website, contributor guide, plugin directory repository |
+| D9 | Keyboard model: verify corpus licences, train a conversational model on a machine with a graphics card, measure it on an iPad, a mid-range Android tablet and an ordinary Windows laptop, and decide per device class whether tier 1 is on |
+| D10 | Mobile inference plugin (llama.cpp and sherpa-onnx in one Capacitor plugin), tested on devices for memory and heat |
+| D11 | Cloned voice pack: read the Pocket TTS weights licence, build the consent flow, have people judge the result |
 
 ### What a single overnight run can and cannot produce
 
@@ -566,6 +616,10 @@ Everything in stage B depends only on A2.
 | Regulatory framing as a medical device | Describe the app as a communication tool; get advice before making clinical claims |
 | Large parallel build produces inconsistent code | Contracts land first in A2; one reviewer pass over every pull request; shared lint and test gates in CI |
 | Research figures are from search extracts, not full texts | Re-verify every number and licence clause before publishing it or relying on it legally |
+| The keyboard-model numbers come from one project's own benchmarks, and nothing is measured on tablets | Build the evaluation harness first (B13); measure on devices (D9) before enabling tier 1 anywhere; tier 0 is always the fallback |
+| Model weights carry licences that differ from their code and mostly could not be read | Ship no weights in the app; read each weights licence before listing a model for download; avoid non-commercial and revenue-capped models (MobileLLM, LFM2.5) |
+| Sustained inference heats devices and drains batteries | Tier detection drops to tier 0 when hot or low on battery; models load on demand and unload when idle |
+| A cloned voice is sensitive biometric data and can be misused | Explicit recorded consent; voice files stay in the profile on the device; cloning only from the user's own recordings |
 
 ## 12. Open decisions
 
@@ -573,7 +627,8 @@ Everything in stage B depends only on A2.
 |---|---|
 | Name: EyeSpeak, EyeSight or Forsee | Pick one before the first public release; it becomes the package scope and app id. This plan uses EyeSpeak |
 | Where legacy code lives | Leave in place for now; move Django and `keyboard-ui/` into `legacy/` once v1 runs |
-| Plain files vs SQLite | Plain files for v1, behind an interface |
+| Plain files vs SQLite | Plain files for v1, behind an interface; add a derived index when v2 retrieval needs one |
+| Whether the neural keyboard model is in the first release | Build the interface, harness and desktop inference service now; turn the model on per device class only after measurement |
 | Asynchronous messaging (texting a reply) as part of "speech" | Out of v1 core; possible as an output-sink plugin |
 | Licence | Keep MIT for the app and the plugin API; data files and voice packs carry their own licences |
 | Directory location | Start in `directory/` in this repo; split into its own repository at release |
@@ -623,3 +678,10 @@ Key references from the research. Each should be re-read in full before being ci
 - SUBTLEX-US licence note: https://rdrr.io/github/JackEdTaylor/LexOPS/f/inst/extdata/data-licenses/SUBTLEX-US-LICENSE.md
 - Message banking (Costello): https://www.als-mnd.org/wp-content/uploads/2016/12/costello-message-banking-handout.pdf
 - MND Association voice banking comparison: https://www.mndassociation.org/sites/default/files/public/2025-10/Voice%20banking%20services%20comparison%20chart%20-%20Oct%202025.pdf
+
+**On-device AI** (full list in the research report)
+- Typeling keyboard model and benchmarks: https://github.com/scarletkc/typeling
+- Character predictions from subword models (TextSlinger): https://github.com/kdv123/textpredict
+- llama.cpp bindings for Electron: https://github.com/withcatai/node-llama-cpp
+- WebKit memory limit for web views: https://bugs.webkit.org/show_bug.cgi?id=269777
+- Google Play model delivery: https://developer.android.com/google/play/on-device-ai
