@@ -8,6 +8,8 @@ export * from './contracts';
 export * from './config';
 export * from './filter';
 export * from './fixation';
+export * from './geometry';
+export * from './targets';
 export * from './testing';
 
 /** Package name, for diagnostics. */
