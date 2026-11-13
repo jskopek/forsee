@@ -11,6 +11,7 @@ export * from './fixation';
 export * from './geometry';
 export * from './targets';
 export * from './selection';
+export * from './pipeline';
 export * from './testing';
 
 /** Package name, for diagnostics. */
