@@ -79,27 +79,115 @@ importers:
         specifier: workspace:*
         version: link:../plugin-api
 
-  packages/gaze: {}
+  packages/gaze:
+    dependencies:
+      '@forsee/core':
+        specifier: workspace:*
+        version: link:../core
+      '@forsee/plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
 
-  packages/gaze-web: {}
+  packages/gaze-web:
+    dependencies:
+      '@forsee/core':
+        specifier: workspace:*
+        version: link:../core
+      '@forsee/gaze':
+        specifier: workspace:*
+        version: link:../gaze
+      '@forsee/plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
 
-  packages/host: {}
+  packages/host:
+    dependencies:
+      '@forsee/core':
+        specifier: workspace:*
+        version: link:../core
+      '@forsee/plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
 
-  packages/inference: {}
+  packages/inference:
+    dependencies:
+      '@forsee/core':
+        specifier: workspace:*
+        version: link:../core
+      '@forsee/plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
 
-  packages/layouts: {}
+  packages/layouts:
+    dependencies:
+      '@forsee/core':
+        specifier: workspace:*
+        version: link:../core
+      '@forsee/plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
 
   packages/plugin-api: {}
 
-  packages/plugin-host: {}
+  packages/plugin-host:
+    dependencies:
+      '@forsee/core':
+        specifier: workspace:*
+        version: link:../core
+      '@forsee/host':
+        specifier: workspace:*
+        version: link:../host
+      '@forsee/layouts':
+        specifier: workspace:*
+        version: link:../layouts
+      '@forsee/plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
 
-  packages/prediction: {}
+  packages/prediction:
+    dependencies:
+      '@forsee/core':
+        specifier: workspace:*
+        version: link:../core
+      '@forsee/plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
 
-  packages/speech: {}
+  packages/speech:
+    dependencies:
+      '@forsee/core':
+        specifier: workspace:*
+        version: link:../core
+      '@forsee/plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
 
-  packages/storage: {}
+  packages/storage:
+    dependencies:
+      '@forsee/core':
+        specifier: workspace:*
+        version: link:../core
+      '@forsee/plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
 
   packages/ui:
+    dependencies:
+      '@forsee/core':
+        specifier: workspace:*
+        version: link:../core
+      '@forsee/gaze':
+        specifier: workspace:*
+        version: link:../gaze
+      '@forsee/layouts':
+        specifier: workspace:*
+        version: link:../layouts
+      '@forsee/plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
+      '@forsee/prediction':
+        specifier: workspace:*
+        version: link:../prediction
     devDependencies:
       '@types/react':
         specifier: ^19.3.0
