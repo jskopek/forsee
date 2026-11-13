@@ -5,7 +5,10 @@
  * in engine packages.
  */
 export * from './bridge';
+export * from './browser-files';
+export * from './kv-files';
 export * from './memory-host';
+export * from './opfs-files';
 export * from './web-host';
 
 /** Package name, for diagnostics. */
