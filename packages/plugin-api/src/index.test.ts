@@ -10,7 +10,7 @@ import {
   REGION_IDS,
   SENSITIVE_PERMISSION_SCOPES,
   type CommandArgs,
-  type CommandArgsMap,
+  type BuiltinCommandId,
   type ContributionMap,
   type ForseeEventMap,
   type LayoutDefinition,
@@ -30,7 +30,7 @@ describe('constants', () => {
   });
 
   it('lists every built-in command exactly once', () => {
-    const fromMap: Record<keyof CommandArgsMap, true> = {
+    const fromMap: Record<BuiltinCommandId, true> = {
       'composition.insert': true,
       'composition.deleteGrapheme': true,
       'composition.deleteWord': true,

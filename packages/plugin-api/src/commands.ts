@@ -44,8 +44,21 @@ export interface CommandArgsMap {
   'gaze.resume': undefined;
 }
 
-/** Ids of the commands registered by the kernel itself. */
-export type BuiltinCommandId = keyof CommandArgsMap;
+/**
+ * Ids of the commands registered by the kernel itself. (Not `keyof
+ * CommandArgsMap`, because other packages add their own commands to that map.)
+ */
+export type BuiltinCommandId =
+  | 'composition.insert'
+  | 'composition.deleteGrapheme'
+  | 'composition.deleteWord'
+  | 'composition.clear'
+  | 'composition.undo'
+  | 'composition.acceptPrediction'
+  | 'speech.speak'
+  | 'speech.stop'
+  | 'gaze.pause'
+  | 'gaze.resume';
 
 /** Every built-in command id, in a stable order. */
 export const BUILTIN_COMMAND_IDS: readonly BuiltinCommandId[] = [

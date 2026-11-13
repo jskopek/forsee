@@ -1,4 +1,5 @@
 import type {
+  BuiltinCommandId,
   CommandArgsMap,
   CompositionChange,
   ContextChange,
@@ -228,7 +229,7 @@ export function createKernel(options: KernelOptions): Kernel {
   };
 
   // ---- built-in commands
-  const register = <K extends keyof CommandArgsMap>(
+  const register = <K extends BuiltinCommandId>(
     id: K,
     title: string,
     handler: (args: CommandArgsMap[K]) => unknown,
