@@ -1,6 +1,6 @@
 # Development
 
-The TypeScript workspace lives at the repository root next to the legacy Django app (`app/`, `conversations/`, `templates/`) and the old React prototype (`keyboard-ui/`, npm, not part of the workspace). The plan is in [V1_PLAN.md](V1_PLAN.md).
+The TypeScript workspace lives at the repository root next to the legacy Django app (`app/`, `conversations/`, `templates/`) and the old React prototype (`keyboard-ui/`, npm, not part of the workspace). The plan is in [V1_PLAN.md](V1_PLAN.md); package contracts, conventions and the dependency graph are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Setup
 
