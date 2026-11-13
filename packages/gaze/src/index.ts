@@ -6,6 +6,8 @@
  */
 export * from './contracts';
 export * from './config';
+export * from './filter';
+export * from './fixation';
 export * from './testing';
 
 /** Package name, for diagnostics. */
