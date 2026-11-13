@@ -185,7 +185,7 @@ Priorities: **P0** is required for v1, **P1** is what makes v1 better than the i
 
 ### Explicitly not in v1
 
-Cloud AI suggestions, partner speech transcription, camera context, sync, accounts, typing into other apps, mouse emulation, symbol-based boards, Vision Pro.
+Cloud AI suggestions, partner speech transcription, camera context, sync, accounts, typing into other apps, mouse emulation, symbol-based boards, and the Vision Pro companion mode described in section 8.
 
 ## 4. Architecture
 
@@ -506,6 +506,18 @@ Design consequences already built into the plan:
 - **Tap-only mode** exists because iPad may deliver taps and nothing else. In that mode the system does the dwelling and our adaptive dwell is unavailable.
 - **The coarse layout family** exists because iPad's built-in eye tracking and webcams are imprecise.
 - **Driver plugins are desktop-only**, and the manifest's `platforms` field says so.
+
+### After v1: Vision Pro as an input device
+
+Vision Pro is not a v1 platform, but the direction is decided: Forsee stays an iPad app (and later any other platform's app), with a **companion mode** in which a paired Vision Pro acts as its input and display surface. Background and evidence are in [`reports/Vision Pro exploration.md`](../reports/Vision%20Pro%20exploration.md).
+
+- **The companion runs Forsee.** Prediction, voices, models, the profile and the conversation log stay on the iPad. It speaks aloud, shows the text to the conversation partner, and uses its own camera and microphone for any context features.
+- **The headset app is thin.** It draws the layout it is sent (layouts are data) and sends selections back as commands. Selection is done by the system's Dwell Control, so the headset app receives taps and never sees gaze.
+- **The companion is the safety net.** The headset sends a heartbeat. If it stops (crash, flat battery, headset removed) or the user selects "help", the companion raises an alarm.
+- **Design for accurate tracking.** Vision Pro's eye tracking needs no smoothing, calibration or enlarged targets from us. Layouts for it can be dense and can use the large canvas; likely words and letters are made larger or nearer instead of faster, because the system's dwell time is fixed.
+- **Foveated streaming is ruled out** as a way to obtain gaze: Apple restricts that data to streaming.
+
+What v1 should keep in mind so this stays cheap later: the link between the main app and a second surface (the partner display in C5) should be a documented local protocol that carries layouts, composition state, commands and a heartbeat, not an Electron-only window.
 
 Things that need the project owner, not code: Apple Developer and Google Play accounts, a Windows code-signing certificate, and a written answer from Tobii Dynavox about SDK terms for an open-source AAC app.
 
