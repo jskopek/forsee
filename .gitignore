@@ -260,3 +260,10 @@ archive/
 
 # Agent worktrees
 .claude/worktrees/
+
+# Forsee TypeScript workspace
+.vite/
+playwright-report/
+test-results/
+blob-report/
+coverage/
