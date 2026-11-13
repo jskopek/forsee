@@ -1,9 +1,12 @@
 /**
  * @forsee/gaze — gaze engine: filters, fixation detection, target registry,
- * selection methods, calibration maths. Implementation is work package B1
- * (and B2 for calibration fitting); the contracts are in `contracts.ts`.
+ * selection methods, the assembled pipeline, and (B2) calibration maths.
+ * Pure TypeScript: no DOM, no Node, no timers of its own; time comes from
+ * sample timestamps and the injected `Clock`. Contracts are in `contracts.ts`.
  */
 export * from './contracts';
+export * from './config';
+export * from './testing';
 
 /** Package name, for diagnostics. */
 export const GAZE_PACKAGE = '@forsee/gaze';
