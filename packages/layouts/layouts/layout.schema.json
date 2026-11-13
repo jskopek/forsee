@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Forsee layout",
+  "description": "A keyboard layout (schemaVersion 1). Structural rules only. The validator in @forsee/layouts additionally checks what a schema cannot: unique key and page ids, that initialPage, returnToPage and layout.showPage name existing pages, and the coarse-family limit of 12 targets per screen.",
+  "type": "object",
+  "required": ["schemaVersion", "id", "name", "family", "locale", "initialPage", "pages"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*)*$"
+    },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "family": { "enum": ["precise", "coarse"] },
+    "locale": {
+      "type": "string",
+      "pattern": "^[A-Za-z]{2,3}(-[A-Za-z]{4})?(-([A-Za-z]{2}|[0-9]{3}))?(-([A-Za-z0-9]{5,8}|[0-9][A-Za-z0-9]{3}))*$"
+    },
+    "initialPage": { "type": "string", "minLength": 1 },
+    "pages": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/page" } }
+  },
+  "$defs": {
+    "localId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+    "weight": { "type": "number", "exclusiveMinimum": 0 },
+    "dwellClass": { "enum": ["letter", "prediction", "function", "destructive"] },
+    "action": {
+      "type": "object",
+      "required": ["command"],
+      "additionalProperties": false,
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "args": { "type": "object" }
+      }
+    },
+    "behaviour": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type"],
+          "additionalProperties": false,
+          "properties": { "type": { "const": "single" } }
+        },
+        {
+          "type": "object",
+          "required": ["type"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "repeat" },
+            "intervalMs": { "$ref": "#/$defs/weight" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "steps"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "escalate" },
+            "steps": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/action" } },
+            "stepDwellClasses": { "type": "array", "items": { "$ref": "#/$defs/dwellClass" } }
+          }
+        }
+      ]
+    },
+    "actionKey": {
+      "type": "object",
+      "required": ["id", "label", "action"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/localId" },
+        "width": { "$ref": "#/$defs/weight" },
+        "label": { "type": "string" },
+        "icon": { "type": "string", "minLength": 1 },
+        "action": { "$ref": "#/$defs/action" },
+        "dwellClass": { "$ref": "#/$defs/dwellClass" },
+        "behaviour": { "$ref": "#/$defs/behaviour" },
+        "returnToPage": { "type": "string", "minLength": 1 }
+      },
+      "anyOf": [{ "properties": { "label": { "minLength": 1 } } }, { "required": ["icon"] }]
+    },
+    "groupKey": {
+      "type": "object",
+      "required": ["id", "label", "group", "keys"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/localId" },
+        "width": { "$ref": "#/$defs/weight" },
+        "label": { "type": "string" },
+        "icon": { "type": "string", "minLength": 1 },
+        "group": { "const": true },
+        "keys": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/actionKey" } },
+        "columns": { "type": "integer", "minimum": 1 }
+      },
+      "anyOf": [{ "properties": { "label": { "minLength": 1 } } }, { "required": ["icon"] }]
+    },
+    "spacer": {
+      "type": "object",
+      "required": ["id", "spacer"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/localId" },
+        "width": { "$ref": "#/$defs/weight" },
+        "spacer": { "const": true }
+      }
+    },
+    "row": {
+      "type": "object",
+      "required": ["keys"],
+      "additionalProperties": false,
+      "properties": {
+        "height": { "$ref": "#/$defs/weight" },
+        "keys": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/actionKey" },
+              { "$ref": "#/$defs/groupKey" },
+              { "$ref": "#/$defs/spacer" }
+            ]
+          }
+        }
+      }
+    },
+    "page": {
+      "type": "object",
+      "required": ["id", "name", "rows"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/localId" },
+        "name": { "type": "string", "minLength": 1 },
+        "rows": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/row" } }
+      }
+    }
+  }
+}

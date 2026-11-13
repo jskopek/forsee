@@ -1,0 +1,365 @@
+{
+  "$schema": "./layout.schema.json",
+  "schemaVersion": 1,
+  "id": "forsee/en-coarse-groups",
+  "name": "English large groups",
+  "description": "Twelve large keys; letters are picked in two steps from groups.",
+  "family": "coarse",
+  "locale": "en",
+  "initialPage": "main",
+  "pages": [
+    {
+      "id": "main",
+      "name": "Groups",
+      "rows": [
+        {
+          "keys": [
+            {
+              "id": "grp-abcde",
+              "label": "ABCDE",
+              "group": true,
+              "columns": 3,
+              "keys": [
+                {
+                  "id": "k-a",
+                  "label": "A",
+                  "action": { "command": "composition.insert", "args": { "text": "a" } }
+                },
+                {
+                  "id": "k-b",
+                  "label": "B",
+                  "action": { "command": "composition.insert", "args": { "text": "b" } }
+                },
+                {
+                  "id": "k-c",
+                  "label": "C",
+                  "action": { "command": "composition.insert", "args": { "text": "c" } }
+                },
+                {
+                  "id": "k-d",
+                  "label": "D",
+                  "action": { "command": "composition.insert", "args": { "text": "d" } }
+                },
+                {
+                  "id": "k-e",
+                  "label": "E",
+                  "action": { "command": "composition.insert", "args": { "text": "e" } }
+                }
+              ]
+            },
+            {
+              "id": "grp-fghij",
+              "label": "FGHIJ",
+              "group": true,
+              "columns": 3,
+              "keys": [
+                {
+                  "id": "k-f",
+                  "label": "F",
+                  "action": { "command": "composition.insert", "args": { "text": "f" } }
+                },
+                {
+                  "id": "k-g",
+                  "label": "G",
+                  "action": { "command": "composition.insert", "args": { "text": "g" } }
+                },
+                {
+                  "id": "k-h",
+                  "label": "H",
+                  "action": { "command": "composition.insert", "args": { "text": "h" } }
+                },
+                {
+                  "id": "k-i",
+                  "label": "I",
+                  "action": { "command": "composition.insert", "args": { "text": "i" } }
+                },
+                {
+                  "id": "k-j",
+                  "label": "J",
+                  "action": { "command": "composition.insert", "args": { "text": "j" } }
+                }
+              ]
+            },
+            {
+              "id": "grp-klmn",
+              "label": "KLMN",
+              "group": true,
+              "columns": 3,
+              "keys": [
+                {
+                  "id": "k-k",
+                  "label": "K",
+                  "action": { "command": "composition.insert", "args": { "text": "k" } }
+                },
+                {
+                  "id": "k-l",
+                  "label": "L",
+                  "action": { "command": "composition.insert", "args": { "text": "l" } }
+                },
+                {
+                  "id": "k-m",
+                  "label": "M",
+                  "action": { "command": "composition.insert", "args": { "text": "m" } }
+                },
+                {
+                  "id": "k-n",
+                  "label": "N",
+                  "action": { "command": "composition.insert", "args": { "text": "n" } }
+                }
+              ]
+            },
+            {
+              "id": "grp-opqr",
+              "label": "OPQR",
+              "group": true,
+              "columns": 3,
+              "keys": [
+                {
+                  "id": "k-o",
+                  "label": "O",
+                  "action": { "command": "composition.insert", "args": { "text": "o" } }
+                },
+                {
+                  "id": "k-p",
+                  "label": "P",
+                  "action": { "command": "composition.insert", "args": { "text": "p" } }
+                },
+                {
+                  "id": "k-q",
+                  "label": "Q",
+                  "action": { "command": "composition.insert", "args": { "text": "q" } }
+                },
+                {
+                  "id": "k-r",
+                  "label": "R",
+                  "action": { "command": "composition.insert", "args": { "text": "r" } }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "id": "grp-stuv",
+              "label": "STUV",
+              "group": true,
+              "columns": 3,
+              "keys": [
+                {
+                  "id": "k-s",
+                  "label": "S",
+                  "action": { "command": "composition.insert", "args": { "text": "s" } }
+                },
+                {
+                  "id": "k-t",
+                  "label": "T",
+                  "action": { "command": "composition.insert", "args": { "text": "t" } }
+                },
+                {
+                  "id": "k-u",
+                  "label": "U",
+                  "action": { "command": "composition.insert", "args": { "text": "u" } }
+                },
+                {
+                  "id": "k-v",
+                  "label": "V",
+                  "action": { "command": "composition.insert", "args": { "text": "v" } }
+                }
+              ]
+            },
+            {
+              "id": "grp-wxyz",
+              "label": "WXYZ",
+              "group": true,
+              "columns": 3,
+              "keys": [
+                {
+                  "id": "k-w",
+                  "label": "W",
+                  "action": { "command": "composition.insert", "args": { "text": "w" } }
+                },
+                {
+                  "id": "k-x",
+                  "label": "X",
+                  "action": { "command": "composition.insert", "args": { "text": "x" } }
+                },
+                {
+                  "id": "k-y",
+                  "label": "Y",
+                  "action": { "command": "composition.insert", "args": { "text": "y" } }
+                },
+                {
+                  "id": "k-z",
+                  "label": "Z",
+                  "action": { "command": "composition.insert", "args": { "text": "z" } }
+                }
+              ]
+            },
+            {
+              "id": "grp-digits",
+              "label": "0-9",
+              "group": true,
+              "columns": 4,
+              "keys": [
+                {
+                  "id": "k-0",
+                  "label": "0",
+                  "action": { "command": "composition.insert", "args": { "text": "0" } }
+                },
+                {
+                  "id": "k-1",
+                  "label": "1",
+                  "action": { "command": "composition.insert", "args": { "text": "1" } }
+                },
+                {
+                  "id": "k-2",
+                  "label": "2",
+                  "action": { "command": "composition.insert", "args": { "text": "2" } }
+                },
+                {
+                  "id": "k-3",
+                  "label": "3",
+                  "action": { "command": "composition.insert", "args": { "text": "3" } }
+                },
+                {
+                  "id": "k-4",
+                  "label": "4",
+                  "action": { "command": "composition.insert", "args": { "text": "4" } }
+                },
+                {
+                  "id": "k-5",
+                  "label": "5",
+                  "action": { "command": "composition.insert", "args": { "text": "5" } }
+                },
+                {
+                  "id": "k-6",
+                  "label": "6",
+                  "action": { "command": "composition.insert", "args": { "text": "6" } }
+                },
+                {
+                  "id": "k-7",
+                  "label": "7",
+                  "action": { "command": "composition.insert", "args": { "text": "7" } }
+                },
+                {
+                  "id": "k-8",
+                  "label": "8",
+                  "action": { "command": "composition.insert", "args": { "text": "8" } }
+                },
+                {
+                  "id": "k-9",
+                  "label": "9",
+                  "action": { "command": "composition.insert", "args": { "text": "9" } }
+                }
+              ]
+            },
+            {
+              "id": "grp-punct",
+              "label": ". , ? !",
+              "group": true,
+              "columns": 4,
+              "keys": [
+                {
+                  "id": "k-dot",
+                  "label": ".",
+                  "action": { "command": "composition.insert", "args": { "text": "." } }
+                },
+                {
+                  "id": "k-comma",
+                  "label": ",",
+                  "action": { "command": "composition.insert", "args": { "text": "," } }
+                },
+                {
+                  "id": "k-question",
+                  "label": "?",
+                  "action": { "command": "composition.insert", "args": { "text": "?" } }
+                },
+                {
+                  "id": "k-exclaim",
+                  "label": "!",
+                  "action": { "command": "composition.insert", "args": { "text": "!" } }
+                },
+                {
+                  "id": "k-apostrophe",
+                  "label": "'",
+                  "action": { "command": "composition.insert", "args": { "text": "'" } }
+                },
+                {
+                  "id": "k-colon",
+                  "label": ":",
+                  "action": { "command": "composition.insert", "args": { "text": ":" } }
+                },
+                {
+                  "id": "k-semicolon",
+                  "label": ";",
+                  "action": { "command": "composition.insert", "args": { "text": ";" } }
+                },
+                {
+                  "id": "k-hyphen",
+                  "label": "-",
+                  "action": { "command": "composition.insert", "args": { "text": "-" } }
+                },
+                {
+                  "id": "k-lparen",
+                  "label": "(",
+                  "action": { "command": "composition.insert", "args": { "text": "(" } }
+                },
+                {
+                  "id": "k-rparen",
+                  "label": ")",
+                  "action": { "command": "composition.insert", "args": { "text": ")" } }
+                },
+                {
+                  "id": "k-quote",
+                  "label": "\"",
+                  "action": { "command": "composition.insert", "args": { "text": "\"" } }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "id": "k-space",
+              "label": "Space",
+              "action": { "command": "composition.insert", "args": { "text": " " } },
+              "width": 1
+            },
+            {
+              "id": "k-backspace",
+              "label": "Delete",
+              "icon": "backspace",
+              "width": 1,
+              "action": { "command": "composition.deleteGrapheme" },
+              "behaviour": {
+                "type": "escalate",
+                "steps": [
+                  { "command": "composition.deleteGrapheme" },
+                  { "command": "composition.deleteWord" },
+                  { "command": "composition.clear" }
+                ],
+                "stepDwellClasses": ["function", "destructive", "destructive"]
+              }
+            },
+            {
+              "id": "k-undo",
+              "label": "Undo",
+              "icon": "undo",
+              "width": 1,
+              "action": { "command": "composition.undo" }
+            },
+            {
+              "id": "k-speak",
+              "label": "Speak",
+              "icon": "speak",
+              "width": 1,
+              "action": { "command": "speech.speak" }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
