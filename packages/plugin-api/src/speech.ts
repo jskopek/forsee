@@ -114,4 +114,10 @@ export interface SpeakOptions {
   readonly recording?: string;
   /** Append the utterance to the conversation history. Default true. */
   readonly log?: boolean;
+  /**
+   * Stop whatever is being said (and drop everything queued) before speaking
+   * this, as quick-fire phrases do. Default false: the utterance is queued
+   * after current speech.
+   */
+  readonly interrupt?: boolean;
 }
