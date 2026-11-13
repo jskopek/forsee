@@ -4,7 +4,7 @@ Written 2026-11-13. This plan covers v1 only: a free, open-source, fully offline
 
 Revised the same day after a deep dive into on-device AI. The full findings, with evidence tags, are in [`reports/On device AI for speech keyboard.md`](../reports/On%20device%20AI%20for%20speech%20keyboard.md).
 
-Working name in this document: **EyeSpeak** (package scope `@eyespeak/*`). The repo currently uses EyeSpeak, EyeSight and Forsee in different places; see [Open decisions](#12-open-decisions).
+The app is called **Forsee** (package scope `@forsee/*`). The README still uses the older names EyeSpeak and EyeSight in places and will be corrected when it is rewritten for release.
 
 ## Contents
 
@@ -625,7 +625,6 @@ Everything in stage B depends only on A2.
 
 | Decision | Recommendation |
 |---|---|
-| Name: EyeSpeak, EyeSight or Forsee | Pick one before the first public release; it becomes the package scope and app id. This plan uses EyeSpeak |
 | Where legacy code lives | Leave in place for now; move Django and `keyboard-ui/` into `legacy/` once v1 runs |
 | Plain files vs SQLite | Plain files for v1, behind an interface; add a derived index when v2 retrieval needs one |
 | Whether the neural keyboard model is in the first release | Build the interface, harness and desktop inference service now; turn the model on per device class only after measurement |
