@@ -12,21 +12,87 @@ export type { GazeSource } from '@forsee/plugin-api';
 
 // ------------------------------------------------------------------ pointer and tap
 
+/**
+ * A minimal DOM event as the pointer sources see it. A real `PointerEvent`
+ * satisfies it structurally; tests build plain objects.
+ */
+export interface PointerEventLike {
+  readonly type: string;
+  /** `mouse`, `pen` or `touch`; treated as `mouse` when missing. */
+  readonly pointerType?: string;
+  readonly clientX?: number;
+  readonly clientY?: number;
+  /** Button that changed; 0 is the primary button (or touch/pen contact). */
+  readonly button?: number;
+  /** False for the second and later fingers of a multi-touch gesture. */
+  readonly isPrimary?: boolean;
+  /** Event time in the page's own time base; only differences between events are used. */
+  readonly timeStamp?: number;
+  /** For `pointerout`/`pointerleave`: where the pointer went; null or missing means out of the document. */
+  readonly relatedTarget?: unknown;
+  /** For `click`: 0 for clicks that did not come from a pointer (keyboard, assistive technology). */
+  readonly detail?: number;
+  /** Intermediate positions of a `pointermove` batch, oldest first, when the browser supports it. */
+  getCoalescedEvents?(): readonly PointerEventLike[];
+}
+
+/** The part of `EventTarget` (document, window) the sources need. */
+export interface InputEventTarget {
+  addEventListener(
+    type: string,
+    listener: (event: PointerEventLike) => void,
+    options?: boolean | { readonly capture?: boolean },
+  ): void;
+  removeEventListener(
+    type: string,
+    listener: (event: PointerEventLike) => void,
+    options?: boolean | { readonly capture?: boolean },
+  ): void;
+}
+
+/**
+ * Everything the pointer and tap sources need from the browser, so they run
+ * in Node tests. `createBrowserPointerEnvironment` is the real one and the
+ * default; `FakePointerEnvironment` (from `@forsee/gaze-web/testing`) the fake.
+ */
+export interface PointerEnvironment {
+  /** Receives pointer events, `click` and `visibilitychange`. */
+  readonly document: InputEventTarget;
+  /** Receives `blur`. */
+  readonly window: InputEventTarget;
+  /** False when the browser has no Pointer Events. */
+  supportsPointerEvents(): boolean;
+  /** App viewport size, CSS pixels; coordinates outside `0..width` x `0..height` are not inside the app. */
+  viewport(): { readonly width: number; readonly height: number };
+  /** False while the page is hidden (background tab, minimised). */
+  isVisible(): boolean;
+}
+
 /** Options for `createPointerSource` (B2). */
 export interface PointerSourceOptions {
-  /** Element whose pointer events are observed; coordinates are converted to app viewport CSS pixels. */
-  readonly target: EventTarget;
   readonly clock: Clock;
+  /** Defaults to the real browser (`createBrowserPointerEnvironment()`). */
+  readonly environment?: PointerEnvironment;
   /**
-   * `hover`: continuous pointer movement plus `press` on click (mouse, OS eye
-   * control, tracker mouse emulation). `tap`: only `press` samples, for
-   * touch and iPad system dwell (plan section 8, tap-only mode).
+   * Interval of the keep-alive repeat while the pointer rests inside the
+   * viewport, ms (default 50). 0 turns it off.
    */
-  readonly mode: 'hover' | 'tap';
+  readonly keepAliveMs?: number;
+  /** Movements shorter than this many px from the last emitted position are dropped (default 0). */
+  readonly minMovePx?: number;
+  /** Treat touch as a moving pointer (default false: touch belongs to the tap source). */
+  readonly touch?: boolean;
 }
 
 /** Factory signature B2 provides as `createPointerSource`. */
 export type PointerSourceFactory = (options: PointerSourceOptions) => GazeSource;
+
+/** Options for `createTapSource` (B2). */
+export interface TapSourceOptions {
+  readonly clock: Clock;
+  /** Defaults to the real browser. */
+  readonly environment?: PointerEnvironment;
+}
 
 // ------------------------------------------------------------------ WebSocket driver
 
