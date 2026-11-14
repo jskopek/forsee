@@ -105,6 +105,8 @@ export interface TargetFaceProps {
     ((element: HTMLButtonElement | null) => (() => void) | undefined) | undefined;
   /** `absolute` when the parent positions the target (keyboard keys, prediction slots). Default `relative`. */
   readonly position?: 'relative' | 'absolute' | undefined;
+  /** For toggles and choices: rendered as `aria-pressed` (and `data-pressed` for styling). */
+  readonly pressed?: boolean | undefined;
   readonly children?: ReactNode;
 }
 
@@ -125,6 +127,7 @@ export function TargetFace({
   style,
   measureRef,
   position = 'relative',
+  pressed,
   children,
 }: TargetFaceProps): ReactNode {
   const { services, hub, reportError } = useHostUi();
@@ -245,6 +248,8 @@ export function TargetFace({
       data-forsee-measure={id}
       aria-label={accessibleName}
       aria-disabled={disabled ? true : undefined}
+      aria-pressed={pressed}
+      data-pressed={pressed === undefined ? undefined : String(pressed)}
       className={`${position === 'absolute' ? 'absolute' : 'relative'} ${BASE} ${APPEARANCE[appearance]} ${className}`}
       style={style}
       onClick={onClick}

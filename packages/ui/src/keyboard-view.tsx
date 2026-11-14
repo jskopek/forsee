@@ -60,7 +60,8 @@ export function keyAppearance(key: LayoutKey): TargetAppearance {
     return typeof text === 'string' && text.trim() === '' ? 'space' : 'key';
   }
   if (command === undefined) return 'neutral';
-  if (command.startsWith('speech.')) return 'speak';
+  // The Speak key commits the composition (`composition.speak`, review round 1).
+  if (command.startsWith('speech.') || command === 'composition.speak') return 'speak';
   if (
     command === 'composition.clear' ||
     command === 'composition.deleteWord' ||
@@ -71,11 +72,15 @@ export function keyAppearance(key: LayoutKey): TargetAppearance {
   return 'function';
 }
 
-/** Font size (CSS px) that fits `label` on one line in a `width` x `height` box. */
+/**
+ * Font size (CSS px) that fits `label` on one line in a `width` x `height`
+ * box. Characters are taken as 0.72 em wide, the width of bold capitals
+ * ("WXYZ") in the system fonts, so group labels never touch the key edge.
+ */
 export function fitFontPx(label: string, width: number, height: number, share = 0.46): number {
   const chars = Math.max(1, Array.from(label).length);
   const byHeight = height * share;
-  const byWidth = (width * 0.84) / (chars * 0.62);
+  const byWidth = (width * 0.84) / (chars * 0.72);
   return Math.max(11, Math.round(Math.min(byHeight, byWidth, 72)));
 }
 

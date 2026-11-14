@@ -10,6 +10,8 @@ export interface GazeTargetComponentProps extends GazeTargetProps {
   /** Colour scheme from the theme. Default `plain` (style it with `className`). */
   readonly appearance?: TargetAppearance;
   readonly style?: CSSProperties;
+  /** For toggles and choices: the button's `aria-pressed` state. */
+  readonly pressed?: boolean;
 }
 
 /**
@@ -47,6 +49,7 @@ export function GazeTarget({
   className,
   appearance,
   style,
+  pressed,
 }: GazeTargetComponentProps): ReactNode {
   const [rect, measureRef] = useMeasuredRect();
   const commandKey = command === undefined ? '' : JSON.stringify(command);
@@ -83,6 +86,7 @@ export function GazeTarget({
       className={className}
       style={style}
       measureRef={measureRef}
+      pressed={pressed}
     >
       {children ?? label ?? text}
     </TargetFace>
