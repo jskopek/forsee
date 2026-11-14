@@ -18,13 +18,13 @@ The long-term goal is conversation-speed communication using AI and a lot of con
 
 Source documents, all on branch `claude/dreamy-ride-sa47pg`:
 
-| Document | Contents |
-|---|---|
-| `docs/V1_PLAN.md` | The plan: scope, architecture, input pipeline, plugin system, work packages, risks |
-| `reports/On device AI for speech keyboard.md` | Research on on-device speech-to-text, voices and prediction |
-| `reports/Vision Pro exploration.md` | Why Vision Pro is a later "companion mode", not a v1 platform |
-| `docs/ARCHITECTURE.md` (from PR #7 onward) | Package graph, conventions, contract table, recorded decisions |
-| `docs/DEVELOPMENT.md` (from PR #6 onward) | Workspace conventions and how to run checks |
+| Document                                      | Contents                                                                           |
+| --------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `docs/V1_PLAN.md`                             | The plan: scope, architecture, input pipeline, plugin system, work packages, risks |
+| `reports/On device AI for speech keyboard.md` | Research on on-device speech-to-text, voices and prediction                        |
+| `reports/Vision Pro exploration.md`           | Why Vision Pro is a later "companion mode", not a v1 platform                      |
+| `docs/ARCHITECTURE.md` (from PR #7 onward)    | Package graph, conventions, contract table, recorded decisions                     |
+| `docs/DEVELOPMENT.md` (from PR #6 onward)     | Workspace conventions and how to run checks                                        |
 
 ## 2. Where the project stands
 
@@ -73,27 +73,30 @@ Plugins come in three trust tiers: **declarative** (JSON only), **logic** (isola
 
 All are open and unmerged. They form a stack: #5 is the base, #6 sits on #5, #7 on #6, and **#8 to #13 each sit directly on #7 and are independent of one another**.
 
-| PR | Branch | Head | Package | Base |
-|---|---|---|---|---|
-| #5 | `claude/dreamy-ride-sa47pg` | moving (docs) | Plan and research | `main` |
-| #6 | `claude/v1-a1-workspace` | `03c4896` | A1 workspace and CI | #5 |
-| #7 | `claude/v1-a2-contracts` | `8858a27` | A2 contracts and kernel | #6 |
-| #8 | `claude/v1-b7-layouts` | `1be4882` | B7 layouts | #7 |
-| #9 | `claude/v1-b6-storage` | `f90a09f` | B6 storage | #7 |
-| #10 | `claude/v1-b5-speech` | `a082819` | B5 speech | #7 |
-| #11 | `claude/v1-b1-gaze` | `10906d7` | B1 gaze engine | #7 |
-| #12 | `claude/v1-b9-plugin-host` | `42e9634` | B9 plugin host, part 1 | #7 |
-| #13 | `claude/v1-b4-prediction` | `0c3932a` | B4 prediction | #7 |
+| PR  | Branch                      | Head          | Package                 | Base   |
+| --- | --------------------------- | ------------- | ----------------------- | ------ |
+| #5  | `claude/dreamy-ride-sa47pg` | moving (docs) | Plan and research       | `main` |
+| #6  | `claude/v1-a1-workspace`    | `03c4896`     | A1 workspace and CI     | #5     |
+| #7  | `claude/v1-a2-contracts`    | `8858a27`     | A2 contracts and kernel | #6     |
+| #8  | `claude/v1-b7-layouts`      | `1be4882`     | B7 layouts              | #7     |
+| #9  | `claude/v1-b6-storage`      | `f90a09f`     | B6 storage              | #7     |
+| #10 | `claude/v1-b5-speech`       | `a082819`     | B5 speech               | #7     |
+| #11 | `claude/v1-b1-gaze`         | `10906d7`     | B1 gaze engine          | #7     |
+| #12 | `claude/v1-b9-plugin-host`  | `42e9634`     | B9 plugin host, part 1  | #7     |
+| #13 | `claude/v1-b4-prediction`   | `0c3932a`     | B4 prediction           | #7     |
 
 Each PR description on GitHub lists its own verification results and known gaps. Summaries follow.
 
 ### #5: Plan and research
+
 Documents only. Read `docs/V1_PLAN.md` first; sections 4 to 7 are the specification the code is meant to implement, and section 10 lists the work packages.
 
 ### #6: A1, workspace and CI
+
 pnpm workspace, strict TypeScript with project references, ESLint, Prettier, Vitest, a Playwright smoke test and a GitHub Actions workflow. Twelve skeleton packages under `@forsee/*` and a placeholder `apps/web`. Packages are consumed from source (`exports` points at `src/index.ts`), so there is no build step in dev or tests. The legacy Django app and `keyboard-ui/` prototype are untouched and outside the workspace.
 
 ### #7: A2, contracts and kernel
+
 The foundation everything else compiles against.
 
 - `packages/plugin-api`: the manifest, permission scopes, a contribution type for each of 13 extension points, the shared data contracts (gaze, prediction, speech, layouts, storage, context, inference), `ForseeApi` (the object a plugin receives) and the RPC envelope types.
@@ -104,21 +107,27 @@ The foundation everything else compiles against.
 Two fixes were made after an earlier review: command handlers' own error codes are now preserved, and plugin commands are private by default, with `CommandRegistry.authorize` checking cross-plugin calls.
 
 ### #8: B7, layouts
+
 Keyboards as data. A validator, a published JSON Schema, geometry that tiles a rectangle exactly, generation of gaze targets, a runtime for pages, two-step group keys and key behaviours (single, repeat, escalate), and four built-in layouts: QWERTY, alphabetical, German QWERTZ, and a 12-cell coarse layout for imprecise trackers.
 
 ### #9: B6, storage
+
 The profile folder: `profile.json`, `settings.json`, monthly append-only history files with tombstones for deletion, the crash-recovery snapshot, plugin private data, schema migrations, and zip export and import. Also a persistent browser file system (Origin Private File System, then IndexedDB, then memory) added to `packages/host`. Adds one dependency, `fflate` (MIT).
 
 ### #10: B5, speech
+
 An utterance queue with immediate stop and a watchdog, voice selection restricted to offline voices by default, the three speak modes (on demand, each sentence, each word), a browser speech-synthesis provider that handles its known quirks, and a recorded-message provider for message banking. Browser APIs are injected. Adds an optional `interrupt` flag to the public `SpeakOptions`.
 
 ### #11: B1, gaze engine
+
 One Euro filter, dispersion-threshold fixation detection, a target registry with expanded hit areas and hysteresis, dwell selection with per-class times, decay and likelihood-scaled (adaptive) timing, direct and switch selection, rest zones, pause and wake, in-place dwell adjustment, a per-selection probability distribution over nearby keys, and the pipeline that ties these together.
 
 ### #12: B9, plugin host, part 1
+
 Manifest validation with a published JSON Schema, the permission manager with persisted consent records, `createPluginApi` (the permission-checked implementation of `ForseeApi`, bound to one plugin), the plugin lifecycle, restricted mode (on by default), and loaders for declarative and first-party plugins. The sandbox for community code (B10) is not built; it will implement the `PluginRuntime` interface defined here.
 
 ### #13: B4, prediction
+
 A tokeniser, a trigram language model with interpolated Kneser–Ney smoothing and an order-5 character model, a compact binary model format, a user-adaptive layer with recency decay, phrase recall, noisy-prefix decoding from key probabilities, the synchronous `forsee.ngram` provider, and the engine that merges instant and refined answers. Also `tools/lm-build`, a command-line model builder, and seed data written for this project.
 
 ## 5. How to check out and run
