@@ -1,4 +1,5 @@
 import {
+  APP_COMMAND_OWNER,
   defaultErrorReporter,
   ForseeError,
   NOOP_DISPOSABLE,
@@ -38,6 +39,7 @@ import {
   type SettingsApi,
   type SettingValue,
   type SpeechApi,
+  type SpeechEvent,
   type Voice,
 } from '@forsee/plugin-api';
 import {
@@ -75,6 +77,7 @@ import { isPermissionScope } from './manifest';
 import { COMMAND_ID, CONTEXT_KEY, isSafeRelativePath, LOCAL_ID } from './patterns';
 import {
   readContextEntryInput,
+  VOICE_PROVIDER_SCOPES,
   wrapOutputSink,
   wrapPredictionProvider,
   wrapTextTransform,
@@ -357,7 +360,18 @@ export function createPluginApi(
       return toCloneSafe(result);
     };
 
-  /** Authorises and runs a command on the plugin's behalf. */
+  /**
+   * Authorises and runs a command on the plugin's behalf.
+   *
+   * Beyond `CommandRegistry.authorize`, two checks are about the data a
+   * built-in command would reveal rather than the command itself:
+   * - Undoing a commit brings back text that was spoken, which is history,
+   *   so `composition.undo` at a commit step also needs `history.read`.
+   * - The results of the built-in `composition.*` commands (whether anything
+   *   was deleted, cleared or undone) reveal the composition, so they reach
+   *   a plugin only if it holds `composition.read`; otherwise it gets
+   *   `undefined`.
+   */
   const runCommand = async (id: string, args: JsonObject | undefined): Promise<unknown> => {
     const descriptor = kernel.commands.list().find((d) => d.id === id);
     if (descriptor && descriptor.owner !== pluginId && descriptor.public) {
@@ -366,7 +380,13 @@ export function createPluginApi(
       assertLive();
     }
     kernel.commands.authorize(id, caller);
-    return toCloneSafe(await kernel.commands.execute(id, args, pluginId));
+    const builtin = descriptor?.owner === APP_COMMAND_OWNER;
+    if (builtin && id === 'composition.undo' && kernel.composition.nextUndoReason === 'commit') {
+      await requireScope('history.read');
+    }
+    const result = toCloneSafe(await kernel.commands.execute(id, args, pluginId));
+    if (builtin && id.startsWith('composition.') && !has('composition.read')) return undefined;
+    return result;
   };
 
   const text = (value: unknown, name = 'text'): string =>
@@ -444,36 +464,43 @@ export function createPluginApi(
 
   // ---------------------------------------------------------------- speech
 
+  const SPEAK_OPTIONS = ['voiceId', 'rate', 'pitch', 'volume', 'recording', 'log', 'interrupt'];
+
   const speech: SpeechApi = {
     speak: (value, options) =>
       call(async () => {
         const utterance = text(value);
-        let log: boolean | undefined;
+        if (utterance.trim() === '') invalid('text must not be blank');
+        const args: Record<string, string | number | boolean> = { text: utterance };
         if (options !== undefined) {
           const o = requireObject(options, 'options');
           for (const key of Object.keys(o)) {
-            if (!['voiceId', 'rate', 'pitch', 'volume', 'recording', 'log'].includes(key)) {
-              invalid(`options.${key} is not a speak option`);
-            }
+            if (!SPEAK_OPTIONS.includes(key)) invalid(`options.${key} is not a speak option`);
           }
-          optionalString(own(o, 'voiceId'), 'options.voiceId', LIMITS.keyLength);
-          if (own(o, 'rate') !== undefined)
-            requireNumber(o.rate, 'options.rate', { min: 0.1, max: 10 });
-          if (own(o, 'pitch') !== undefined)
-            requireNumber(o.pitch, 'options.pitch', { min: 0, max: 2 });
+          const voiceId = optionalString(own(o, 'voiceId'), 'options.voiceId', LIMITS.keyLength);
+          if (voiceId !== undefined) args.voiceId = requireKey(voiceId, 'options.voiceId');
+          if (own(o, 'rate') !== undefined) {
+            args.rate = requireNumber(o.rate, 'options.rate', { min: 0.1, max: 10 });
+          }
+          if (own(o, 'pitch') !== undefined) {
+            args.pitch = requireNumber(o.pitch, 'options.pitch', { min: 0, max: 2 });
+          }
           if (own(o, 'volume') !== undefined) {
-            requireNumber(o.volume, 'options.volume', { min: 0, max: 1 });
+            args.volume = requireNumber(o.volume, 'options.volume', { min: 0, max: 1 });
           }
-          if (own(o, 'recording') !== undefined && !isSafeRelativePath(o.recording)) {
-            invalid('options.recording must be a safe relative path');
+          if (own(o, 'recording') !== undefined) {
+            if (!isSafeRelativePath(o.recording)) {
+              invalid('options.recording must be a safe relative path');
+            }
+            args.recording = o.recording;
           }
-          if (own(o, 'log') !== undefined) log = requireBoolean(o.log, 'options.log');
+          if (own(o, 'log') !== undefined) args.log = requireBoolean(o.log, 'options.log');
+          if (own(o, 'interrupt') !== undefined) {
+            args.interrupt = requireBoolean(o.interrupt, 'options.interrupt');
+          }
         }
         await requireScope('speech.output');
-        await runCommand('speech.speak', {
-          text: utterance,
-          ...(log === undefined ? {} : { log }),
-        });
+        await runCommand('speech.speak', args);
       }),
     stop: () =>
       call(async () => {
@@ -615,6 +642,19 @@ export function createPluginApi(
     }
   };
 
+  /**
+   * `speech.event` needs no permission, but word boundaries give the
+   * position and length of every spoken word, and a provider's error message
+   * may quote the text, so without `composition.read` boundaries are
+   * dropped and error messages replaced.
+   */
+  const redactSpeechEvent = (event: SpeechEvent): SpeechEvent | undefined => {
+    if (has('composition.read')) return event;
+    if (event.type === 'boundary') return undefined;
+    if (event.type === 'error') return { ...event, message: 'Speech failed' };
+    return event;
+  };
+
   const events: EventsApi = {
     on: (type, listener) =>
       call(async () => {
@@ -629,8 +669,11 @@ export function createPluginApi(
         if (scope !== null) await requireScope(scope);
         const subscription = subscribe(type, (payload) => {
           if (disposed || (scope !== null && !has(scope))) return;
+          const visible =
+            type === 'speech.event' ? redactSpeechEvent(payload as SpeechEvent) : payload;
+          if (visible === undefined) return;
           try {
-            fn(toCloneSafe(payload));
+            fn(toCloneSafe(visible));
           } catch (error) {
             reportError(error, `plugin:${pluginId}:event:${type}`);
           }
@@ -926,12 +969,14 @@ export function createPluginApi(
       call(async () => {
         const p = requireObject(provider, 'provider');
         const wrapped = wrapPredictionProvider(p, prefixed(p.id, 'provider.id'), wrapperContext);
+        // Every request carries the composition.
+        await requireScope('composition.read');
         // Registering a provider is the first use of the data it would receive.
         for (const scope of SENSITIVE_PROVIDER_SCOPES) {
           if (manifest.permissions?.includes(scope)) await permissions.ensure(pluginId, scope);
         }
         assertLive();
-        return register('predictionProviders', wrapped);
+        return register('predictionProviders', wrapped, ['composition.read']);
       }),
     contextProvider: (provider) =>
       call(async () => {
@@ -972,15 +1017,18 @@ export function createPluginApi(
       call(async () => {
         const t = requireObject(transform, 'transform');
         const wrapped = wrapTextTransform(t, prefixed(t.id, 'transform.id'), wrapperContext);
+        // A transform is given the composition and changes it.
+        await requireScope('composition.read');
         await requireScope('composition.write');
-        return register('textTransforms', wrapped, ['composition.write']);
+        return register('textTransforms', wrapped, ['composition.read', 'composition.write']);
       }),
     voiceProvider: (provider) =>
       call(async () => {
         const p = requireObject(provider, 'provider');
         const wrapped = wrapVoiceProvider(p, prefixed(p.id, 'provider.id'), wrapperContext);
-        await requireScope('speech.output');
-        return register('voiceProviders', wrapped, ['speech.output']);
+        // A voice provider is given everything the user says, which is the composition.
+        for (const scope of VOICE_PROVIDER_SCOPES) await requireScope(scope);
+        return register('voiceProviders', wrapped, VOICE_PROVIDER_SCOPES);
       }),
     outputSink: (sink) =>
       call(async () => {

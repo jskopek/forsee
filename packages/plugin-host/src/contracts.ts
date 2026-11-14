@@ -238,7 +238,11 @@ export interface PluginApiServices {
   readonly inference?: InferenceService;
   /** Voices for `speech.listVoices`. Default: every registered voice provider. */
   readonly listVoices?: () => Promise<readonly Voice[]>;
-  /** Speech progress events for `speech.event` subscriptions. */
+  /**
+   * Speech progress events for `speech.event` subscriptions. The API drops
+   * word boundaries and replaces error messages for plugins without
+   * `composition.read`, so the source can pass events unfiltered.
+   */
   readonly speechEvents?: EventSource<SpeechEvent>;
   /** Raw gaze samples for `gaze.sample` subscriptions. */
   readonly gazeSamples?: EventSource<GazeSample>;

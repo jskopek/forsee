@@ -128,113 +128,122 @@ const inferenceOf = (api: ForseeApi): InferenceService => {
   return api.inference;
 };
 
-/** For every `ForseeApi` method: the scope it needs (null: none) and a valid call. */
-const MATRIX: Record<PluginApiMethod, { scope: PermissionScope | null; call: Call }> = {
+/** For every `ForseeApi` method: the scopes it needs (none: empty) and a valid call. */
+const MATRIX: Record<PluginApiMethod, { scopes: readonly PermissionScope[]; call: Call }> = {
   'commands.execute': {
-    scope: 'composition.write',
+    scopes: ['composition.write'],
     call: (api) => api.commands.execute('composition.insert', { text: 'a' }),
   },
-  'commands.list': { scope: null, call: (api) => api.commands.list() },
+  'commands.list': { scopes: [], call: (api) => api.commands.list() },
   'commands.register': {
-    scope: null,
+    scopes: [],
     call: (api) => api.commands.register('community.matrix.go', () => 1, { title: 'Go' }),
   },
-  'composition.getState': { scope: 'composition.read', call: (api) => api.composition.getState() },
-  'composition.insert': { scope: 'composition.write', call: (api) => api.composition.insert('a') },
+  'composition.getState': {
+    scopes: ['composition.read'],
+    call: (api) => api.composition.getState(),
+  },
+  'composition.insert': {
+    scopes: ['composition.write'],
+    call: (api) => api.composition.insert('a'),
+  },
   'composition.deleteGrapheme': {
-    scope: 'composition.write',
+    scopes: ['composition.write'],
     call: (api) => api.composition.deleteGrapheme(),
   },
   'composition.deleteWord': {
-    scope: 'composition.write',
+    scopes: ['composition.write'],
     call: (api) => api.composition.deleteWord(),
   },
-  'composition.clear': { scope: 'composition.write', call: (api) => api.composition.clear() },
+  'composition.clear': { scopes: ['composition.write'], call: (api) => api.composition.clear() },
   'composition.acceptPrediction': {
-    scope: 'composition.write',
+    scopes: ['composition.write'],
     call: (api) => api.composition.acceptPrediction('hello'),
   },
   'composition.replace': {
-    scope: 'composition.write',
+    scopes: ['composition.write'],
     call: (api) => api.composition.replace('x'),
   },
-  'composition.undo': { scope: 'composition.write', call: (api) => api.composition.undo() },
-  'speech.speak': { scope: 'speech.output', call: (api) => api.speech.speak('hello') },
-  'speech.stop': { scope: null, call: (api) => api.speech.stop() },
-  'speech.listVoices': { scope: null, call: (api) => api.speech.listVoices() },
+  'composition.undo': { scopes: ['composition.write'], call: (api) => api.composition.undo() },
+  'speech.speak': { scopes: ['speech.output'], call: (api) => api.speech.speak('hello') },
+  'speech.stop': { scopes: ['speech.output'], call: (api) => api.speech.stop() },
+  'speech.listVoices': { scopes: [], call: (api) => api.speech.listVoices() },
   'settings.registerSchema': {
-    scope: null,
+    scopes: [],
     call: (api) =>
       api.settings.registerSchema([{ key: 'a', label: 'A', type: 'string', default: '' }]),
   },
   'settings.get': {
-    scope: null,
+    scopes: [],
     call: async (api) => {
       await api.settings.registerSchema([{ key: 'a', label: 'A', type: 'string', default: 'x' }]);
       return api.settings.get('a');
     },
   },
   'settings.set': {
-    scope: null,
+    scopes: [],
     call: async (api) => {
       await api.settings.registerSchema([{ key: 'a', label: 'A', type: 'string', default: 'x' }]);
       return api.settings.set('a', 'y');
     },
   },
   'settings.getAll': {
-    scope: null,
+    scopes: [],
     call: async (api) => {
       await api.settings.registerSchema([{ key: 'a', label: 'A', type: 'string', default: 'x' }]);
       return api.settings.getAll();
     },
   },
-  'storage.get': { scope: null, call: (api) => api.storage.get('k') },
-  'storage.set': { scope: null, call: (api) => api.storage.set('k', { a: [1] }) },
-  'storage.delete': { scope: null, call: (api) => api.storage.delete('k') },
-  'storage.keys': { scope: null, call: (api) => api.storage.keys() },
-  'context.get': { scope: 'context.read', call: (api) => api.context.get('time.partOfDay') },
-  'context.list': { scope: 'context.read', call: (api) => api.context.list('time') },
+  'storage.get': { scopes: [], call: (api) => api.storage.get('k') },
+  'storage.set': { scopes: [], call: (api) => api.storage.set('k', { a: [1] }) },
+  'storage.delete': { scopes: [], call: (api) => api.storage.delete('k') },
+  'storage.keys': { scopes: [], call: (api) => api.storage.keys() },
+  'context.get': { scopes: ['context.read'], call: (api) => api.context.get('time.partOfDay') },
+  'context.list': { scopes: ['context.read'], call: (api) => api.context.list('time') },
   'context.set': {
-    scope: 'context.write',
+    scopes: ['context.write'],
     call: (api) => api.context.set({ key: 'time.partOfDay', value: 'evening' }),
   },
-  'context.delete': { scope: 'context.write', call: (api) => api.context.delete('time.partOfDay') },
-  'history.listRecent': { scope: 'history.read', call: (api) => api.history.listRecent(5) },
-  'events.on': { scope: null, call: (api) => api.events.on('speech.event', () => undefined) },
-  'permissions.has': { scope: null, call: (api) => api.permissions.has('camera') },
-  'permissions.request': { scope: null, call: (api) => api.permissions.request('camera') },
+  'context.delete': {
+    scopes: ['context.write'],
+    call: (api) => api.context.delete('time.partOfDay'),
+  },
+  'history.listRecent': { scopes: ['history.read'], call: (api) => api.history.listRecent(5) },
+  'events.on': { scopes: [], call: (api) => api.events.on('speech.event', () => undefined) },
+  'permissions.has': { scopes: [], call: (api) => api.permissions.has('camera') },
+  'permissions.request': { scopes: [], call: (api) => api.permissions.request('camera') },
   'panels.setTargets': {
-    scope: null,
+    scopes: [],
     call: (api) =>
       api.panels.setTargets('p', [
         { id: 't', rect: { x: 0, y: 0, width: 10, height: 10 }, dwellClass: 'function' },
       ]),
   },
-  'panels.onActivate': { scope: null, call: (api) => api.panels.onActivate(() => undefined) },
-  'inference.getStatus': { scope: 'inference', call: (api) => inferenceOf(api).getStatus() },
-  'inference.listModels': { scope: 'inference', call: (api) => inferenceOf(api).listModels() },
-  'inference.loadModel': { scope: 'inference', call: (api) => inferenceOf(api).loadModel('m') },
+  'panels.onActivate': { scopes: [], call: (api) => api.panels.onActivate(() => undefined) },
+  'inference.getStatus': { scopes: ['inference'], call: (api) => inferenceOf(api).getStatus() },
+  'inference.listModels': { scopes: ['inference'], call: (api) => inferenceOf(api).listModels() },
+  'inference.loadModel': { scopes: ['inference'], call: (api) => inferenceOf(api).loadModel('m') },
   'inference.unloadModel': {
-    scope: 'inference',
+    scopes: ['inference'],
     call: (api) => inferenceOf(api).unloadModel('h1'),
   },
   'inference.scoreNextTokens': {
-    scope: 'inference',
+    scopes: ['inference'],
     call: async (api) => {
       const handle = await inferenceOf(api).loadModel('m');
       return inferenceOf(api).scoreNextTokens({ handleId: handle.handleId, prompt: 'a', topK: 3 });
     },
   },
   'inference.generate': {
-    scope: 'inference',
+    scopes: ['inference'],
     call: async (api) => {
       const handle = await inferenceOf(api).loadModel('m');
       return inferenceOf(api).generate({ handleId: handle.handleId, prompt: 'a', maxTokens: 3 });
     },
   },
-  'register.layout': { scope: null, call: (api) => api.register.layout(testLayout('compact')) },
+  'register.layout': { scopes: [], call: (api) => api.register.layout(testLayout('compact')) },
   'register.theme': {
-    scope: null,
+    scopes: [],
     call: (api) =>
       api.register.theme({
         id: 'dark',
@@ -244,7 +253,7 @@ const MATRIX: Record<PluginApiMethod, { scope: PermissionScope | null; call: Cal
       }),
   },
   'register.phraseSet': {
-    scope: null,
+    scopes: [],
     call: (api) =>
       api.register.phraseSet({
         schemaVersion: 1,
@@ -255,7 +264,7 @@ const MATRIX: Record<PluginApiMethod, { scope: PermissionScope | null; call: Cal
       }),
   },
   'register.vocabulary': {
-    scope: null,
+    scopes: [],
     call: (api) =>
       api.register.vocabulary({
         schemaVersion: 1,
@@ -266,20 +275,20 @@ const MATRIX: Record<PluginApiMethod, { scope: PermissionScope | null; call: Cal
       }),
   },
   'register.command': {
-    scope: null,
+    scopes: [],
     call: (api) => api.register.command({ id: 'cmd', title: 'Cmd', handler: () => 1 }),
   },
   'register.predictionProvider': {
-    scope: null,
+    scopes: ['composition.read'],
     call: (api) => api.register.predictionProvider(provider()),
   },
   'register.contextProvider': {
-    scope: 'context.write',
+    scopes: ['context.write'],
     call: (api) =>
       api.register.contextProvider({ id: 'cp', name: 'Clock', provides: ['time.partOfDay'] }),
   },
   'register.textTransform': {
-    scope: 'composition.write',
+    scopes: ['composition.read', 'composition.write'],
     call: (api) =>
       api.register.textTransform({
         id: 'tt',
@@ -289,7 +298,7 @@ const MATRIX: Record<PluginApiMethod, { scope: PermissionScope | null; call: Cal
       }),
   },
   'register.voiceProvider': {
-    scope: 'speech.output',
+    scopes: ['speech.output', 'composition.read'],
     call: (api) =>
       api.register.voiceProvider({
         id: 'vp',
@@ -303,12 +312,12 @@ const MATRIX: Record<PluginApiMethod, { scope: PermissionScope | null; call: Cal
       }),
   },
   'register.outputSink': {
-    scope: 'composition.read',
+    scopes: ['composition.read'],
     call: (api) =>
       api.register.outputSink({ id: 'os', name: 'Share', send: () => Promise.resolve() }),
   },
   'register.gazeSource': {
-    scope: 'native.sidecar',
+    scopes: ['native.sidecar'],
     call: (api) =>
       api.register.gazeSource({
         id: 'tracker',
@@ -326,46 +335,46 @@ describe('permission matrix', () => {
 
   const cases = Object.entries(MATRIX) as [PluginApiMethod, (typeof MATRIX)[PluginApiMethod]][];
 
-  it.each(cases.filter(([, c]) => c.scope !== null))(
-    '%s is denied without its scope',
-    async (_method, { call }) => {
-      const { api, consent } = await setup([]);
-      expect(await codeOf(call(api))).toBe('permission-denied');
-      // Undeclared scopes are refused without asking the user.
-      expect(consent.requests.filter((r) => r.reason === 'first-use')).toEqual([]);
+  const scoped = cases.filter(([, c]) => c.scopes.length > 0);
+
+  it.each(scoped)('%s is denied without its scopes', async (_method, { call }) => {
+    const { api, consent } = await setup([]);
+    expect(await codeOf(call(api))).toBe('permission-denied');
+    // Undeclared scopes are refused without asking the user.
+    expect(consent.requests.filter((r) => r.reason === 'first-use')).toEqual([]);
+  });
+
+  it.each(scoped)(
+    '%s is denied with every scope but any one of its own',
+    async (_method, { scopes, call }) => {
+      for (const missing of scopes) {
+        const { api } = await setup(ALL_SCOPES.filter((s) => s !== missing));
+        expect(await codeOf(call(api)), missing).toBe('permission-denied');
+      }
     },
   );
 
-  it.each(cases.filter(([, c]) => c.scope !== null))(
-    '%s is denied with every scope but its own',
-    async (_method, { scope, call }) => {
-      const { api } = await setup(ALL_SCOPES.filter((s) => s !== scope));
-      expect(await codeOf(call(api))).toBe('permission-denied');
-    },
-  );
-
-  it.each(cases)('%s is allowed with its scope', async (_method, { scope, call }) => {
-    const { api, errors } = await setup(scope === null ? [] : [scope]);
+  it.each(cases)('%s is allowed with its scopes', async (_method, { scopes, call }) => {
+    const { api, errors } = await setup(scopes);
     expect(await codeOf(call(api))).toBe('ok');
     expect(errors).toEqual([]);
   });
 
-  it.each(cases.filter(([, c]) => c.scope !== null))(
+  it.each(scoped)(
     '%s is denied when the user refuses the first-use prompt of an optional scope',
-    async (_method, { scope, call }) => {
+    async (_method, { scopes, call }) => {
       const consent = new ScriptedConsentPrompt(true);
       const ctx = await createTestPluginApi({
-        manifest: manifestWith([], { optionalPermissions: scope === null ? [] : [scope] }),
+        manifest: manifestWith([], { optionalPermissions: scopes }),
         consent,
         services: { inference: fakeInference() },
       });
       consent.setAnswer(false);
       expect(await codeOf(call(ctx.api))).toBe('permission-denied');
-      expect(consent.requests.at(-1)).toEqual({
-        pluginId: 'community.matrix',
-        scopes: [scope],
-        reason: 'first-use',
-      });
+      const last = consent.requests.at(-1);
+      expect(last).toMatchObject({ pluginId: 'community.matrix', reason: 'first-use' });
+      expect(last?.scopes).toHaveLength(1);
+      expect(scopes).toContain(last?.scopes[0]);
     },
   );
 
@@ -509,7 +518,10 @@ describe('cross-plugin command rules', () => {
     expect(await codeOf(b.api.commands.execute('speech.speak', { text: 'x' }))).toBe(
       'permission-denied',
     );
-    expect(await codeOf(b.api.commands.execute('speech.stop'))).toBe('ok');
+    expect(await codeOf(b.api.commands.execute('speech.stop'))).toBe('permission-denied');
+    expect(await codeOf(b.api.commands.execute('composition.speak'))).toBe('permission-denied');
+    expect(await codeOf(b.api.commands.execute('gaze.pause'))).toBe('permission-denied');
+    expect(await codeOf(b.api.commands.execute('gaze.resume'))).toBe('permission-denied');
     expect(await codeOf(b.api.commands.execute('no.such.command'))).toBe('unknown-command');
     expect(b.kernel.composition.text).toBe('');
   });
@@ -585,7 +597,7 @@ describe('prediction provider filtering', () => {
   };
 
   it('strips conversation and context without history.read and context.read', async () => {
-    const ctx = await setup([]);
+    const ctx = await setup(['composition.read']);
     const received: PredictionRequest[] = [];
     await ctx.api.register.predictionProvider(provider(received));
     const wrapped = registered(ctx);
@@ -615,7 +627,7 @@ describe('prediction provider filtering', () => {
   });
 
   it('passes them with the scopes, as copies', async () => {
-    const ctx = await setup(['history.read', 'context.read']);
+    const ctx = await setup(['composition.read', 'history.read', 'context.read']);
     const received: PredictionRequest[] = [];
     await ctx.api.register.predictionProvider(provider(received));
     const original = request();
@@ -628,7 +640,7 @@ describe('prediction provider filtering', () => {
   it('asks for first-use consent of a sensitive install scope when the provider registers', async () => {
     const consent = new ScriptedConsentPrompt(true);
     const ctx = await createTestPluginApi({
-      manifest: manifestWith(['history.read']),
+      manifest: manifestWith(['composition.read', 'history.read']),
       consent,
     });
     await ctx.api.register.predictionProvider(provider());
@@ -641,7 +653,7 @@ describe('prediction provider filtering', () => {
   });
 
   it('stops passing history as soon as history.read is revoked', async () => {
-    const ctx = await setup(['history.read']);
+    const ctx = await setup(['composition.read', 'history.read']);
     const received: PredictionRequest[] = [];
     await ctx.api.register.predictionProvider(provider(received));
     await ctx.permissions.revoke('community.matrix', 'history.read');
@@ -650,7 +662,10 @@ describe('prediction provider filtering', () => {
   });
 
   it('forwards learn and forget only with lm.write', async () => {
-    for (const scopes of [[], ['lm.write']] as PermissionScope[][]) {
+    for (const scopes of [
+      ['composition.read'],
+      ['composition.read', 'lm.write'],
+    ] as PermissionScope[][]) {
       const ctx = await setup(scopes);
       const calls: string[] = [];
       await ctx.api.register.predictionProvider({
@@ -665,12 +680,12 @@ describe('prediction provider filtering', () => {
       const wrapped = registered(ctx);
       await wrapped.learn?.({ text: 'hi', origin: 'composition', locale: 'en', createdAt: 1 });
       await wrapped.forget?.({ kind: 'all' });
-      expect(calls).toEqual(scopes.length === 0 ? [] : ['learn', 'forget']);
+      expect(calls).toEqual(scopes.includes('lm.write') ? ['learn', 'forget'] : []);
     }
   });
 
   it('keeps asynchronous providers asynchronous and validates refined results', async () => {
-    const ctx = await setup([]);
+    const ctx = await setup(['composition.read']);
     await ctx.api.register.predictionProvider({
       id: 'async',
       capabilities: { kinds: ['completions'], usesKeyDistributions: false },
@@ -936,12 +951,25 @@ describe('revocation', () => {
     });
     await inferenceOf(ctx.api).loadModel('m');
     await ctx.kernel.commands.execute('composition.insert', { text: 'a' });
+    await ctx.api.register.voiceProvider({
+      id: 'vp',
+      listVoices: () => Promise.resolve([]),
+      speak: () => ({
+        utteranceId: 'u',
+        stop: () => undefined,
+        done: Promise.resolve('completed'),
+      }),
+      stop: () => undefined,
+    });
+    await ctx.api.register.predictionProvider(provider());
     await ctx.permissions.revoke('community.matrix', 'composition.read');
     await ctx.kernel.commands.execute('composition.insert', { text: 'b' });
     expect(seen).toEqual(['a']);
-    expect(ctx.kernel.extensions.list('textTransforms')).toHaveLength(1);
-    await ctx.permissions.revoke('community.matrix', 'composition.write');
+    // Everything that is given the composition goes with composition.read.
     expect(ctx.kernel.extensions.list('textTransforms')).toHaveLength(0);
+    expect(ctx.kernel.extensions.list('voiceProviders')).toHaveLength(0);
+    expect(ctx.kernel.extensions.list('predictionProviders')).toHaveLength(0);
+    await ctx.permissions.revoke('community.matrix', 'composition.write');
     expect(await codeOf(ctx.api.composition.insert('c'))).toBe('permission-denied');
     expect(ctx.inference.loaded.size).toBe(1);
     await ctx.permissions.revoke('community.matrix', 'inference');
