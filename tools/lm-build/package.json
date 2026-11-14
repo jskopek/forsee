@@ -1,0 +1,26 @@
+{
+  "name": "@forsee/lm-build",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Builds Forsee language-model files from text",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "lm-build": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "vite build",
+    "seed": "vite build && node dist/cli.js seed"
+  },
+  "dependencies": {
+    "@forsee/core": "workspace:*",
+    "@forsee/plugin-api": "workspace:*",
+    "@forsee/prediction": "workspace:*"
+  },
+  "devDependencies": {
+    "vite": "^8.3.8"
+  }
+}
