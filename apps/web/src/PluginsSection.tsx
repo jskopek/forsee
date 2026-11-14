@@ -200,12 +200,16 @@ function PluginRow({
         label={name}
         appearance={plugin.enabled ? 'function' : 'neutral'}
         pressed={plugin.enabled}
-        disabled={busy}
+        disabled={busy || plugin.required}
         onActivate={() => onToggle(!plugin.enabled)}
         className={BUTTON}
       >
-        <span className="text-[0.85em]">{plugin.enabled ? 'Enabled' : 'Disabled'}</span>
-        <span className="font-bold">{plugin.enabled ? 'On' : 'Off'}</span>
+        <span className="text-[0.85em]">
+          {plugin.required ? 'Required' : plugin.enabled ? 'Enabled' : 'Disabled'}
+        </span>
+        <span className="font-bold">
+          {plugin.required ? 'Always on' : plugin.enabled ? 'On' : 'Off'}
+        </span>
       </GazeTarget>
       <GazeTarget
         id={`settings/plugins/${id}/options`}

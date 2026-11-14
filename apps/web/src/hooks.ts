@@ -28,6 +28,18 @@ export function useActiveLayout(runtime: ForseeRuntime): {
   return useMemo(() => ({ definition, runtime: layoutRuntime }), [definition, layoutRuntime]);
 }
 
+/** The keyboards on offer; re-renders when a plugin adds or withdraws one. */
+export function useKeyboardCatalogue(runtime: ForseeRuntime): readonly LayoutDefinition[] {
+  const [catalogue, setCatalogue] = useState(() => runtime.layout.catalogue);
+  useEffect(() => {
+    const subscription = runtime.kernel.extensions.events.on('changed', (change) => {
+      if (change.point === 'layouts') setCatalogue(runtime.layout.catalogue);
+    });
+    return () => subscription.dispose();
+  }, [runtime]);
+  return catalogue;
+}
+
 function actionKeysOf(key: LayoutKey): LayoutActionKey[] {
   if (isGroupKey(key)) return [...key.keys];
   return isActionKey(key) ? [key] : [];

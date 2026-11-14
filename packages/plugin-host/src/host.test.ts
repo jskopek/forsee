@@ -422,6 +422,34 @@ describe('first-party plugins', () => {
     expect(stateOf(second, 'forsee.optional')).toBe('disabled');
   });
 
+  it('keep a required first-party plugin on: disable rejects, and a stored "off" is ignored', async () => {
+    const installStorage = new MemoryInstallStorage([
+      {
+        schemaVersion: 1,
+        id: 'forsee.needed',
+        origin: 'first-party',
+        folder: '',
+        enabled: false,
+        installedAt: 0,
+      },
+    ]);
+    const plugin: FirstPartyPlugin = {
+      manifest: testManifest({ id: 'forsee.needed' }),
+      module: { activate: () => undefined },
+      required: true,
+    };
+    const f = await fixture({ firstParty: [plugin], installStorage });
+    expect(f.plugins.get('forsee.needed')).toMatchObject({
+      state: 'active',
+      enabled: true,
+      required: true,
+    });
+    await expect(f.plugins.disable('forsee.needed')).rejects.toMatchObject({
+      code: 'invalid-argument',
+    });
+    expect(stateOf(f, 'forsee.needed')).toBe('active');
+  });
+
   it('load bundled declarative contributions', async () => {
     const f = await fixture({
       firstParty: [

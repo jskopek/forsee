@@ -1,5 +1,5 @@
 import { GAZE_SETTINGS_NAMESPACE } from '@forsee/gaze';
-import { formatVoiceId, type LayoutFamily, type SpeakMode, type Voice } from '@forsee/plugin-api';
+import { formatVoiceId, type SpeakMode, type Voice } from '@forsee/plugin-api';
 import {
   ChoiceGroup,
   GazeTarget,
@@ -11,7 +11,7 @@ import {
   type Choice,
 } from '@forsee/ui';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useActiveLayout, type Problems } from './hooks';
+import { useActiveLayout, useKeyboardCatalogue, type Problems } from './hooks';
 import { PluginsSection } from './PluginsSection';
 import type { ForseeRuntime } from './runtime';
 
@@ -29,15 +29,10 @@ const DWELL_TIME_KEYS = [
   'dwell.destructiveMs',
 ];
 
-const FAMILY_LABEL: Readonly<Record<LayoutFamily, string>> = {
-  precise: 'Precise: eye tracker or mouse',
-  coarse: 'Coarse: large keys, letters in two steps',
-};
-
 const TAB_BUTTON = 'h-full min-h-[3.5rem] w-full px-3 text-[clamp(1rem,2.4vh,1.35rem)]';
 
 /**
- * The settings sheet (minimal for the MVP): layout, voice, speech rate and
+ * The settings sheet (minimal for the MVP): the keyboard in use, voice, speech rate and
  * mode, click sound, physical keyboard and dwell reset, the core plugins
  * (on/off and their options), plus the list of problems. Every change applies at once and is stored through the runtime.
  */
@@ -100,36 +95,74 @@ export function SettingsSheet({
 
 const SECTION = 'flex h-full min-h-0 flex-col gap-[clamp(1rem,3vh,2rem)]';
 
+/** Keyboards per page (the active one is marked). */
+const KEYBOARDS_PER_PAGE = 6;
+
 function KeyboardSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
   const active = useActiveLayout(runtime).definition;
-  const families: LayoutFamily[] = ['precise', 'coarse'];
-  const catalogue = runtime.layout.catalogue;
+  const catalogue = useKeyboardCatalogue(runtime);
+  const [page, setPage] = useState(0);
+  const pages = Math.max(1, Math.ceil(catalogue.length / KEYBOARDS_PER_PAGE));
+  const current = Math.min(page, pages - 1);
+  const choices = catalogue
+    .slice(current * KEYBOARDS_PER_PAGE, (current + 1) * KEYBOARDS_PER_PAGE)
+    .map((layout) => ({ value: layout.id, label: layout.name, detail: layout.locale }));
   return (
     <div className={SECTION}>
-      {families.map((family) => {
-        const choices = catalogue
-          .filter((layout) => layout.family === family)
-          .map((layout) => ({ value: layout.id, label: layout.name, detail: layout.locale }));
-        if (choices.length === 0) return null;
-        return (
-          <ChoiceGroup
-            key={family}
-            label={FAMILY_LABEL[family]}
-            idPrefix={`settings/layout`}
-            choices={choices}
-            value={active.id}
-            onChoose={(id) => {
-              try {
-                runtime.layout.select(id);
-              } catch (error) {
-                runtime.reportError(error, 'app.settings.layout');
-              }
-            }}
-            columns={3}
-            className="max-h-[11rem] flex-1"
-          />
-        );
-      })}
+      {runtime.layout.fallback ? (
+        <p className="rounded-xl bg-surface-overlay px-4 py-3 text-[clamp(1rem,2.4vh,1.25rem)]">
+          No plugin offers a keyboard right now, so the built-in fallback keyboard is in use. Check
+          Standard keyboards in Settings → Plugins.
+        </p>
+      ) : (
+        <ChoiceGroup
+          label={pages > 1 ? `Keyboard (page ${current + 1} of ${pages})` : 'Keyboard'}
+          idPrefix="settings/layout"
+          choices={choices}
+          value={active.id}
+          onChoose={(id) => {
+            try {
+              runtime.layout.select(id);
+            } catch (error) {
+              runtime.reportError(error, 'app.settings.layout');
+            }
+          }}
+          columns={2}
+          className="max-h-[24rem] flex-[3]"
+        />
+      )}
+      <p className="text-[clamp(0.9rem,2.2vh,1.15rem)] text-ink-muted">
+        Keyboards come from plugins. Choose which standard keyboards are listed in Settings →
+        Plugins → Standard keyboards.
+      </p>
+      {pages > 1 && (
+        <div className="grid min-h-[3.5rem] grid-cols-2 gap-[clamp(0.75rem,2vh,1.25rem)]">
+          <GazeTarget
+            id="settings/keyboard-page/previous"
+            dwellClass="function"
+            label="Previous keyboards"
+            appearance="neutral"
+            disabled={current === 0}
+            onActivate={() => setPage(Math.max(0, current - 1))}
+            className={TAB_BUTTON}
+          >
+            <Icon name="previous" size={26} />
+            <span>Previous</span>
+          </GazeTarget>
+          <GazeTarget
+            id="settings/keyboard-page/next"
+            dwellClass="function"
+            label="More keyboards"
+            appearance="neutral"
+            disabled={current >= pages - 1}
+            onActivate={() => setPage(Math.min(pages - 1, current + 1))}
+            className={TAB_BUTTON}
+          >
+            <Icon name="next" size={26} />
+            <span>More</span>
+          </GazeTarget>
+        </div>
+      )}
     </div>
   );
 }

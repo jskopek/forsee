@@ -137,6 +137,7 @@ interface Entry {
   readonly folder: string;
   readonly sha256?: string;
   readonly installedAt: number;
+  readonly required: boolean;
   enabled: boolean;
   /** `null` when the manifest could not be read or validated. */
   manifest: PluginManifest | null;
@@ -292,6 +293,7 @@ export function createPluginHost(options: PluginHostOptions): PluginHostInstance
       tier: trustTierOf(manifest),
       folder: entry.folder,
       enabled: entry.enabled,
+      required: entry.required,
       ...(entry.sha256 === undefined ? {} : { sha256: entry.sha256 }),
     };
   };
@@ -621,7 +623,9 @@ export function createPluginHost(options: PluginHostOptions): PluginHostInstance
             origin: 'first-party',
             folder: '',
             installedAt: record?.installedAt ?? clock.wallNow(),
-            enabled: record?.origin === 'first-party' ? record.enabled : true,
+            required: plugin.required === true,
+            enabled:
+              plugin.required === true || record?.origin !== 'first-party' ? true : record.enabled,
             manifest: result.ok ? result.value : null,
             module: plugin.module,
             ...(plugin.files ? { files: plugin.files } : {}),
@@ -638,6 +642,7 @@ export function createPluginHost(options: PluginHostOptions): PluginHostInstance
             origin: record.origin,
             folder: record.folder,
             installedAt: record.installedAt,
+            required: false,
             enabled: record.enabled,
             manifest: null,
             ...(record.sha256 === undefined ? {} : { sha256: record.sha256 }),
@@ -710,6 +715,7 @@ export function createPluginHost(options: PluginHostOptions): PluginHostInstance
           origin: r.origin,
           folder: r.folder,
           installedAt: clock.wallNow(),
+          required: false,
           enabled: true,
           manifest,
           ...(r.sha256 === undefined ? {} : { sha256: r.sha256 }),
@@ -756,6 +762,12 @@ export function createPluginHost(options: PluginHostOptions): PluginHostInstance
       enqueue(async () => {
         assertLive();
         const entry = requireEntry(pluginId);
+        if (entry.required) {
+          throw new ForseeError(
+            'invalid-argument',
+            `${entry.manifest?.name ?? pluginId} is required and cannot be turned off`,
+          );
+        }
         entry.enabled = false;
         await saveRecords();
         if (started) await deactivate(entry, 'disabled');

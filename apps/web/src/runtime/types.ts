@@ -6,7 +6,6 @@ import type { LayoutRuntime } from '@forsee/layouts';
 import type {
   Disposable,
   LayoutDefinition,
-  LayoutFamily,
   SelectionMethodId,
   SettingValue,
   SpeakMode,
@@ -196,22 +195,24 @@ export interface RuntimeGaze {
   resume(): Promise<void>;
 }
 
-/** The active keyboard layout. */
+/**
+ * The active keyboard. Plugins offer keyboards (the standard ones come from
+ * the required `forsee.keyboards` plugin); exactly one is in use.
+ */
 export interface RuntimeLayout {
-  /** Every layout to choose from: built-ins plus layouts contributed by plugins. */
+  /** Every keyboard on offer: the layouts contributed by enabled plugins. */
   readonly catalogue: readonly LayoutDefinition[];
   readonly definition: LayoutDefinition;
   /** Runtime of the active layout; replaced (a new object) when the layout changes. */
   readonly runtime: LayoutRuntime;
-  readonly family: LayoutFamily;
+  /** True when no plugin offers a keyboard and the built-in fallback keyboard is shown. */
+  readonly fallback: boolean;
   /** Called when the active layout (and so `runtime`) is replaced. */
   onDidChange(
     listener: (layout: { definition: LayoutDefinition; runtime: LayoutRuntime }) => void,
   ): Disposable;
-  /** Chooses a layout by id (stored in `app.layout`). Throws `not-found` for an unknown id. */
+  /** Chooses the keyboard by id (stored in `app.layout`). Throws `not-found` for one not on offer. */
   select(layoutId: string): void;
-  /** Chooses the family (`precise` keyboard or `coarse` large targets) and its default layout. */
-  setFamily(family: LayoutFamily): void;
 }
 
 /** Settings helpers (the generated settings screen reads `kernel.settings` directly). */

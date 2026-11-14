@@ -47,6 +47,9 @@
       "path": "./plugins/quickfire"
     },
     {
+      "path": "./plugins/keyboards"
+    },
+    {
       "path": "./tools/lm-build"
     },
     {

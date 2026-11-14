@@ -29,6 +29,10 @@ test('core plugins: turn one off and on, change its options, and they survive a 
 
   // Quick-fire replies off: the replies leave the main screen.
   let sheet = await openPlugins(page);
+  // The standard keyboards cannot be turned off.
+  const keyboards = sheet.getByRole('button', { name: 'Standard keyboards', exact: true });
+  await expect(keyboards).toHaveAttribute('aria-disabled', 'true');
+  await expect(keyboards).toContainText('Always on');
   const quickfire = sheet.getByRole('button', { name: 'Quick-fire replies', exact: true });
   await expect(quickfire).toHaveAttribute('aria-pressed', 'true');
   await quickfire.click();
@@ -83,4 +87,20 @@ test('core plugins: turn one off and on, change its options, and they survive a 
   await expect(
     sheet.getByRole('button', { name: 'Quick-fire replies', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('keyboards: hidden in the plugin options, they leave the keyboard list', async ({ page }) => {
+  await openApp(page);
+  const sheet = await openPlugins(page);
+  await sheet.getByRole('button', { name: 'Standard keyboards options' }).click();
+  await sheet.getByRole('button', { name: 'Deutsch QWERTZ', exact: true }).click();
+  await sheet.getByRole('button', { name: 'Back to plugins' }).click();
+  await sheet.getByRole('button', { name: 'Keyboard', exact: true }).click();
+  const list = sheet.getByRole('group', { name: 'Keyboard', exact: true });
+  await expect(list.getByRole('button', { name: 'English alphabetical, en' })).toBeVisible();
+  await expect(list.getByRole('button', { name: /QWERTZ/ })).toHaveCount(0);
+
+  await list.getByRole('button', { name: 'English alphabetical, en' }).click();
+  await close(page, sheet);
+  await expect(page.locator('[data-layout-id="forsee.keyboards/en-alphabetical"]')).toBeVisible();
 });

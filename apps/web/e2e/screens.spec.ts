@@ -96,6 +96,12 @@ for (const viewport of VIEWPORTS) {
       await page.screenshot({
         path: shotPath(`plugin-options-${size}.png`, (n) => testInfo.outputPath(n)),
       });
+      await sheet.getByRole('button', { name: 'Back to plugins' }).click();
+      await sheet.getByRole('button', { name: 'Standard keyboards options' }).click();
+      await expect(sheet.getByRole('button', { name: 'Back to plugins' })).toBeVisible();
+      await page.screenshot({
+        path: shotPath(`keyboard-options-${size}.png`, (n) => testInfo.outputPath(n)),
+      });
       await sheet.getByRole('button', { name: 'Close' }).click();
 
       await chooseLayout(page, 'English large groups, en');
