@@ -33,6 +33,8 @@ Every package depends on `plugin-api` and `core`. The extra edges are:
 | `plugin-host` | `host`, `layouts`                         | yes         |
 | `ui`          | `gaze`, `layouts`, `prediction`           | yes (React) |
 
+`packages/integration-tests` is a private, test-only package that depends on the other workspace packages to test them together (real kernel, speech engine, prediction engine, layouts and plugin host). Nothing depends on it, and it holds no production code.
+
 There are no cycles and `plugin-api` is the leaf. **Engine packages never depend on `host`**: the platform services they need (`Clock`, `IdSource`, `ProfileFileSystem`) are defined in `core` and injected. Shells (`apps/*`) compose everything.
 
 If your package needs another workspace package, add it to `dependencies` (`"workspace:*"`) **and** to `references` in your `tsconfig.json`, keeping the graph acyclic. Ask before adding an edge not in the table above.
@@ -56,18 +58,19 @@ Durations are milliseconds and named `*Ms`.
 
 **Ids.**
 
-| Thing                       | Format                                                                              | Example                         |
-| --------------------------- | ----------------------------------------------------------------------------------- | ------------------------------- |
-| Plugin id                   | dot-separated `[a-z0-9-]` segments; `forsee.*` first-party                          | `community.example-phrases`     |
-| Command                     | `<area>.<verb>` built-in; plugin commands start with `<pluginId>.` or `<pluginId>/` | `composition.insert`            |
-| Contribution                | unique per extension point; plugins prefix `<pluginId>/`                            | `community.example/compact`     |
-| Panel                       | `<ownerId>/<panelId>`                                                               | `forsee.phrases/picker`         |
-| Gaze target                 | `<owner>/<local id>`                                                                | `keyboard/key-a`                |
-| Settings namespace          | `app.<area>` for the app, plugin id for plugins                                     | `app.gaze`, `community.example` |
-| Context key                 | dot-separated topic path                                                            | `time.partOfDay`                |
-| Voice                       | `<providerId>/<voiceId>`                                                            | `web-speech/Samantha`           |
-| History record, utterance   | UUID v4 from `IdSource.uuid()`                                                      |                                 |
-| HLC timestamp (`HlcString`) | `<wall ms 15 digits>-<counter 6 digits>-<deviceId>`, sorts causally                 | `001763035200000-000000-dev1`   |
+| Thing                       | Format                                                                               | Example                         |
+| --------------------------- | ------------------------------------------------------------------------------------ | ------------------------------- |
+| Plugin id                   | dot-separated `[a-z0-9-]` segments; `forsee.*` first-party                           | `community.example-phrases`     |
+| Command                     | `<area>.<verb>` built-in; plugin commands start with `<pluginId>.` or `<pluginId>/`  | `composition.insert`            |
+| Contribution                | unique per extension point; plugins prefix `<pluginId>/`                             | `community.example/compact`     |
+| Panel                       | `<ownerId>/<panelId>`                                                                | `forsee.phrases/picker`         |
+| Gaze target                 | `<owner>/<local id>`                                                                 | `keyboard/key-a`                |
+| Settings namespace          | `app.<area>` for the app, plugin id for plugins                                      | `app.gaze`, `community.example` |
+| Context key                 | dot-separated topic path                                                             | `time.partOfDay`                |
+| Voice provider              | app: bare id; plugin: `<pluginId>/<localId>`                                         | `community.voices/neural`       |
+| Voice (global id)           | `<providerId>/<voiceId>`, voice id escaped (`%`→`%25`, `/`→`%2F`), split at last `/` | `forsee.web-speech/Samantha`    |
+| History record, utterance   | UUID v4 from `IdSource.uuid()`                                                       |                                 |
+| HLC timestamp (`HlcString`) | `<wall ms 15 digits>-<counter 6 digits>-<deviceId>`, sorts causally                  | `001763035200000-000000-dev1`   |
 
 **Errors.** Kernel APIs throw or reject with `ForseeError` (`packages/core/src/errors.ts`), whose `code` is a `ForseeErrorCode` (`plugin-api/src/common.ts`); `toData()` gives the RPC form. Errors that must not reach the caller (a throwing event listener, a failed background save) go to an injected `ErrorReporter`. The default reporter raises an unhandled promise rejection, which shows in the console and fails a Vitest run.
 
@@ -93,7 +96,7 @@ Durations are milliseconds and named `*Ms`.
 
 Persistence is injected (`SettingsPersistence`, `ConversationPersistence`, `CompositionPersistence` in `core/src/services.ts`); B6 implements all three. `kernel.start()` loads settings, recent history and the composition snapshot, reporting (not throwing) persistence failures so the user can always type. Every composition change is saved in the background, with bursts coalesced.
 
-Built-in commands: `composition.insert {text, distribution?}`, `composition.deleteGrapheme`, `composition.deleteWord`, `composition.clear`, `composition.undo`, `composition.acceptPrediction {text}`, `speech.speak {text?, log?}`, `speech.stop`, `gaze.pause`, `gaze.resume`. `speech.speak` without `text` commits the composition, runs `commit` text transforms, appends to history and calls `SpeechService.speak`. `composition.insert` of text ending in whitespace or punctuation runs `word-boundary` text transforms and applies the result only if the user has not typed since.
+Built-in commands: `composition.insert {text, distribution?}`, `composition.deleteGrapheme`, `composition.deleteWord`, `composition.clear`, `composition.undo`, `composition.acceptPrediction {text}`, `composition.speak {log?}`, `speech.speak {text, log?, voiceId?, rate?, pitch?, volume?, recording?, interrupt?}`, `speech.stop`, `gaze.pause`, `gaze.resume`. `composition.speak` (the Speak key) commits the composition, runs `commit` text transforms, appends to history and calls `SpeechService.speak`; `speech.speak` does the same for the text it is given and never touches the composition. When nothing can speak, both emit `speech.unavailable`. `composition.insert` of text ending in whitespace or punctuation runs `word-boundary` text transforms and applies the result only if the user has not typed since.
 
 A minimal shell:
 
@@ -146,7 +149,7 @@ Where the plan was silent or ambiguous, A2 chose as follows.
 6. **Selection uncertainty reaches the predictor through the composition.** `composition.insert` takes an optional `distribution`; the buffer keeps `partialWordSteps` (one step per insert, concatenating to the partial word) and the prediction engine copies them into the request.
 7. **Delete word** removes trailing whitespace and then the last whitespace-delimited token, punctuation included (`"Hello, world!  "` → `"Hello, "`). This is predictable, and one dwell removes what looks like one word.
 8. **Accepting a prediction** replaces the partial word, matches a leading capital typed by the user, and adds an automatic trailing space. With no partial word it appends the word, inserting a separating space unless the text ends in whitespace or an opening bracket or quote. While the space is automatic, typing `. , ! ? ; :` moves the space after the punctuation, and typing a space is absorbed, so the user never gets `"word ."` or a double space.
-9. **Commit** (`speech.speak` with no text) returns the trimmed text and clears the buffer as an undoable step, so "oops" is one dwell away. History logging happens even without a speech service.
+9. **Commit** (`composition.speak`; until review round 1, `speech.speak` with no text) returns the trimmed text and clears the buffer as an undoable step, so "oops" is one dwell away. History logging happens even without a speech service.
 10. **Grapheme deletion** uses `Intl.Segmenter` when the runtime has it, looked up structurally rather than through lib typings, with a tested fallback covering combining marks, variation selectors, skin-tone modifiers, tag sequences, ZWJ sequences, regional-indicator pairs and CRLF.
 11. **Undo** is bounded (default 100 steps) and covers every text change, including commit and replace. There is no redo. Snapshots hold only the text in v1 (`version: 1`); restoring clears undo history.
 12. **Key escalation and repeat** come from the gaze engine: a target with `afterActivate: 'repeat'` fires again while gaze stays, with `ActivateEvent.repeatIndex` 0, 1, 2…. A layout key with `behaviour: { type: 'escalate', steps }` maps `repeatIndex` to a step (delete letter, then word, then clear).
@@ -162,8 +165,25 @@ Where the plan was silent or ambiguous, A2 chose as follows.
 22. **`BuiltinCommandId` is an explicit union** rather than `keyof CommandArgsMap`, because other packages extend that map.
 23. **UTF-8 helpers** (`encodeUtf8`, `decodeUtf8` in `core/src/utf8.ts`) exist because `TextEncoder` is not in the ES2022 library that engine packages compile against.
 24. **Test doubles ship in the main entry of `@forsee/core`** (`FakeClock`, `SequentialIdSource`, `MemoryFileSystem`), so no subpath exports or extra tsconfig wiring is needed.
-25. **Commands are private to their plugin by default.** A `CommandDescriptor` carries `public` and `requires`. A plugin can always run its own commands; it can run an app command or another plugin's command only if that command is public and the plugin holds every scope in `requires`. The built-in `composition.*` commands require `composition.write` and `speech.speak` requires `speech.output`. `CommandRegistry.authorize(id, caller)` implements the check; `execute` itself trusts its caller, so **the plugin host must call `authorize` before `execute` for every plugin-originated call** (B9, B10).
+25. **Commands are private to their plugin by default.** A `CommandDescriptor` carries `public` and `requires`. A plugin can always run its own commands; it can run an app command or another plugin's command only if that command is public and the plugin holds every scope in `requires`. The built-in `composition.*` commands require `composition.write` and `speech.speak` requires `speech.output` (see review round 1 below for `composition.speak`, `speech.stop` and `gaze.*`). `CommandRegistry.authorize(id, caller)` implements the check; `execute` itself trusts its caller, so **the plugin host must call `authorize` before `execute` for every plugin-originated call** (B9, B10).
 26. **Command failures keep their error code.** A `ForseeError` thrown or rejected by a handler reaches the caller unchanged (`invalid-argument`, `permission-denied`, ...). Only other failures are wrapped as `handler-error`.
+
+### Decisions: permissions and speech (review round 1)
+
+An external review found that the permission checks were made per method, while data reached plugins through other capabilities. These decisions fix that and the speech contract. Each is covered by tests in `packages/plugin-host/src/data-access.test.ts` and `packages/integration-tests`.
+
+- **Permissions are about data and effects, not methods.** For every path into a plugin (API results and rejections, event payloads, command results, every argument the host passes to a provider or handler) the plugin must hold the scope of the data on it, checked at the moment of delivery, not only at registration. `packages/integration-tests/src/capabilities.test.ts` takes one capability away from a probe plugin that uses everything else and asserts the data never reaches it (composition without `composition.read`, history without `history.read`) or the effect never happens (any composition change without `composition.write`), each with an all-scopes control.
+- **Prediction providers need `composition.read`.** Every request carries the composition. Registration needs it; the wrapper checks it on every `predict`, `refine`, `learn` and `forget` and does not call the plugin without it (`predict` answers an empty result); the registration is also disposed on revocation. App-owned providers registered directly in the extension registry are not wrapped and keep working as before.
+- **Voice providers need `speech.output` and `composition.read`; text transforms need `composition.read` and `composition.write`.** Both are handed the composition (an utterance is what the user composed). Both are checked per call and disposed on revocation. The wrapper also validates the handle a voice provider returns.
+- **`speech.speak` and `composition.speak` are separate commands.** `speech.speak {text, …}` requires non-empty `text`, requires `speech.output`, and never reads or changes the composition. `composition.speak {log?}` commits the composition (the Speak key) and requires `speech.output`, `composition.read` and `composition.write`; it returns the `SpeakCommandResult` the old no-text form returned. The built-in layouts' Speak keys use `composition.speak`. This is a deliberate breaking change to `CommandArgsMap['speech.speak']` (the no-text form leaked and cleared the composition).
+- **Speak options reach the speech engine.** `speech.speak` takes the `SpeakOptions` (`voiceId`, `rate` 0.1–10, `pitch` 0–2, `volume` 0–1, `recording`, `interrupt`, `log`); the kernel validates them (unknown keys rejected; `recording` must be a safe profile-relative path: no leading `/`, no empty, `.` or `..` segment, no `\` or `:`) and passes all but `log` to `SpeechService.speak`. The plugin host accepts `interrupt`.
+- **Nothing to speak with is reported, not silent.** `SpeechService` gains an optional `isAvailable()` (the speech engine: a synthesis provider is registered). With no service, `isAvailable() === false`, or a rejected `speak`, the kernel emits `speech.unavailable {text, recordId, reason}`. The text is still logged (unless `log: false`) and, for `composition.speak`, one undo away.
+- **One identity scheme for voices.** App providers have bare ids (no `/`); plugin providers are `<pluginId>/<localId>` (the plugin host prefixes, neither part has a `/`). A global voice id is `formatVoiceId(providerId, voiceId)` = `<providerId>/<voiceId with % → %25 and / → %2F>`, split by `parseVoiceId` at the last `/`. Both helpers live in `plugin-api/src/speech.ts`; the speech registry accepts provider ids with at most one `/`, and the web speech provider parses ids with `parseVoiceId`, so voice URIs containing `/` work.
+- **Command results and undo are data too.** Results of the built-in `composition.*` commands (whether something was deleted or undone) reach a plugin only with `composition.read`. Undoing a commit brings spoken text back, so `composition.undo` at a commit step also needs `history.read` (`CompositionBuffer.nextUndoReason`).
+- **`speech.event` is redacted without `composition.read`:** word boundaries (position and length of each spoken word) are dropped and error messages replaced.
+- **Effects on the user's voice and input need a scope.** `speech.stop` requires `speech.output` (any plugin could otherwise silence the user); `gaze.pause` and `gaze.resume` are not public (a plugin could lock the user out of the keyboard, or resume selection while they rest).
+- **The plugin API is provisional** until the first end-to-end release: `API_STABILITY = 'provisional'` in `plugin-api/src/manifest.ts`, explained in `packages/plugin-api/README.md`. It may change without an `API_VERSION` bump until then.
+- **Not fixed here, for the components that own them:** the keyboard view must authorise the actions of keys in plugin-contributed layouts against the layout's owner (today they would run with keyboard trust); whoever translates panel targets must clip them to the panel frame (noted on `PanelTargets`); driver and in-process gaze sources are full input control and consent screens should say so.
 
 ## Things that will trip you up
 
