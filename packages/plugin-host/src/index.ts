@@ -15,7 +15,12 @@ export * from './settings-slot';
 export { compareSemVer, isSemVer, parseSemVer, SEMVER_PATTERN, type SemVer } from './semver';
 export { isSafeRelativePath, isValidHost } from './patterns';
 export { LIMITS, toCloneSafe } from './guards';
-export { filterPredictionRequest, sanitizePredictionResult } from './providers';
+export {
+  filterPredictionRequest,
+  predictionAccess,
+  sanitizePredictionResult,
+  type PredictionProviderAccess,
+} from './providers';
 
 /** Package name, for diagnostics. */
 export const PLUGIN_HOST_PACKAGE = '@forsee/plugin-host';

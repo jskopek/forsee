@@ -12,6 +12,18 @@
   },
   "dependencies": {
     "@forsee/core": "workspace:*",
+    "@forsee/gaze": "workspace:*",
+    "@forsee/gaze-web": "workspace:*",
+    "@forsee/host": "workspace:*",
+    "@forsee/layouts": "workspace:*",
+    "@forsee/plugin-api": "workspace:*",
+    "@forsee/plugin-host": "workspace:*",
+    "@forsee/plugin-prediction-ngram": "workspace:*",
+    "@forsee/plugin-quickfire": "workspace:*",
+    "@forsee/prediction": "workspace:*",
+    "@forsee/speech": "workspace:*",
+    "@forsee/storage": "workspace:*",
+    "@forsee/ui": "workspace:*",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

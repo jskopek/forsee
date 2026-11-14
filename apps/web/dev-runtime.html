@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Forsee runtime harness</title>
+    <style>
+      body {
+        font:
+          16px/1.4 system-ui,
+          sans-serif;
+        margin: 1rem;
+      }
+      button {
+        font-size: 1rem;
+        margin: 0 0.5rem 0.5rem 0;
+        padding: 0.5rem 1rem;
+      }
+      pre {
+        background: #f4f4f4;
+        padding: 0.75rem;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Forsee runtime harness</h1>
+    <p>
+      Development only: boots <code>createForseeRuntime()</code> without React and exposes it as
+      <code>window.forsee</code>. Not part of the production build.
+    </p>
+    <div>
+      <button id="type-hello" disabled>Type "hello"</button>
+      <button id="speak" disabled>Speak</button>
+      <button id="history" disabled>Show history</button>
+    </div>
+    <p>Composition: <strong id="composition"></strong></p>
+    <pre id="log"></pre>
+    <script type="module" src="/dev-runtime.ts"></script>
+  </body>
+</html>

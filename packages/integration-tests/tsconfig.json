@@ -28,6 +28,9 @@
     },
     {
       "path": "../speech"
+    },
+    {
+      "path": "../../plugins/prediction-ngram"
     }
   ]
 }

@@ -50,6 +50,10 @@ Each package's `exports` points at `src/index.ts`. Vite, Vitest and `tsc` all re
 
 Put unit tests next to the code as `src/**/*.test.ts` (or `.tsx`); the root `vitest.config.js` picks them up, default environment is Node. Import `describe`, `it`, `expect` from `vitest`. Browser end-to-end tests live in `apps/web/e2e`. Tests that need several packages working together (real kernel, speech engine, prediction engine, layouts and plugin host) live in `packages/integration-tests`, a private test-only package.
 
+### Runtime harness
+
+`pnpm --filter @forsee/web dev`, then open `http://localhost:5173/dev-runtime.html`: a page without React that boots the application runtime (`apps/web/src/runtime`) in the real browser, exposes it as `window.forsee` and has buttons to type, speak and show history. It is for development only and is not in the production build.
+
 ### Styling
 
 `apps/web` uses Tailwind CSS 3.4. Colour tokens and the dwell-fill animation are ported from the prototype into `apps/web/tailwind.config.js` and `apps/web/src/index.css`.

@@ -2,6 +2,7 @@ import { createKernel, FakeClock, MemoryFileSystem } from '@forsee/core';
 import type { VoiceProvider } from '@forsee/plugin-api';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  createBrowserFileSystem,
   createMemoryHost,
   createWebClock,
   createWebHost,
@@ -209,6 +210,18 @@ describe('createWebHost', () => {
     });
     const persistent = createWebHost({ environment: fakeEnv(), files: new MemoryFileSystem() });
     expect(persistent.capabilities.fileSystem).toBe('persistent');
+  });
+
+  it("reports createBrowserFileSystem's in-memory fallback as not persistent", async () => {
+    // No OPFS and no IndexedDB: the browser file system falls back to memory.
+    const storage = await createBrowserFileSystem({ environment: {} });
+    expect(storage.kind).toBe('memory');
+    const host = createWebHost({
+      environment: fakeEnv(),
+      files: storage.files,
+      persistent: storage.persistent,
+    });
+    expect(host.capabilities.fileSystem).toBe('memory');
   });
 
   it('toggles fullscreen through the document', async () => {

@@ -41,6 +41,12 @@
       "path": "./packages/integration-tests"
     },
     {
+      "path": "./plugins/prediction-ngram"
+    },
+    {
+      "path": "./plugins/quickfire"
+    },
+    {
       "path": "./tools/lm-build"
     },
     {

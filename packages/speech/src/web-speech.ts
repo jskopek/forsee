@@ -76,7 +76,10 @@ class WebSpeechProviderImpl implements WebSpeechProvider {
   private isLocked: boolean;
   private active: Run | undefined;
   private voicesWait: Promise<void> | undefined;
+  /** Ends a pending `waitForVoices` (removes its listener and timer). */
+  private endVoicesWait: (() => void) | undefined;
   private primer: SpeechSynthesisUtteranceLike | undefined;
+  private primerTimer: Disposable | undefined;
   private disposed = false;
 
   constructor(private readonly options: WebSpeechProviderOptions) {
@@ -116,15 +119,18 @@ class WebSpeechProviderImpl implements WebSpeechProvider {
 
   /** Waits for `voiceschanged`, or the timeout. Shared by concurrent callers. */
   private waitForVoices(): Promise<void> {
+    if (this.disposed) return Promise.resolve();
     this.voicesWait ??= new Promise<void>((resolve) => {
       const finish = (): void => {
         this.synthesis.removeEventListener('voiceschanged', finish);
         timer.dispose();
         this.voicesWait = undefined;
+        this.endVoicesWait = undefined;
         resolve();
       };
       const timer = this.clock.setTimeout(finish, this.voicesTimeout);
       this.synthesis.addEventListener('voiceschanged', finish);
+      this.endVoicesWait = finish;
     });
     return this.voicesWait;
   }
@@ -221,6 +227,13 @@ class WebSpeechProviderImpl implements WebSpeechProvider {
     if (this.disposed) return;
     this.stop();
     this.disposed = true;
+    // Leave nothing behind on the browser object or the clock: a pending
+    // voices wait resolves (with whatever voices exist) and the primer's
+    // cancel timer is dropped.
+    this.endVoicesWait?.();
+    this.primerTimer?.dispose();
+    this.primerTimer = undefined;
+    this.primer = undefined;
     this.lockEvents.dispose();
   }
 
@@ -246,7 +259,9 @@ class WebSpeechProviderImpl implements WebSpeechProvider {
       this.setLocked(true);
       return;
     }
-    this.clock.setTimeout(() => {
+    this.primerTimer?.dispose();
+    this.primerTimer = this.clock.setTimeout(() => {
+      this.primerTimer = undefined;
       if (this.primer === primer) this.primer = undefined;
       if (!this.active) this.safeCancel();
     }, PRIME_CANCEL_MS);

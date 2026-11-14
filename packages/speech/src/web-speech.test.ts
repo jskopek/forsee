@@ -96,6 +96,27 @@ describe('web speech: voices', () => {
     expect(clock.pendingTimers).toBe(0);
   });
 
+  it('leaves no listener or timer behind when disposed while waiting for voices', async () => {
+    const { provider, synthesis, clock } = setup({ voices: [] });
+    const pending = provider.listVoices();
+    expect(synthesis.voicesListenerCount).toBe(1);
+    expect(clock.pendingTimers).toBe(1);
+    provider.dispose();
+    expect(synthesis.voicesListenerCount).toBe(0);
+    expect(clock.pendingTimers).toBe(0);
+    expect(await pending).toEqual([]);
+    expect(await provider.listVoices()).toEqual([]);
+    expect(synthesis.voicesListenerCount).toBe(0);
+  });
+
+  it('drops the primer timer when disposed right after unlock', () => {
+    const { provider, clock } = setup({ requireUnlock: true });
+    provider.unlock();
+    expect(clock.pendingTimers).toBe(1);
+    provider.dispose();
+    expect(clock.pendingTimers).toBe(0);
+  });
+
   it('cleans the timer up when voices arrive', async () => {
     const { provider, synthesis, clock } = setup({ voices: [] });
     const pending = provider.listVoices();

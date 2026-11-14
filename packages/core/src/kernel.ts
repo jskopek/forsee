@@ -55,8 +55,8 @@ export interface KernelEventMap {
   'speech.requested': { readonly text: string; readonly recordId: string | null };
   /**
    * Text could not be spoken: there is no speech service (`no-service`), the
-   * service reports no usable voice (`no-voice`), or `speak` failed
-   * (`error`). The text is not lost: it is in the event, in history (when
+   * service reports no usable voice (`no-voice`), or `speak` rejected or
+   * resolved `error` (`error`). The text is not lost: it is in the event, in history (when
    * logged) and, for `composition.speak`, one undo away. The UI should show it.
    */
   'speech.unavailable': {
@@ -400,10 +400,18 @@ export function createKernel(options: KernelOptions): Kernel {
       });
       return { spoken: false, text, recordId };
     }
-    speech.speak(text, options).catch((error: unknown) => {
-      reportError(error, 'speech.speak');
-      bus.emit('speech.unavailable', { text, recordId, reason: 'error' });
-    });
+    // A speech engine reports failure by resolving `error` (its queue never
+    // rejects), a broken service by rejecting: either way the text was not
+    // spoken, and the UI must be told.
+    speech.speak(text, options).then(
+      (reason) => {
+        if (reason === 'error') bus.emit('speech.unavailable', { text, recordId, reason: 'error' });
+      },
+      (error: unknown) => {
+        reportError(error, 'speech.speak');
+        bus.emit('speech.unavailable', { text, recordId, reason: 'error' });
+      },
+    );
     return { spoken: true, text, recordId };
   };
 
