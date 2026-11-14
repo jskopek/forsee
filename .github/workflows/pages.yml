@@ -1,0 +1,46 @@
+# Publishes the web app to GitHub Pages. Manual only: publishing the app is
+# the repository owner's decision, so this never runs on push. Before the
+# first run, set Settings → Pages → Build and deployment → Source to
+# "GitHub Actions" (see docs/DEVELOPMENT.md).
+name: Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build apps/web for https://<owner>.github.io/<repository>/
+        run: pnpm --filter @forsee/web build
+        env:
+          FORSEE_BASE: /${{ github.event.repository.name }}/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
