@@ -1,4 +1,11 @@
-import type { Clock, IdSource, Kernel, KernelEventMap, ProfileFileSystem } from '@forsee/core';
+import type {
+  Clock,
+  IdSource,
+  Kernel,
+  KernelEventMap,
+  ProfileFileSystem,
+  SettingsTrial,
+} from '@forsee/core';
 import type { GazePipeline, TargetRegistry } from '@forsee/gaze';
 import type { InputMode, PointerEnvironment } from '@forsee/gaze-web';
 import type { BrowserFileSystem, HostBridge } from '@forsee/host';
@@ -229,6 +236,12 @@ export interface RuntimeSettings {
   };
   get(namespace: string, key: string): SettingValue;
   set(namespace: string, key: string, value: SettingValue): void;
+  /**
+   * Timed revert for risky changes (`danger` other than `none`): the
+   * settings screen applies them through `trial.apply`, and they are undone
+   * unless the user selects Keep with the new values in effect.
+   */
+  readonly trial: SettingsTrial;
 }
 
 /** A booted Forsee. */
