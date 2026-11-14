@@ -1,5 +1,5 @@
 import { FakeClock } from '@forsee/core';
-import type { SpeechEvent, Utterance } from '@forsee/plugin-api';
+import { formatVoiceId, type SpeechEvent, type Utterance } from '@forsee/plugin-api';
 import { describe, expect, it } from 'vitest';
 import { chunkText, wordLengthAt } from './chunking';
 import { createWebSpeechProvider } from './web-speech';
@@ -106,6 +106,15 @@ describe('web speech: voices', () => {
 });
 
 describe('web speech: speaking', () => {
+  it('finds a voice whose URI contains a slash through its escaped global id', async () => {
+    const slashed = { ...fakeBrowserVoice('Ava', 'en-GB'), voiceURI: 'urn:voice/en/ava' };
+    const { synthesis, speak, provider } = setup({ voices: [...VOICES, slashed] });
+    const voice = (await provider.listVoices()).find((v) => v.name === 'Ava');
+    expect(voice?.id).toBe('urn:voice/en/ava');
+    speak('Hi', { voiceId: formatVoiceId('forsee.web-speech', 'urn:voice/en/ava') });
+    expect(synthesis.queue[0]?.voice?.name).toBe('Ava');
+  });
+
   it('speaks with the requested local voice and settings', () => {
     const { synthesis, speak, events, types } = setup();
     const handle = speak('Hello world', {

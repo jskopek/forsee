@@ -1,5 +1,11 @@
 import { EventBus, type Clock, type Disposable } from '@forsee/core';
-import type { SpeechEvents, SpeechHandle, Utterance, Voice } from '@forsee/plugin-api';
+import {
+  parseVoiceId,
+  type SpeechEvents,
+  type SpeechHandle,
+  type Utterance,
+  type Voice,
+} from '@forsee/plugin-api';
 import { chunkText, wordLengthAt, type TextChunk } from './chunking';
 import type {
   SpeechSynthesisLike,
@@ -144,8 +150,8 @@ class WebSpeechProviderImpl implements WebSpeechProvider {
   private pickVoice(voiceId: string | undefined): SpeechSynthesisVoiceLike | null | undefined {
     const allowed = this.readVoices();
     if (voiceId !== undefined) {
-      const prefix = `${this.id}/`;
-      const uri = voiceId.startsWith(prefix) ? voiceId.slice(prefix.length) : voiceId;
+      const parts = parseVoiceId(voiceId);
+      const uri = parts?.providerId === this.id ? parts.voiceId : voiceId;
       const found = allowed.find((voice) => voice.voiceURI === uri);
       if (found) return found;
     }

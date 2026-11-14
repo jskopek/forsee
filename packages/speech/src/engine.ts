@@ -44,7 +44,7 @@ export const RECORDED_PROVIDER_ID = 'forsee.recorded';
  * Routing: a recording goes to the recorded provider and falls back to
  * synthesising its text when the recording is missing or fails before audio
  * starts (reported on `events` as `fallback`). Otherwise the voice id
- * (`<providerId>/<voiceId>`) names the provider; an unknown or absent id
+ * (`<providerId>/<escaped voiceId>`, split at its last `/`) names the provider; an unknown or absent id
  * goes to the default synthesis provider.
  */
 export function createSpeechService(options: SpeechServiceOptions): SpeechEngine {
@@ -127,6 +127,12 @@ class Engine implements SpeechEngine {
 
   stop(): void {
     this.queue.stopAll();
+  }
+
+  /** True when a synthesis provider (anything but the recorded-message one) is registered. */
+  isAvailable(): boolean {
+    if (this.disposed) return false;
+    return this.registry.list().some((provider) => provider.id !== this.recordedId);
   }
 
   // ---------------------------------------------------------------- voices and settings
