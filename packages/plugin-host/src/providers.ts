@@ -37,6 +37,7 @@ import {
   requireString,
   toCloneSafe,
 } from './guards';
+import type { PermissionManager } from './contracts';
 import { CONTEXT_KEY, LOCALE } from './patterns';
 
 /**
@@ -105,6 +106,50 @@ export function filterPredictionRequest(
   if (!allow.history) delete copy.conversation;
   if (!allow.context) delete copy.context;
   return copy as unknown as PredictionRequest;
+}
+
+/**
+ * What one prediction provider may see and do: structurally the
+ * `ProviderAccess` of `@forsee/prediction` (this package does not depend on
+ * it), returned by `predictionAccess`.
+ */
+export interface PredictionProviderAccess {
+  readonly conversation: boolean;
+  readonly context: boolean;
+  readonly learn: boolean;
+}
+
+const APP_PREDICTION_ACCESS: PredictionProviderAccess = {
+  conversation: true,
+  context: true,
+  learn: true,
+};
+
+/**
+ * The prediction engine's `access` hook (`PredictionEngineOptions.access`),
+ * decided from the plugin host's permission manager, so the engine and the
+ * provider wrapper apply the same rules: a provider owned by the app gets
+ * everything; a plugin's provider gets `conversation` with `history.read`,
+ * `context` with `context.read`, and `learn`/`forget` with `lm.write` (and
+ * `composition.read`, which every call needs). Pass it as
+ * `createPredictionEngine({ access: predictionAccess(pluginHost.permissions) })`.
+ *
+ * Without it the engine's default denies every plugin-owned provider
+ * `learn`, so a first-party predictor registered through the plugin API
+ * would never learn the user's words, whatever its permissions.
+ */
+export function predictionAccess(
+  permissions: Pick<PermissionManager, 'has'>,
+): (contribution: { readonly owner: string }) => PredictionProviderAccess {
+  return ({ owner }) => {
+    if (owner === 'app') return APP_PREDICTION_ACCESS;
+    const read = permissions.has(owner, 'composition.read');
+    return {
+      conversation: read && permissions.has(owner, 'history.read'),
+      context: read && permissions.has(owner, 'context.read'),
+      learn: read && permissions.has(owner, 'lm.write'),
+    };
+  };
 }
 
 function clampScore(value: unknown, name: string): number {
