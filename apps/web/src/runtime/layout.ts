@@ -120,10 +120,14 @@ export function createLayoutController(
     },
     onDidChange: (listener) => bus.on('changed', listener),
     select(layoutId) {
-      if (!catalogue().some((l) => l.id === layoutId)) {
+      const chosen = catalogue().find((l) => l.id === layoutId);
+      if (!chosen) {
         throw new ForseeError('not-found', `There is no layout "${layoutId}".`);
       }
       kernel.settings.set(LAYOUT_SETTINGS_NAMESPACE, 'layoutId', layoutId);
+      // Keep the family in step, so `family` describes the active layout and
+      // the family's default is right if this layout later disappears.
+      kernel.settings.set(LAYOUT_SETTINGS_NAMESPACE, 'family', chosen.family);
     },
     setFamily(next) {
       kernel.settings.set(LAYOUT_SETTINGS_NAMESPACE, 'layoutId', '');

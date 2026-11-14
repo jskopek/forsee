@@ -63,6 +63,28 @@ export function speakModeOf(value: unknown): SpeakMode {
   return SPEAK_MODES.find((mode) => mode === value) ?? 'on-demand';
 }
 
+/** Settings namespace of the screen itself (feedback and extra input). */
+export const UI_SETTINGS_NAMESPACE = 'app.ui';
+
+/** `app.ui`: dwell click sound and typing on a physical keyboard. */
+export const UI_SETTING_FIELDS: readonly SettingField[] = [
+  {
+    key: 'clickSound',
+    label: 'Click sound',
+    description: 'A short click when something is selected.',
+    type: 'boolean',
+    default: true,
+  },
+  {
+    key: 'physicalKeyboard',
+    label: 'Type on a physical keyboard',
+    description:
+      'Letters, space, Backspace and Enter (speak) on a connected keyboard type into the message.',
+    type: 'boolean',
+    default: true,
+  },
+];
+
 /** `app.layout`: which layout, and which family when none is chosen. */
 export const LAYOUT_SETTING_FIELDS: readonly SettingField[] = [
   {

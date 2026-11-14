@@ -70,6 +70,8 @@ describe('restart', () => {
     await typed(a, 'I would li');
     await a.gaze.adjustDwell('slower');
     a.speech.updateSettings({ voiceId: 'forsee.web-speech/Serena', rate: 1.2 });
+    expect(a.settings.get(a.settings.namespaces.ui, 'clickSound')).toBe(true);
+    a.settings.set(a.settings.namespaces.ui, 'clickSound', false);
     await a.flush();
     await a.dispose();
     const oldRecord = a.kernel.conversation.listRecent(1)[0]!;
@@ -92,6 +94,8 @@ describe('restart', () => {
       voiceId: 'forsee.web-speech/Serena',
       rate: 1.2,
     });
+    expect(b.settings.get('app.ui', 'clickSound')).toBe(false);
+    expect(b.settings.get('app.ui', 'physicalKeyboard')).toBe(true);
 
     await b.kernel.commands.execute('composition.clear', undefined, 'app');
     await typed(b, 'zor');
@@ -460,6 +464,12 @@ describe('layout', () => {
     expect(changed).toHaveBeenCalledTimes(1);
     runtime.layout.select('forsee/en-alphabetical');
     expect(runtime.layout.definition.id).toBe('forsee/en-alphabetical');
+    // The family follows the chosen layout.
+    expect(runtime.layout.family).toBe('precise');
+    expect(changed).toHaveBeenCalledTimes(2);
+    runtime.layout.select('forsee/en-coarse-groups');
+    expect(runtime.layout.family).toBe('coarse');
+    runtime.layout.select('forsee/en-alphabetical');
     expect(() => runtime.layout.select('nope/missing')).toThrow(/no layout/);
     await runtime.kernel.commands.execute('layout.showPage', { page: 'numbers' }, 'app');
     expect(runtime.layout.runtime.view.pageId).toBe('numbers');
@@ -544,5 +554,19 @@ describe('offline promise', () => {
     await runtime.dispose();
     expect(browser.synthesis.spoken.map((u) => u.text)).toEqual(['hi', 'Yes']);
     expect(calls).toEqual([]);
+  });
+});
+
+describe('errors', () => {
+  it('collects errors the UI reports, alongside the runtime’s own', async () => {
+    const browser = createTestBrowser();
+    const runtime = await boot(browser);
+    const seen = vi.fn();
+    runtime.errors.on(seen);
+    runtime.reportError(new Error('click failed'), 'ui.target.command:test');
+    expect(runtime.errors.list().map((e) => e.context)).toEqual(['ui.target.command:test']);
+    expect(seen).toHaveBeenCalledTimes(1);
+    expect(browser.errors).toHaveLength(1);
+    browser.errors.length = 0;
   });
 });
