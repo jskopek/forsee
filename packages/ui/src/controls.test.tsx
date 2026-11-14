@@ -145,7 +145,7 @@ describe('SpeakButton', () => {
     h.kernel.bus.on('speech.requested', spoken);
     const { rerender } = renderWithHost(
       <SpeakButton
-        command={{ command: 'speech.speak' }}
+        command={{ command: 'composition.speak' }}
         stopCommand={{ command: 'speech.stop' }}
       />,
       { host: h },
@@ -157,7 +157,7 @@ describe('SpeakButton', () => {
 
     rerender(
       <SpeakButton
-        command={{ command: 'speech.speak' }}
+        command={{ command: 'composition.speak' }}
         stopCommand={{ command: 'speech.stop' }}
         speaking
       />,
