@@ -147,7 +147,13 @@ export interface TargetDescriptor {
    * opinion (factor 1).
    */
   readonly likelihood?: number;
-  /** Command executed on activation. Absent for targets that only emit `activate` events (plugin panels). */
+  /**
+   * Command the gaze pipeline executes on activation (once, with the
+   * selection's distribution attached to `composition.insert`). Absent for
+   * targets whose owner resolves and executes the activation itself (layout
+   * keys, plugin panel targets): the pipeline then executes nothing and the
+   * owner receives the full `ActivateEvent`.
+   */
   readonly command?: CommandInvocation;
   /**
    * Text this target types, if it is a character key (for example `"a"`).
@@ -202,7 +208,11 @@ export interface ProgressEvent {
   readonly t: number;
 }
 
-/** A target fired. The command, if any, is executed by the pipeline after this event. */
+/**
+ * A target fired. Exactly one party executes it: the pipeline, when the
+ * target has a `command`; otherwise the target's owner, which receives this
+ * whole event (so it can resolve `repeatIndex` and pass `distribution` on).
+ */
 export interface ActivateEvent {
   readonly type: 'activate';
   readonly targetId: string;
