@@ -400,10 +400,18 @@ export function createKernel(options: KernelOptions): Kernel {
       });
       return { spoken: false, text, recordId };
     }
-    speech.speak(text, options).catch((error: unknown) => {
-      reportError(error, 'speech.speak');
-      bus.emit('speech.unavailable', { text, recordId, reason: 'error' });
-    });
+    // A speech engine reports failure by resolving `error` (its queue never
+    // rejects), a broken service by rejecting: either way the text was not
+    // spoken, and the UI must be told.
+    speech.speak(text, options).then(
+      (reason) => {
+        if (reason === 'error') bus.emit('speech.unavailable', { text, recordId, reason: 'error' });
+      },
+      (error: unknown) => {
+        reportError(error, 'speech.speak');
+        bus.emit('speech.unavailable', { text, recordId, reason: 'error' });
+      },
+    );
     return { spoken: true, text, recordId };
   };
 

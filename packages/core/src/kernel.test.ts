@@ -2,6 +2,7 @@ import {
   BUILTIN_COMMAND_IDS,
   type HistoryRecord,
   type SettingsSnapshot,
+  type SpeechEndReason,
   type TextTransform,
 } from '@forsee/plugin-api';
 import { describe, expect, it, vi } from 'vitest';
@@ -404,6 +405,32 @@ describe('createKernel', () => {
     expect(unavailable).toHaveBeenCalledWith(expect.objectContaining({ reason: 'error' }));
     await expect(second.kernel.commands.execute('speech.stop')).resolves.toBe(true);
     expect(failing.stop).toHaveBeenCalled();
+  });
+
+  it('tells the UI when speech ends with an error (the speech engine resolves, never rejects)', async () => {
+    const results: SpeechEndReason[] = ['completed', 'stopped', 'error'];
+    for (const reason of results) {
+      const service = {
+        speak: () => Promise.resolve(reason),
+        stop: vi.fn(),
+      } satisfies SpeechService;
+      const second = setup({ speech: service });
+      const unavailable = vi.fn();
+      second.kernel.bus.on('speech.unavailable', unavailable);
+      const result = await second.kernel.commands.execute('speech.speak', { text: 'hi' });
+      await Promise.resolve();
+      await Promise.resolve();
+      if (reason === 'error') {
+        expect(unavailable).toHaveBeenCalledWith({
+          text: 'hi',
+          recordId: (result as { recordId: string }).recordId,
+          reason: 'error',
+        });
+      } else {
+        expect(unavailable).not.toHaveBeenCalled();
+      }
+      expect(second.reportError).not.toHaveBeenCalled();
+    }
   });
 
   it('gaze commands delegate to the gaze control and emit pause changes', async () => {
