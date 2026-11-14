@@ -1,4 +1,4 @@
-import type { Clock, IdSource, Kernel, ProfileFileSystem } from '@forsee/core';
+import type { Clock, IdSource, Kernel, KernelEventMap, ProfileFileSystem } from '@forsee/core';
 import type { GazePipeline, TargetRegistry } from '@forsee/gaze';
 import type { InputMode, PointerEnvironment } from '@forsee/gaze-web';
 import type { BrowserFileSystem, HostBridge } from '@forsee/host';
@@ -166,6 +166,12 @@ export interface RuntimeSpeech {
   /** Call from inside a user gesture (a click handler) to allow speech. */
   unlock(): void;
   onLockedChange(listener: (locked: boolean) => void): Disposable;
+  /**
+   * Text could not be spoken (no synthesis, no voice, or the browser failed):
+   * the kernel's `speech.unavailable`. The text is in history and, after the
+   * Speak key, one undo away; show it to the user.
+   */
+  onUnavailable(listener: (event: KernelEventMap['speech.unavailable']) => void): Disposable;
   /** Local voices (offline). */
   listVoices(): Promise<readonly Voice[]>;
   readonly settings: RuntimeSpeechSettings;

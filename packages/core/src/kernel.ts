@@ -55,8 +55,8 @@ export interface KernelEventMap {
   'speech.requested': { readonly text: string; readonly recordId: string | null };
   /**
    * Text could not be spoken: there is no speech service (`no-service`), the
-   * service reports no usable voice (`no-voice`), or `speak` failed
-   * (`error`). The text is not lost: it is in the event, in history (when
+   * service reports no usable voice (`no-voice`), or `speak` rejected or
+   * resolved `error` (`error`). The text is not lost: it is in the event, in history (when
    * logged) and, for `composition.speak`, one undo away. The UI should show it.
    */
   'speech.unavailable': {

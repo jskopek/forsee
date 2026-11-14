@@ -338,11 +338,16 @@ export async function createForseeRuntime(
   access = predictionAccess(pluginHost.permissions);
   try {
     await pluginHost.start();
+    // A first-party plugin that did not start is part of the app missing
+    // (failed in activate, or blocked, for example by its minAppVersion).
     for (const status of pluginHost.list()) {
-      if (status.origin === 'first-party' && status.state === 'failed') {
+      if (
+        status.origin === 'first-party' &&
+        (status.state === 'failed' || status.state === 'blocked')
+      ) {
         issues.push({
           part: 'plugins',
-          message: `${status.manifest.name} (${status.manifest.id}): ${status.reason ?? 'failed'}`,
+          message: `${status.manifest.name} (${status.manifest.id}) is ${status.state}: ${status.reason ?? 'no reason given'}`,
         });
       }
     }
@@ -520,6 +525,7 @@ export async function createForseeRuntime(
     },
     unlock: () => webSpeech?.unlock(),
     onLockedChange: (listener) => webSpeech?.onLockedChange(listener) ?? NOOP_DISPOSABLE,
+    onUnavailable: (listener) => kernel.bus.on('speech.unavailable', listener),
     listVoices: () => speechEngine.listVoices(),
     get settings() {
       return readSpeechSettings();

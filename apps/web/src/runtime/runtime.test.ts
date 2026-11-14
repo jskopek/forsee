@@ -217,7 +217,7 @@ describe('degraded starts', () => {
     const browser = createTestBrowser();
     const runtime = await boot(browser);
     const unavailable = vi.fn();
-    runtime.kernel.bus.on('speech.unavailable', unavailable);
+    runtime.speech.onUnavailable(unavailable);
     await typed(runtime, 'hello');
     await runtime.kernel.commands.execute('composition.speak', undefined, 'keyboard');
     browser.synthesis.error('synthesis-failed');
@@ -292,6 +292,19 @@ describe('degraded starts', () => {
     expect(runtime.errors.list().map((e) => e.context)).toContain('plugin:forsee.broken:activate');
     await typed(runtime, 'fine');
     expect(runtime.kernel.composition.text).toBe('fine');
+  });
+});
+
+describe('blocked first-party plugins', () => {
+  // Found in a real browser: the harness passed appVersion "0.0.0-dev", which
+  // sorts before the plugins' minAppVersion "0.0.0", so both were blocked and
+  // nothing said so.
+  it('are reported as startup issues', async () => {
+    const browser = createTestBrowser();
+    const runtime = await boot(browser, { appVersion: '0.0.0-dev' });
+    expect(runtime.pluginHost.get(NGRAM_PLUGIN_ID)?.state).toBe('blocked');
+    expect(runtime.startupIssues.map((i) => i.part)).toEqual(['plugins', 'plugins']);
+    expect(runtime.startupIssues[0]?.message).toMatch(/blocked: It needs Forsee 0\.0\.0/);
   });
 });
 
