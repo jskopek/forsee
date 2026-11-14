@@ -14,14 +14,10 @@ import {
 } from '@forsee/layouts';
 import type { Disposable, LayoutDefinition, LayoutFamily } from '@forsee/plugin-api';
 import { migrateLayoutId } from '@forsee/plugin-keyboards';
-import { withoutKeysFor } from './keyboard-filter';
 import { LAYOUT_SETTINGS_NAMESPACE } from './settings';
 import type { RuntimeLayout } from './types';
 
 interface Active {
-  /** The keyboard as offered. */
-  readonly source: LayoutDefinition;
-  /** `source` without keys for the control bar's commands (what is rendered). */
   readonly definition: LayoutDefinition;
   readonly runtime: LayoutRuntime;
 }
@@ -67,14 +63,10 @@ export function createLayoutController(
     const named = id === '' ? undefined : layouts.find((l) => l.id === id);
     return named ?? pickDefaultLayout(layouts, DEFAULT_FAMILY, kernel.locale);
   };
-  const make = (source: LayoutDefinition): Active => {
-    const definition = withoutKeysFor(source);
-    return {
-      source,
-      definition,
-      runtime: createLayoutRuntime(definition, { onListenerError: reportError }),
-    };
-  };
+  const make = (definition: LayoutDefinition): Active => ({
+    definition,
+    runtime: createLayoutRuntime(definition, { onListenerError: reportError }),
+  });
 
   let active = make(choose());
 
@@ -86,7 +78,7 @@ export function createLayoutController(
       reportError(error, 'runtime.layout');
       return;
     }
-    if (next === active.source) return;
+    if (next === active.definition) return;
     active = make(next);
     bus.emit('changed', active);
   };
@@ -134,7 +126,7 @@ export function createLayoutController(
       return active.runtime;
     },
     get fallback() {
-      return active.source === FALLBACK_LAYOUT;
+      return active.definition === FALLBACK_LAYOUT;
     },
     onDidChange: (listener) => bus.on('changed', listener),
     select(layoutId) {

@@ -1,7 +1,6 @@
 import {
   AppFrame,
   CompositionBar,
-  DwellSpeedControls,
   GazeTarget,
   HostUiProvider,
   Icon,
@@ -28,7 +27,7 @@ import {
 } from './hooks';
 import { usePhysicalKeyboard, useUnlockSpeechOnGesture } from './input';
 import { useNotices, type Notice } from './notices';
-import { DWELL_FASTER_COMMAND, DWELL_SLOWER_COMMAND, type ForseeRuntime } from './runtime';
+import type { ForseeRuntime } from './runtime';
 import { controlBarSettingOf, type ControlBarSetting } from './runtime/settings';
 import { SettingsSheet } from './SettingsSheet';
 
@@ -142,26 +141,19 @@ function Screen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
     </div>
   );
 
-  // Speak is always the control nearest the message, Settings the furthest.
-  // A top bar shares the message row, so it has no room for the dwell controls.
+  // The control bar holds only Speak, Pause and Settings; plugins cannot add
+  // to it. Speak is always nearest the message and takes the space Pause and
+  // Settings leave; Settings is the furthest.
+  const fixed = vertical
+    ? 'flex-none h-[clamp(5rem,15vh,8.5rem)]'
+    : 'flex-none w-[clamp(6.5rem,11vw,10.5rem)]';
   const actions = (
     <>
-      <div className={`${SIDE_ITEM} ${vertical ? 'flex-[1.1]' : 'flex-1'}`}>{speak}</div>
-      {position !== 'top' && (
-        <div className={`${SIDE_ITEM} ${vertical ? 'flex-[2.6]' : 'flex-[3]'}`}>
-          <DwellSpeedControls
-            horizontal={!vertical}
-            commands={{
-              faster: { command: DWELL_FASTER_COMMAND },
-              slower: { command: DWELL_SLOWER_COMMAND },
-            }}
-          />
-        </div>
-      )}
-      <div className={`${SIDE_ITEM} flex-1`}>
+      <div className={`${SIDE_ITEM} flex-1`}>{speak}</div>
+      <div className={`${SIDE_ITEM} ${fixed}`}>
         <PauseButton />
       </div>
-      <div className={`${SIDE_ITEM} flex-1`}>{settingsButton}</div>
+      <div className={`${SIDE_ITEM} ${fixed}`}>{settingsButton}</div>
     </>
   );
 

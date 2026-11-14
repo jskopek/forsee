@@ -126,7 +126,7 @@ export function appFrameGrid({
       : actions === 'left'
         ? `${column} minmax(0, 1fr)`
         : actions === 'top'
-          ? 'minmax(0, 1fr) clamp(16rem, 42vw, 31.5rem)'
+          ? 'minmax(0, 1fr) clamp(18rem, 45vw, 34rem)'
           : 'minmax(0, 1fr)';
   return {
     gridTemplateAreas: rows.map(([name]) => area(name)).join(' '),

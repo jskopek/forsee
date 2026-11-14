@@ -18,7 +18,7 @@ pnpm --filter @forsee/web dev     # then open http://localhost:5173
 
 To try it on an iPad or other device on the same network, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#opening-the-app-on-other-devices).
 
-**What works:** typing by dwell with a mouse or anything that moves the pointer (most eye trackers' mouse emulation), direct taps on touch screens, word prediction that learns your words, Speak, Stop, quick-fire replies ("Yes", "No", "Help", ...), in-place Faster/Slower dwell, pause with a deliberate wake target, a large-key two-step layout for less precise pointing, voice, rate and speak-mode settings, core plugins you can turn on and off with their own options (Settings → Plugins), and recovery of the half-written message after a reload.
+**What works:** typing by dwell with a mouse or anything that moves the pointer (most eye trackers' mouse emulation), direct taps on touch screens, word prediction that learns your words, Speak, Stop, quick-fire replies ("Yes", "No", "Help", ...), Faster/Slower dwell (Settings → Input), pause with a deliberate wake target, a large-key two-step layout for less precise pointing, voice, rate and speak-mode settings, core plugins you can turn on and off with their own options (Settings → Plugins), and recovery of the half-written message after a reload.
 
 **Not yet:** webcam eye tracking, the desktop and iPad apps, phrase bank and history screens, the partner display, plugins from anyone other than the project. Status and the device tests still to do are in [docs/MVP_STATUS.md](docs/MVP_STATUS.md).
 

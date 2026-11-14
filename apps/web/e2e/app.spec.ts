@@ -33,7 +33,7 @@ test.describe('with speech', () => {
     await openApp(page);
     const letterMs = await faster(page, 4);
     expect(letterMs).toBe(400);
-    // Faster, Slower and the shown value are the in-place controls; Speak is in the control bar.
+    // Speak is in the control bar, once.
     await expect(page.getByRole('button', { name: 'Speak', exact: true })).toHaveCount(1);
 
     // Each letter fires only after resting on it (adaptive dwell: 0.6 to 1.5 times 400 ms).

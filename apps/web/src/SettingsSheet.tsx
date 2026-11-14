@@ -2,6 +2,7 @@ import { GAZE_SETTINGS_NAMESPACE } from '@forsee/gaze';
 import { formatVoiceId, type SpeakMode, type Voice } from '@forsee/plugin-api';
 import {
   ChoiceGroup,
+  DwellSpeedControls,
   GazeTarget,
   Icon,
   Sheet,
@@ -13,7 +14,7 @@ import {
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useActiveLayout, useKeyboardCatalogue, type Problems } from './hooks';
 import { PluginsSection } from './PluginsSection';
-import type { ForseeRuntime } from './runtime';
+import { DWELL_FASTER_COMMAND, DWELL_SLOWER_COMMAND, type ForseeRuntime } from './runtime';
 import { controlBarSettingOf, type ControlBarSetting } from './runtime/settings';
 
 type Tab = 'keyboard' | 'voice' | 'speech' | 'input' | 'plugins' | 'problems';
@@ -350,7 +351,6 @@ function InputSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNo
   const ui = runtime.settings.namespaces.ui;
   const clickSound = useSetting(ui, 'clickSound') === true;
   const physicalKeyboard = useSetting(ui, 'physicalKeyboard') === true;
-  const letterMs = Number(useSetting(GAZE_SETTINGS_NAMESPACE, 'dwell.letterMs') ?? 0);
   const reset = (): void => {
     for (const key of DWELL_TIME_KEYS) {
       try {
@@ -376,20 +376,31 @@ function InputSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNo
           onChange={(value) => runtime.settings.set(ui, 'physicalKeyboard', value)}
         />
       </div>
-      <div className="flex max-h-[10rem] min-h-0 flex-1 flex-col gap-2">
+      <div className="flex max-h-[12rem] min-h-0 flex-1 flex-col gap-2">
         <h3 className="text-[clamp(0.95rem,2.2vh,1.2rem)] font-semibold text-ink-muted">
-          Dwell times (letters now {(letterMs / 1000).toFixed(1)} s)
+          Dwell speed
         </h3>
-        <GazeTarget
-          id="settings/reset-dwell"
-          dwellClass="destructive"
-          label="Reset dwell times"
-          appearance="neutral"
-          onActivate={reset}
-          className={`${TAB_BUTTON} flex-1`}
-        >
-          <span>Reset dwell times</span>
-        </GazeTarget>
+        <div className="flex min-h-0 flex-1 gap-[clamp(0.75rem,2vh,1.25rem)]">
+          <DwellSpeedControls
+            horizontal
+            idPrefix="settings/dwell"
+            commands={{
+              faster: { command: DWELL_FASTER_COMMAND },
+              slower: { command: DWELL_SLOWER_COMMAND },
+            }}
+            className="flex-[3]"
+          />
+          <GazeTarget
+            id="settings/reset-dwell"
+            dwellClass="destructive"
+            label="Reset dwell times"
+            appearance="neutral"
+            onActivate={reset}
+            className={`${TAB_BUTTON} flex-1`}
+          >
+            <span>Reset</span>
+          </GazeTarget>
+        </div>
       </div>
     </div>
   );
