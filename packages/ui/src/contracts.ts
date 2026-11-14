@@ -1,6 +1,6 @@
 import type { ErrorReporter, Kernel } from '@forsee/core';
 import type { ActivationOutcome, GazePipeline, TargetRegistry } from '@forsee/gaze';
-import type { LayoutRuntime } from '@forsee/layouts';
+import type { EdgeSides, LayoutRuntime } from '@forsee/layouts';
 import type { CandidateStabiliser, PredictionEngine } from '@forsee/prediction';
 import type {
   ActivateEvent,
@@ -11,6 +11,7 @@ import type {
   JsonObject,
   RegionId,
   RegionSize,
+  TargetRole,
   ThemeDefinition,
 } from '@forsee/plugin-api';
 import type { ComponentType, ReactNode } from 'react';
@@ -38,7 +39,7 @@ import type { ComponentType, ReactNode } from 'react';
 
 /**
  * What trusted host infrastructure needs, provided once at the root
- * (`<ForseeProvider services={...}>`). Only infrastructure code reads it
+ * (`<HostUiProvider services={...}>`). Only infrastructure code reads it
  * (see the module comment); feature panels get `PanelComponentProps.api`.
  */
 export interface HostUiServices {
@@ -78,6 +79,12 @@ export interface GazeTargetProps {
   readonly label?: string;
   readonly afterActivate?: 'look-away' | 'repeat';
   readonly disabled?: boolean;
+  /**
+   * Role of the registered target (default `select`). `wake` targets fire
+   * only while selection is paused (the pause overlay's resume target);
+   * `rest` targets never fire.
+   */
+  readonly role?: TargetRole;
   readonly children?: ReactNode;
   readonly className?: string;
 }
@@ -120,8 +127,30 @@ export interface PanelComponentRegistry {
 /** Props of the keyboard view B8 provides (host infrastructure). */
 export interface KeyboardViewProps {
   readonly runtime: LayoutRuntime;
-  /** Used by the keyboard view to register its keys. */
-  readonly targets: TargetRegistry;
+  /**
+   * Used by the keyboard view to register its keys. Default: the gaze
+   * pipeline's registry from `HostUiServices` (none without a pipeline: the
+   * keys then fire on click only).
+   */
+  readonly targets?: TargetRegistry;
+  /** Gap between keys, CSS pixels. Default 8. */
+  readonly gapPx?: number;
+  /** Edge and corner enlargement, CSS pixels (`GeometryOptions.edgeGrowthPx`). Default 12; 0 disables. */
+  readonly edgeGrowthPx?: number;
+  /** Which sides of the keyboard are screen edges (for edge enlargement). Default all. */
+  readonly edges?: Partial<EdgeSides>;
+  /**
+   * Register the `layout.showPage` and `layout.back` command handlers for
+   * this runtime while mounted (skipped when another owner already has
+   * them). Default true.
+   */
+  readonly registerLayoutCommands?: boolean;
+  /**
+   * Set each letter key's `likelihood` from the shared prediction session's
+   * next-letter probabilities (adaptive dwell). Default true.
+   */
+  readonly adaptiveDwell?: boolean;
+  readonly className?: string;
 }
 
 /** Applies a theme as CSS variables on the document root (B8). */
@@ -163,8 +192,8 @@ export interface ActivationAdapterOptions {
 }
 
 /**
- * The keyboard view's activation adapter (types only; a later package
- * implements it). Layout targets carry no command, so the gaze pipeline
+ * The keyboard view's activation adapter (`createActivationAdapter` in
+ * `activation-adapter.ts`). Layout targets carry no command, so the gaze pipeline
  * executes nothing for them and delivers the full `ActivateEvent` with
  * `executedBy: 'owner'`. For each such event, `handle`:
  *
@@ -178,10 +207,11 @@ export interface ActivationAdapterOptions {
  *    `withActivationDistribution(action, event)` from `@forsee/gaze`;
  * 4. executes the result exactly once with `execute(command, args, 'gaze')`.
  *
- * The keyboard view subscribes it with
- * `gaze.onActivate((event, outcome) => void adapter.handle(event, outcome))`,
- * and calls `handle(event, { executedBy: 'owner' })` itself for clicks
- * when there is no pipeline. `dispose` stops it handling anything further.
+ * The keyboard view (`createActivationAdapter`) feeds it every activation
+ * of its key targets, as delivered by the pipeline's `onActivate` (routed
+ * per target id through the provider's event hub) or built for a direct
+ * click or Enter key when there is no pipeline (`executedBy: 'owner'`).
+ * `dispose` stops it handling anything further.
  */
 export interface ActivationAdapter extends Disposable {
   handle(event: ActivateEvent, outcome: ActivationOutcome): Promise<ActivationAdapterResult>;

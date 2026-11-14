@@ -5,11 +5,14 @@
   "license": "MIT",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing": "./src/testing.tsx",
+    "./tailwind-preset": "./src/theme/tailwind-preset.js"
   },
   "dependencies": {
     "@forsee/core": "workspace:*",
     "@forsee/gaze": "workspace:*",
+    "@forsee/gaze-web": "workspace:*",
     "@forsee/layouts": "workspace:*",
     "@forsee/plugin-api": "workspace:*",
     "@forsee/prediction": "workspace:*"
@@ -18,7 +21,12 @@
     "react": "^19.0.0"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@types/react": "^19.3.0",
-    "react": "^19.3.1"
+    "@types/react-dom": "^19.3.0",
+    "jsdom": "^31.0.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   }
 }
