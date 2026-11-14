@@ -6,5 +6,11 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@forsee/core": "workspace:*",
+    "@forsee/host": "workspace:*",
+    "@forsee/layouts": "workspace:*",
+    "@forsee/plugin-api": "workspace:*"
   }
 }

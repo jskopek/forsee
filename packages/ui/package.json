@@ -7,6 +7,13 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "dependencies": {
+    "@forsee/core": "workspace:*",
+    "@forsee/gaze": "workspace:*",
+    "@forsee/layouts": "workspace:*",
+    "@forsee/plugin-api": "workspace:*",
+    "@forsee/prediction": "workspace:*"
+  },
   "peerDependencies": {
     "react": "^19.0.0"
   },
