@@ -1,8 +1,53 @@
 import type { LocaleTag } from './common';
 
+/**
+ * Identity of voice providers and voices.
+ *
+ * - **Provider id.** A provider registered by the app itself has a bare id
+ *   with no `/` (`forsee.web-speech`, `forsee.recorded`). A provider
+ *   registered by a plugin through `ForseeApi.register.voiceProvider` has the
+ *   id `<pluginId>/<localId>`: the plugin host adds the prefix, and neither
+ *   part contains `/` (plugin ids are dot-separated `[a-z0-9-]` segments,
+ *   local ids are `[A-Za-z0-9_.-]`). So a provider id contains at most one
+ *   `/`, and the speech engine accepts both forms.
+ * - **Voice id** (`Voice.id`). Any non-empty string chosen by the provider,
+ *   unique within that provider. It may contain `/` (browser voice URIs do).
+ * - **Global voice id.** `<providerId>/<escaped voice id>`, built by
+ *   `formatVoiceId`. The voice id is escaped so that it contains no `/`
+ *   (`%` → `%25`, then `/` → `%2F`; nothing else changes), which makes the
+ *   **last** `/` the separator whatever the provider id looks like.
+ *   `parseVoiceId` reverses it. Examples: `forsee.web-speech/Samantha`,
+ *   `community.voices/neural/Ava`, `forsee.web-speech/urn%2Fvoice%2F1` for the
+ *   voice `urn/voice/1`.
+ *
+ * `SpeakOptions.voiceId`, `Utterance.voiceId` and the user's chosen voice are
+ * global voice ids. A provider receives the global id in `Utterance.voiceId`
+ * and uses `parseVoiceId` to get its own voice id back.
+ */
+
+/** Builds a global voice id from a provider id and the provider's own voice id. */
+export function formatVoiceId(providerId: string, voiceId: string): string {
+  return `${providerId}/${voiceId.replace(/%/g, '%25').replace(/\//g, '%2F')}`;
+}
+
+/**
+ * Splits a global voice id (see `formatVoiceId`) at its last `/` and
+ * unescapes the voice part. Returns `undefined` when either part is empty.
+ */
+export function parseVoiceId(
+  globalId: string,
+): { readonly providerId: string; readonly voiceId: string } | undefined {
+  const slash = globalId.lastIndexOf('/');
+  if (slash <= 0 || slash === globalId.length - 1) return undefined;
+  const voiceId = globalId
+    .slice(slash + 1)
+    .replace(/%(?:25|2F)/gi, (escape) => (escape === '%25' ? '%' : '/'));
+  return { providerId: globalId.slice(0, slash), voiceId };
+}
+
 /** A voice offered by a provider. */
 export interface Voice {
-  /** Unique within its provider. The global id is `<providerId>/<id>`. */
+  /** Unique within its provider; may contain `/`. The global id is `formatVoiceId(providerId, id)`. */
   readonly id: string;
   readonly providerId: string;
   readonly name: string;
@@ -22,7 +67,7 @@ export interface Utterance {
   /** Unique per utterance (UUID). Events echo it. */
   readonly id: string;
   readonly text: string;
-  /** Global voice id (`<providerId>/<voiceId>`); absent means the user's chosen voice. */
+  /** Global voice id (see `formatVoiceId`); absent means the user's chosen voice. */
   readonly voiceId?: string;
   /** Speaking rate multiplier, 1 is normal; providers clamp to their range (typically 0.1..10). */
   readonly rate?: number;
@@ -106,11 +151,15 @@ export type SpeakMode = 'on-demand' | 'each-sentence' | 'each-word';
 
 /** Options when asking the app to speak (the plugin-facing subset of `Utterance`). */
 export interface SpeakOptions {
+  /** Global voice id (see `formatVoiceId`); absent means the user's chosen voice. */
   readonly voiceId?: string;
   readonly rate?: number;
   readonly pitch?: number;
   readonly volume?: number;
-  /** Profile-relative recording path (message banking). */
+  /**
+   * Profile-relative recording path (message banking): `/`-separated
+   * segments, no empty, `.` or `..` segment, no leading `/`, no `\\` or `:`.
+   */
   readonly recording?: string;
   /** Append the utterance to the conversation history. Default true. */
   readonly log?: boolean;

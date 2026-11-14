@@ -1,6 +1,7 @@
 import type { JsonObject } from './common';
 import type { KeyDistribution } from './gaze';
 import type { PermissionScope } from './manifest';
+import type { SpeakOptions } from './speech';
 
 /**
  * Commands (plan section 4): every action has an id. Keys, plugins and tests
@@ -32,17 +33,44 @@ export interface CommandArgsMap {
   /** Replace the current partial word with `text` and add a trailing space. */
   'composition.acceptPrediction': { readonly text: string };
   /**
-   * Speak. Without `text`: commit the composition (take its text and clear it)
-   * and speak that. With `text`: speak it, leaving the composition alone
-   * (phrases, quick-fire, re-speak). Both append to history unless `log` is false.
+   * Speak the supplied `text` (phrases, quick-fire, re-speak). Never reads or
+   * changes the composition. Runs `commit` text transforms, appends to
+   * history unless `log` is false, and passes the speak options to the
+   * speech service. Requires `speech.output`.
    */
-  'speech.speak': { readonly text?: string; readonly log?: boolean } | undefined;
-  /** Stop speaking immediately. */
+  'speech.speak': SpeakCommandArgs;
+  /**
+   * Commit the composition (take its text and clear it, as one undoable
+   * step), run `commit` text transforms, append to history unless `log` is
+   * false, and speak it. This is the Speak key. Requires `speech.output`,
+   * `composition.read` and `composition.write`.
+   */
+  'composition.speak': { readonly log?: boolean } | undefined;
+  /** Stop speaking immediately. Requires `speech.output`. */
   'speech.stop': undefined;
-  /** Stop all gaze selection until a deliberate wake dwell. */
+  /** Stop all gaze selection until a deliberate wake dwell. App and layout keys only (not public). */
   'gaze.pause': undefined;
-  /** Resume gaze selection. */
+  /** Resume gaze selection. App and layout keys only (not public). */
   'gaze.resume': undefined;
+}
+
+/**
+ * Arguments of `speech.speak`: the text, plus the speak options. `text` must
+ * be a non-empty string; `recording` must be a safe profile-relative path
+ * (see `SpeakOptions.recording`); `rate` 0.1..10, `pitch` 0..2, `volume` 0..1.
+ */
+export interface SpeakCommandArgs extends SpeakOptions {
+  readonly text: string;
+}
+
+/** Result of `speech.speak` and `composition.speak`. */
+export interface SpeakCommandResult {
+  /** True if a speech service was asked to speak. */
+  readonly spoken: boolean;
+  /** The text after commit transforms ("" if there was nothing to say). */
+  readonly text: string;
+  /** History record id, or null when not logged. */
+  readonly recordId: string | null;
 }
 
 /**
@@ -56,6 +84,7 @@ export type BuiltinCommandId =
   | 'composition.clear'
   | 'composition.undo'
   | 'composition.acceptPrediction'
+  | 'composition.speak'
   | 'speech.speak'
   | 'speech.stop'
   | 'gaze.pause'
@@ -69,6 +98,7 @@ export const BUILTIN_COMMAND_IDS: readonly BuiltinCommandId[] = [
   'composition.clear',
   'composition.undo',
   'composition.acceptPrediction',
+  'composition.speak',
   'speech.speak',
   'speech.stop',
   'gaze.pause',

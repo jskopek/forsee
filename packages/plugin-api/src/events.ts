@@ -15,7 +15,11 @@ import type { UtteranceRecord } from './storage';
 export interface ForseeEventMap {
   /** The composition changed. */
   'composition.changed': CompositionChange;
-  /** Speech progress for any utterance (start, word boundary, end, error). */
+  /**
+   * Speech progress for any utterance (start, word boundary, end, error).
+   * Without `composition.read`, word boundaries are not delivered and error
+   * messages are generic, because they reveal what was said.
+   */
   'speech.event': SpeechEvent;
   /** Gaze selection was paused or resumed. */
   'gaze.pauseChanged': { readonly paused: boolean };
