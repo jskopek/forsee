@@ -15,7 +15,7 @@ export interface NoticeCardProps {
   readonly id: string;
   readonly tone?: 'warning' | 'error' | 'info';
   readonly title: string;
-  /** A short message; long text is clipped to two lines (the full text is in the accessible name). */
+  /** A short message; long text is clipped to three lines (the full text is in the accessible name). */
   readonly message?: string;
   readonly actions?: readonly NoticeAction[];
   readonly onDismiss: () => void;
@@ -53,8 +53,8 @@ export function NoticeCard({
       data-notice={id}
       className={`flex h-full min-h-0 items-stretch gap-3 rounded-2xl border-2 bg-surface-overlay p-2 ${TONE[tone]} ${className}`}
     >
-      <div className="flex min-w-0 flex-1 flex-col justify-center gap-1 pl-2">
-        <p className="flex items-center gap-2 text-[clamp(0.9rem,2.1vh,1.15rem)] font-bold">
+      <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 overflow-hidden pl-2">
+        <p className="flex items-center gap-2 text-[clamp(0.85rem,2vh,1.1rem)] font-bold">
           <Icon name="alert" size={20} className="shrink-0 text-accent" />
           <span className="truncate">{title}</span>
           {position && position.count > 1 && (
@@ -64,7 +64,7 @@ export function NoticeCard({
           )}
         </p>
         {message !== undefined && (
-          <p className="line-clamp-2 break-words text-[clamp(0.85rem,2vh,1.1rem)] text-ink-muted">
+          <p className="line-clamp-3 break-words text-[clamp(0.8rem,1.8vh,1.05rem)] leading-tight text-ink-muted">
             {message}
           </p>
         )}

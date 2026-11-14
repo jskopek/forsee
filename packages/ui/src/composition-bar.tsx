@@ -46,7 +46,9 @@ export function CompositionBar({
       >
         <output aria-live="polite" className="block">
           {text === '' ? (
-            <span className="text-ink-faint">{placeholder}</span>
+            <span className="inline-block max-w-[calc(100%-0.5em)] truncate align-bottom text-ink-faint">
+              {placeholder}
+            </span>
           ) : (
             <>
               <span className="whitespace-pre-wrap">{before}</span>
