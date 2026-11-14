@@ -1,4 +1,6 @@
+import type { ErrorReporter } from '@forsee/core';
 import type {
+  Disposable,
   DwellClass,
   KeyAction,
   LayoutActionKey,
@@ -66,6 +68,19 @@ export interface GeometryOptions {
    * pixels for keys touching the bounds. 0 disables.
    */
   readonly edgeGrowthPx: number;
+  /**
+   * Which sides of the bounds touch a screen edge, for edge enlargement.
+   * Missing sides default to true.
+   */
+  readonly edges?: Partial<EdgeSides>;
+}
+
+/** Which sides of a bounding rectangle are screen edges. */
+export interface EdgeSides {
+  readonly top: boolean;
+  readonly right: boolean;
+  readonly bottom: boolean;
+  readonly left: boolean;
 }
 
 /** Turns a page into key rectangles inside `bounds`. Spacers produce no rect. Pure. */
@@ -102,13 +117,25 @@ export interface LayoutRuntime {
   activate(keyId: string, repeatIndex: number): KeyAction | null;
   /** Dwell class for an activation, honouring `stepDwellClasses` of escalating keys. */
   dwellClassFor(keyId: string, repeatIndex: number): DwellClass;
+  /** Shows a page (closing any open group). Throws `invalid-argument` for an unknown page. */
   showPage(pageId: string): void;
+  /** Closes the open group, or else returns to the initial page. */
   back(): void;
-  onDidChangeView(listener: (view: LayoutView) => void): { dispose(): void };
+  /** Called with the new view whenever the set of visible keys changes. */
+  onDidChangeView(listener: (view: LayoutView) => void): Disposable;
+}
+
+/** Options of `createLayoutRuntime`. */
+export interface LayoutRuntimeOptions {
+  /** Where errors thrown by view listeners go. Default: core's default reporter. */
+  readonly onListenerError?: ErrorReporter;
 }
 
 /** Factory signature B7 provides as `createLayoutRuntime`. */
-export type LayoutRuntimeFactory = (definition: LayoutDefinition) => LayoutRuntime;
+export type LayoutRuntimeFactory = (
+  definition: LayoutDefinition,
+  options?: LayoutRuntimeOptions,
+) => LayoutRuntime;
 
 /** Built-in layouts B7 ships, by family (ids are `forsee/<name>`). */
 export interface BuiltinLayoutCatalogue {

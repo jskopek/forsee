@@ -1,0 +1,411 @@
+{
+  "$schema": "./layout.schema.json",
+  "schemaVersion": 1,
+  "id": "forsee/en-alphabetical",
+  "name": "English alphabetical",
+  "description": "Letters in alphabetical order, seven per row.",
+  "family": "precise",
+  "locale": "en",
+  "initialPage": "letters",
+  "pages": [
+    {
+      "id": "letters",
+      "name": "Letters",
+      "rows": [
+        {
+          "keys": [
+            {
+              "id": "k-a",
+              "label": "a",
+              "action": { "command": "composition.insert", "args": { "text": "a" } }
+            },
+            {
+              "id": "k-b",
+              "label": "b",
+              "action": { "command": "composition.insert", "args": { "text": "b" } }
+            },
+            {
+              "id": "k-c",
+              "label": "c",
+              "action": { "command": "composition.insert", "args": { "text": "c" } }
+            },
+            {
+              "id": "k-d",
+              "label": "d",
+              "action": { "command": "composition.insert", "args": { "text": "d" } }
+            },
+            {
+              "id": "k-e",
+              "label": "e",
+              "action": { "command": "composition.insert", "args": { "text": "e" } }
+            },
+            {
+              "id": "k-f",
+              "label": "f",
+              "action": { "command": "composition.insert", "args": { "text": "f" } }
+            },
+            {
+              "id": "k-g",
+              "label": "g",
+              "action": { "command": "composition.insert", "args": { "text": "g" } }
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "id": "k-h",
+              "label": "h",
+              "action": { "command": "composition.insert", "args": { "text": "h" } }
+            },
+            {
+              "id": "k-i",
+              "label": "i",
+              "action": { "command": "composition.insert", "args": { "text": "i" } }
+            },
+            {
+              "id": "k-j",
+              "label": "j",
+              "action": { "command": "composition.insert", "args": { "text": "j" } }
+            },
+            {
+              "id": "k-k",
+              "label": "k",
+              "action": { "command": "composition.insert", "args": { "text": "k" } }
+            },
+            {
+              "id": "k-l",
+              "label": "l",
+              "action": { "command": "composition.insert", "args": { "text": "l" } }
+            },
+            {
+              "id": "k-m",
+              "label": "m",
+              "action": { "command": "composition.insert", "args": { "text": "m" } }
+            },
+            {
+              "id": "k-n",
+              "label": "n",
+              "action": { "command": "composition.insert", "args": { "text": "n" } }
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "id": "k-o",
+              "label": "o",
+              "action": { "command": "composition.insert", "args": { "text": "o" } }
+            },
+            {
+              "id": "k-p",
+              "label": "p",
+              "action": { "command": "composition.insert", "args": { "text": "p" } }
+            },
+            {
+              "id": "k-q",
+              "label": "q",
+              "action": { "command": "composition.insert", "args": { "text": "q" } }
+            },
+            {
+              "id": "k-r",
+              "label": "r",
+              "action": { "command": "composition.insert", "args": { "text": "r" } }
+            },
+            {
+              "id": "k-s",
+              "label": "s",
+              "action": { "command": "composition.insert", "args": { "text": "s" } }
+            },
+            {
+              "id": "k-t",
+              "label": "t",
+              "action": { "command": "composition.insert", "args": { "text": "t" } }
+            },
+            {
+              "id": "k-u",
+              "label": "u",
+              "action": { "command": "composition.insert", "args": { "text": "u" } }
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "id": "k-v",
+              "label": "v",
+              "action": { "command": "composition.insert", "args": { "text": "v" } }
+            },
+            {
+              "id": "k-w",
+              "label": "w",
+              "action": { "command": "composition.insert", "args": { "text": "w" } }
+            },
+            {
+              "id": "k-x",
+              "label": "x",
+              "action": { "command": "composition.insert", "args": { "text": "x" } }
+            },
+            {
+              "id": "k-y",
+              "label": "y",
+              "action": { "command": "composition.insert", "args": { "text": "y" } }
+            },
+            {
+              "id": "k-z",
+              "label": "z",
+              "action": { "command": "composition.insert", "args": { "text": "z" } }
+            },
+            {
+              "id": "k-backspace",
+              "label": "Delete",
+              "icon": "backspace",
+              "width": 2,
+              "action": { "command": "composition.deleteGrapheme" },
+              "behaviour": {
+                "type": "escalate",
+                "steps": [
+                  { "command": "composition.deleteGrapheme" },
+                  { "command": "composition.deleteWord" },
+                  { "command": "composition.clear" }
+                ],
+                "stepDwellClasses": ["function", "destructive", "destructive"]
+              }
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "id": "k-numbers",
+              "label": "?123",
+              "width": 1.5,
+              "action": { "command": "layout.showPage", "args": { "page": "numbers" } }
+            },
+            {
+              "id": "k-undo",
+              "label": "Undo",
+              "icon": "undo",
+              "width": 1,
+              "action": { "command": "composition.undo" }
+            },
+            {
+              "id": "k-space",
+              "label": "Space",
+              "action": { "command": "composition.insert", "args": { "text": " " } },
+              "width": 2
+            },
+            {
+              "id": "k-clear",
+              "label": "Clear",
+              "icon": "clear",
+              "width": 1,
+              "action": { "command": "composition.clear" }
+            },
+            {
+              "id": "k-speak",
+              "label": "Speak",
+              "icon": "speak",
+              "width": 1.5,
+              "action": { "command": "speech.speak" }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "numbers",
+      "name": "Numbers and punctuation",
+      "rows": [
+        {
+          "keys": [
+            {
+              "id": "n-1",
+              "label": "1",
+              "action": { "command": "composition.insert", "args": { "text": "1" } }
+            },
+            {
+              "id": "n-2",
+              "label": "2",
+              "action": { "command": "composition.insert", "args": { "text": "2" } }
+            },
+            {
+              "id": "n-3",
+              "label": "3",
+              "action": { "command": "composition.insert", "args": { "text": "3" } }
+            },
+            {
+              "id": "n-4",
+              "label": "4",
+              "action": { "command": "composition.insert", "args": { "text": "4" } }
+            },
+            {
+              "id": "n-5",
+              "label": "5",
+              "action": { "command": "composition.insert", "args": { "text": "5" } }
+            },
+            {
+              "id": "n-6",
+              "label": "6",
+              "action": { "command": "composition.insert", "args": { "text": "6" } }
+            },
+            {
+              "id": "n-7",
+              "label": "7",
+              "action": { "command": "composition.insert", "args": { "text": "7" } }
+            },
+            {
+              "id": "n-8",
+              "label": "8",
+              "action": { "command": "composition.insert", "args": { "text": "8" } }
+            },
+            {
+              "id": "n-9",
+              "label": "9",
+              "action": { "command": "composition.insert", "args": { "text": "9" } }
+            },
+            {
+              "id": "n-0",
+              "label": "0",
+              "action": { "command": "composition.insert", "args": { "text": "0" } }
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "id": "n-hyphen",
+              "label": "-",
+              "action": { "command": "composition.insert", "args": { "text": "-" } }
+            },
+            {
+              "id": "n-slash",
+              "label": "/",
+              "action": { "command": "composition.insert", "args": { "text": "/" } }
+            },
+            {
+              "id": "n-colon",
+              "label": ":",
+              "action": { "command": "composition.insert", "args": { "text": ":" } }
+            },
+            {
+              "id": "n-semicolon",
+              "label": ";",
+              "action": { "command": "composition.insert", "args": { "text": ";" } }
+            },
+            {
+              "id": "n-lparen",
+              "label": "(",
+              "action": { "command": "composition.insert", "args": { "text": "(" } }
+            },
+            {
+              "id": "n-rparen",
+              "label": ")",
+              "action": { "command": "composition.insert", "args": { "text": ")" } }
+            },
+            {
+              "id": "n-amp",
+              "label": "&",
+              "action": { "command": "composition.insert", "args": { "text": "&" } }
+            },
+            {
+              "id": "n-at",
+              "label": "@",
+              "action": { "command": "composition.insert", "args": { "text": "@" } }
+            },
+            {
+              "id": "n-quote",
+              "label": "\"",
+              "action": { "command": "composition.insert", "args": { "text": "\"" } }
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "id": "n-dot",
+              "label": ".",
+              "action": { "command": "composition.insert", "args": { "text": "." } }
+            },
+            {
+              "id": "n-comma",
+              "label": ",",
+              "action": { "command": "composition.insert", "args": { "text": "," } }
+            },
+            {
+              "id": "n-question",
+              "label": "?",
+              "action": { "command": "composition.insert", "args": { "text": "?" } }
+            },
+            {
+              "id": "n-exclaim",
+              "label": "!",
+              "action": { "command": "composition.insert", "args": { "text": "!" } }
+            },
+            {
+              "id": "n-apostrophe",
+              "label": "'",
+              "action": { "command": "composition.insert", "args": { "text": "'" } }
+            },
+            {
+              "id": "n-percent",
+              "label": "%",
+              "action": { "command": "composition.insert", "args": { "text": "%" } }
+            },
+            {
+              "id": "n-plus",
+              "label": "+",
+              "action": { "command": "composition.insert", "args": { "text": "+" } }
+            },
+            {
+              "id": "n-backspace",
+              "label": "Delete",
+              "icon": "backspace",
+              "width": 1.5,
+              "action": { "command": "composition.deleteGrapheme" },
+              "behaviour": {
+                "type": "escalate",
+                "steps": [
+                  { "command": "composition.deleteGrapheme" },
+                  { "command": "composition.deleteWord" },
+                  { "command": "composition.clear" }
+                ],
+                "stepDwellClasses": ["function", "destructive", "destructive"]
+              }
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "id": "n-letters",
+              "label": "ABC",
+              "width": 1.5,
+              "action": { "command": "layout.showPage", "args": { "page": "letters" } }
+            },
+            {
+              "id": "n-space",
+              "label": "Space",
+              "action": { "command": "composition.insert", "args": { "text": " " } },
+              "width": 4.5
+            },
+            {
+              "id": "n-clear",
+              "label": "Clear",
+              "icon": "clear",
+              "width": 1.5,
+              "action": { "command": "composition.clear" }
+            },
+            {
+              "id": "n-speak",
+              "label": "Speak",
+              "icon": "speak",
+              "width": 2.5,
+              "action": { "command": "speech.speak" }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
