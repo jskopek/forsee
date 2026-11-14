@@ -56,6 +56,12 @@ export interface WebHostOptions {
    * storage (OPFS / IndexedDB) is a later package's job and plugs in here.
    */
   readonly files?: ProfileFileSystem;
+  /**
+   * Whether `files` survives a reload (`capabilities.fileSystem`). Default:
+   * true when `files` is given. Pass `createBrowserFileSystem()`'s
+   * `persistent`, which is false for its in-memory fallback.
+   */
+  readonly persistent?: boolean;
   /** Overrides for tests. */
   readonly environment?: WebHostEnvironment;
 }
@@ -207,7 +213,7 @@ export function createWebHost(options: WebHostOptions = {}): HostBridge {
   };
 
   const capabilities: HostCapabilities = {
-    fileSystem: options.files ? 'persistent' : 'memory',
+    fileSystem: options.files && options.persistent !== false ? 'persistent' : 'memory',
     fullscreen: doc !== undefined,
     keepAwake: wakeLockApi !== undefined,
     partnerDisplay: false,
