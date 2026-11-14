@@ -4,7 +4,6 @@ import type {
   Disposable,
   GazeSample,
   GazeSource,
-  JsonObject,
   SelectionMethodId,
   SourceError,
 } from '@forsee/plugin-api';
@@ -14,7 +13,9 @@ import {
   type GazeEngineConfig,
   type GazeEngineConfigPatch,
 } from './config';
+import { withActivationDistribution } from './activation';
 import type {
+  ActivationOutcome,
   CalibrationModel,
   DwellConfig,
   EngageEvent,
@@ -47,12 +48,18 @@ import { roleOf } from './targets';
  * distribution is recomputed from the fixation centroid and spread. The
  * selection method then turns that into progress and activation events.
  *
- * On activation the target's command (from the registry, at activation
- * time) is run through `executeCommand(command, args, 'gaze')`. If it is
- * `composition.insert` without a `distribution`, the activation's
- * distribution is attached (unless `attachDistribution` is false). A wake
- * target without a command resumes the pipeline directly. `onActivate`
- * listeners run after the command settles; failures go to `reportError`.
+ * On activation, exactly one party executes:
+ * - a target WITH a command (from the registry, at activation time): the
+ *   pipeline runs it once through `executeCommand(command, args, 'gaze')`,
+ *   with the distribution attached by `withActivationDistribution` (unless
+ *   `attachDistribution` is false). `onActivate` listeners then get the
+ *   event with `executedBy: 'pipeline'`, after the command settles;
+ *   failures go to `reportError`.
+ * - a target WITHOUT a command (layout keys, panel targets): the pipeline
+ *   executes nothing and delivers the full `ActivateEvent` synchronously
+ *   with `executedBy: 'owner'`; the listener owning the target executes it.
+ *   A wake target without a command is the exception: the pipeline resumes
+ *   itself (`executedBy: 'pipeline'`).
  *
  * Between samples, a clock interval (`tickIntervalMs`) sends `tick` inputs
  * so dwell progress keeps moving for slow sources. With `tickIntervalMs` 0
@@ -87,7 +94,9 @@ class GazePipelineImpl implements GazePipeline {
 
   private readonly selectionListeners = new Set<{ fn: (event: SelectionEvent) => void }>();
   private readonly sampleListeners = new Set<{ fn: (sample: GazeSample) => void }>();
-  private readonly activateListeners = new Set<{ fn: (event: ActivateEvent) => void }>();
+  private readonly activateListeners = new Set<{
+    fn: (event: ActivateEvent, outcome: ActivationOutcome) => void;
+  }>();
   private readonly engageListeners = new Set<{ fn: (event: EngageEvent) => void }>();
   private readonly sourceErrorListeners = new Set<{ fn: (error: SourceError) => void }>();
 
@@ -219,7 +228,7 @@ class GazePipelineImpl implements GazePipeline {
     return subscribe(this.sampleListeners, listener, this.disposed);
   }
 
-  onActivate(listener: (event: ActivateEvent) => void): Disposable {
+  onActivate(listener: (event: ActivateEvent, outcome: ActivationOutcome) => void): Disposable {
     return subscribe(this.activateListeners, listener, this.disposed);
   }
 
@@ -355,38 +364,49 @@ class GazePipelineImpl implements GazePipeline {
     if (event.type === 'activate') this.runActivation(event);
   }
 
+  /**
+   * Executes an activation exactly once: the pipeline runs the target's
+   * command when it has one (looked up at activation time); otherwise it
+   * executes nothing and the owning `onActivate` listener does.
+   */
   private runActivation(event: ActivateEvent): void {
     const target = this.targets.get(event.targetId);
     const invocation = target?.command;
-    const finish = (): void => {
-      emit(this.activateListeners, event, this.reportError, 'gaze.activate');
+    const deliver = (outcome: ActivationOutcome): void => {
+      for (const entry of [...this.activateListeners]) {
+        if (!this.activateListeners.has(entry)) continue;
+        try {
+          entry.fn(event, outcome);
+        } catch (error) {
+          this.reportError(error, 'gaze.activate');
+        }
+      }
     };
     if (!invocation) {
-      if (target && roleOf(target) === 'wake') this.resume();
-      finish();
+      if (target && roleOf(target) === 'wake') {
+        this.resume();
+        deliver({ executedBy: 'pipeline', failed: false });
+      } else {
+        deliver({ executedBy: 'owner' });
+      }
       return;
     }
-    let args: JsonObject | undefined = invocation.args;
-    if (
-      this.attachDistribution &&
-      invocation.command === 'composition.insert' &&
-      args?.distribution === undefined
-    ) {
-      args = { ...args, distribution: toJsonDistribution(event) };
-    }
+    const run = this.attachDistribution
+      ? withActivationDistribution(invocation, event)
+      : invocation;
     let promise: Promise<unknown>;
     try {
-      promise = this.executeCommand(invocation.command, args, 'gaze');
+      promise = this.executeCommand(run.command, run.args, 'gaze');
     } catch (error) {
       promise = Promise.reject(
         error instanceof Error ? error : new Error(String(error), { cause: error }),
       );
     }
     promise.then(
-      () => finish(),
+      () => deliver({ executedBy: 'pipeline', invocation: run, failed: false }),
       (error: unknown) => {
-        this.reportError(error, `gaze.command:${invocation.command}`);
-        finish();
+        this.reportError(error, `gaze.command:${run.command}`);
+        deliver({ executedBy: 'pipeline', invocation: run, failed: true });
       },
     );
   }
@@ -398,21 +418,7 @@ const NO_HIT: HitTestResult = Object.freeze({
   distribution: Object.freeze({ entries: Object.freeze([]) }),
 });
 
-function toJsonDistribution(event: ActivateEvent): JsonObject {
-  return {
-    entries: event.distribution.entries.map((e) =>
-      e.text === undefined
-        ? { targetId: e.targetId, probability: e.probability }
-        : { targetId: e.targetId, text: e.text, probability: e.probability },
-    ),
-  };
-}
-
-function subscribe<T>(
-  set: Set<{ fn: (value: T) => void }>,
-  listener: (value: T) => void,
-  disposed: boolean,
-): Disposable {
+function subscribe<F>(set: Set<{ fn: F }>, listener: F, disposed: boolean): Disposable {
   const entry = { fn: listener };
   if (!disposed) set.add(entry);
   let done = false;

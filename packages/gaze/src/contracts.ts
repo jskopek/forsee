@@ -3,6 +3,7 @@ import type {
   ActivateEvent,
   CalibrationPoint,
   CalibrationResult,
+  CommandInvocation,
   DwellClass,
   Disposable,
   GazeSample,
@@ -296,12 +297,39 @@ export interface GazePipelineOptions {
   readonly engine?: GazeEngineConfigPatch;
   /**
    * When an activated target's command is `composition.insert` and its args
-   * carry no `distribution`, add the activation's `KeyDistribution`. Default true.
+   * carry no `distribution`, add the activation's `KeyDistribution` (with
+   * `withActivationDistribution`). Default true.
    */
   readonly attachDistribution?: boolean;
   /** Where failed commands and throwing listeners go. Default: core's `defaultErrorReporter`. */
   readonly reportError?: ErrorReporter;
 }
+
+/**
+ * Who executes an activation, passed to `GazePipeline.onActivate` listeners
+ * with the `ActivateEvent`. Exactly one party executes each activation:
+ *
+ * - `pipeline`: the target has a `command` (at activation time), and the
+ *   pipeline has executed it once, with the distribution attached
+ *   (`invocation` is what it sent; `failed` says whether it rejected). A
+ *   wake target without a command is also `pipeline`: the pipeline resumed
+ *   itself. Listeners must not execute anything for it.
+ * - `owner`: the target has no command; the pipeline executed nothing. The
+ *   listener that owns the target (the keyboard view's activation adapter
+ *   for layout keys, the panel host for panel targets) executes it, at most
+ *   once, attaching the distribution with `withActivationDistribution`.
+ *   Every other listener ignores it. An owner recognises its targets by id
+ *   (for example by the owner prefix of `targetId`).
+ */
+export type ActivationOutcome =
+  | {
+      readonly executedBy: 'pipeline';
+      /** The invocation the pipeline executed, absent for a wake target without a command. */
+      readonly invocation?: CommandInvocation;
+      /** True when the command rejected or threw (the error went to `reportError`). */
+      readonly failed: boolean;
+    }
+  | { readonly executedBy: 'owner' };
 
 /** The target gaze is engaged with changed (hover highlight for every method). */
 export interface EngageEvent {
@@ -327,8 +355,17 @@ export interface GazePipeline extends GazeControl, Disposable {
   onSelection(listener: (event: SelectionEvent) => void): Disposable;
   /** Corrected, filtered samples. Exposed to plugins only with `gaze.read`. */
   onSample(listener: (sample: GazeSample) => void): Disposable;
-  /** Fired after a target's command ran (or failed). */
-  onActivate(listener: (event: ActivateEvent) => void): Disposable;
+  /**
+   * Every activation, with the full `ActivateEvent` (target, method,
+   * `repeatIndex`, point, distribution, time) and who executes it (see
+   * `ActivationOutcome`). For a target with a command, called after the
+   * pipeline's command settled (`executedBy: 'pipeline'`); for a target
+   * without one, called synchronously with `executedBy: 'owner'`, and the
+   * owning listener executes. The pipeline never executes a target without a
+   * command, so an activation is never executed twice as long as owners
+   * check `executedBy`.
+   */
+  onActivate(listener: (event: ActivateEvent, outcome: ActivationOutcome) => void): Disposable;
   /** The engaged (hovered, highlighted) target changed. */
   onEngage(listener: (event: EngageEvent) => void): Disposable;
   /** The active source reported an error (a non-recoverable one has stopped it). */

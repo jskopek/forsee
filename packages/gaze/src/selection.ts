@@ -2,6 +2,7 @@ import { ForseeError, defaultErrorReporter, type ErrorReporter } from '@forsee/c
 import type {
   ActivateEvent,
   Disposable,
+  GazeSample,
   Point,
   ProgressEvent,
   SelectionMethodId,
@@ -147,40 +148,70 @@ export interface DwellSelectionOptions {
   readonly reportError?: ErrorReporter;
 }
 
+/** Progress this close to 1 counts as full (floating-point sums of interval fractions). */
+const FULL_EPSILON = 1e-9;
+
 interface DwellEntry {
-  /** Progress, 0..1. */
+  /** Confirmed progress, 0..1: only dwell observed on the target counts. */
   value: number;
   /** Effective dwell time the progress is measured against, ms. */
   dwellMs: number;
-  /** Value at the last emitted progress event. */
+  /** Shown value at the last emitted progress event. */
   emitted: number;
+}
+
+/**
+ * The last valid sample, when it hit a target that could gain progress and
+ * no invalid sample has arrived since. The next valid sample confirms it if
+ * it hits the same eligible target within `tuning.holdMs`.
+ */
+interface DwellAnchor {
+  readonly targetId: string;
+  readonly t: number;
 }
 
 /**
  * The dwell method.
  *
- * - Each target has its own progress (0..1). The engaged target (the one the
- *   latest valid sample hit) gains `elapsed / effectiveDwellMs`; every other
- *   target with progress loses `decayPerSecond` per second. Coming back to
- *   a target within the decay window resumes from what is left.
- * - Frame ticks credit the engaged target for at most
- *   `tuning.extrapolateMs` after the last valid sample (a smooth fill
- *   between samples of slow sources; a stalled source does not keep
- *   dwelling). When the next valid sample arrives within `tuning.holdMs` of
- *   the previous one, the whole interval is credited, so slow sources dwell
- *   at the right speed. An invalid sample stops the credit at the last
- *   valid sample.
- *   After the last valid sample, progress is held for `tuning.holdMs`
- *   (blinks) and then decays.
- * - A target fires when its progress reaches 1. `look-away` targets then
- *   need a valid sample off the target before they can gain progress
- *   again; `repeat` targets fire again every `repeatIntervalMs` while gaze
- *   stays, with `repeatIndex` 1, 2, ...
+ * **Only observed dwell counts.** Dwell is credited per interval between two
+ * consecutive valid samples: the interval `[a, b]` is credited to a target
+ * only when the samples at `a` and `b` both hit that target (after hit
+ * testing with hysteresis), the target could fire at both (enabled, not
+ * locked by look-away, the right role for the pause state), `b - a <=
+ * tuning.holdMs`, and no invalid sample arrived in between. Any other
+ * interval is not dwell: when the sample at `b` lands on another target, a
+ * rest zone, empty space or an ineligible target, the target engaged at `a`
+ * gets nothing for the gap, and a newly engaged target starts accumulating
+ * at `b`. Slow sources are therefore credited in full while gaze stays (a
+ * 5 Hz source still fires at the configured time), and the sample that
+ * shows the user has left can never fire, or add progress to, the target
+ * they left.
+ *
+ * **Activations happen only on a confirming sample.** A target fires on the
+ * valid sample whose confirmed interval brings its progress to 1, never on a
+ * frame tick. Between samples, ticks show a provisional fill of at most
+ * `tuning.extrapolateMs` after the last valid sample, for a smooth
+ * indicator; it is display only, is dropped if the next sample does not
+ * confirm the target, and never fires anything. The cost is latency: a
+ * target fires on the first sample at or after its threshold, at most one
+ * sample interval late (about 17 ms at 60 Hz, 200 ms at 5 Hz).
+ *
+ * The other rules:
+ * - Each target has its own progress (0..1). Every target other than the
+ *   engaged one (the one the latest valid sample hit) loses
+ *   `decayPerSecond` per second. Coming back to a target within the decay
+ *   window resumes from what is left.
+ * - After the last valid sample, the engaged target's progress is held
+ *   (neither grows nor decays) for `tuning.holdMs` (blinks) and then
+ *   decays.
+ * - After firing, `look-away` targets need a valid sample off the target
+ *   before they can gain progress again; `repeat` targets fire again every
+ *   `repeatIntervalMs` of confirmed dwell, with `repeatIndex` 1, 2, ...
  * - A rest zone clears all progress and any repeat chain.
  * - Disabled targets, wake targets while not paused, and non-wake targets
  *   while paused never gain progress (they still count as engaged, so the
  *   others decay). While paused, wake targets need `wakeMs`.
- * - At most one progress event per target per input, only when its
+ * - At most one progress event per target per input, only when its shown
  *   progress changed; 0 means reset or fully decayed.
  */
 export class DwellSelection extends BaseSelection {
@@ -193,8 +224,9 @@ export class DwellSelection extends BaseSelection {
   private point: Point = { x: 0, y: 0 };
   private lastT: number | null = null;
   private lastValidT: number | null = null;
-  /** Time held back from the active target by the extrapolation limit, ms; credited if a sample confirms it. */
-  private heldMs = 0;
+  private anchor: DwellAnchor | null = null;
+  /** Unconfirmed, display-only extrapolation for the anchor target since `anchor.t`, ms. */
+  private provisionalMs = 0;
   private locked: string | null = null;
   private repeat: { targetId: string; nextIndex: number } | null = null;
 
@@ -210,31 +242,33 @@ export class DwellSelection extends BaseSelection {
     this.tuning = tuning;
   }
 
-  /** Progress of a target (0 when none), for tests and diagnostics. */
+  /**
+   * Shown progress of a target (0 when none): confirmed progress plus any
+   * provisional fill between samples. For tests and diagnostics.
+   */
   progressOf(targetId: string): number {
-    return this.progress.get(targetId)?.value ?? 0;
+    const entry = this.progress.get(targetId);
+    return entry ? this.shown(targetId, entry) : 0;
   }
 
   protected handle(input: SelectionInput): void {
     if (input.type === 'switch') return;
     if (input.type === 'tick') {
-      this.advance(input.t, this.extrapolationLimit());
-    } else if (input.sample.valid) {
-      // Valid samples up to holdMs apart count as continuous gaze, so a slow
-      // source is credited in full when its next sample confirms the target,
-      // including time that ticks held back.
-      const continuous =
-        this.lastValidT !== null && input.sample.t - this.lastValidT <= this.tuning.holdMs;
-      if (continuous) this.creditHeld();
-      this.heldMs = 0;
-      this.advance(input.sample.t, continuous ? input.sample.t : this.extrapolationLimit());
-      this.engage(input.hit, input.sample.t, input.sample);
-    } else {
-      // Gaze was lost: time held back since the last valid sample is not dwell.
-      this.advance(input.sample.t, this.lastValidT ?? -Infinity);
-      this.heldMs = 0;
+      this.elapse(input.t);
+      this.extrapolate(input.t);
+      this.queueProgress(input.t);
+      return;
     }
-    this.queueProgress(input.type === 'tick' ? input.t : input.sample.t);
+    const { sample } = input;
+    if (sample.valid) {
+      this.onValidSample(input.hit, sample);
+    } else {
+      // Gaze was lost: nothing since the last valid sample can be confirmed.
+      this.elapse(sample.t);
+      this.anchor = null;
+      this.provisionalMs = 0;
+    }
+    this.queueProgress(sample.t);
   }
 
   protected clear(): void {
@@ -244,21 +278,22 @@ export class DwellSelection extends BaseSelection {
       }
     }
     this.progress.clear();
-    this.heldMs = 0;
+    this.anchor = null;
+    this.provisionalMs = 0;
     this.repeat = null;
     this.engaged = null;
     this.engagedHit = null;
   }
 
-  private extrapolationLimit(): number {
-    return this.lastValidT === null ? -Infinity : this.lastValidT + this.tuning.extrapolateMs;
-  }
-
   /** The engaged target if it can gain progress now. */
   private activeTarget(): TargetDescriptor | null {
     const t = this.engaged;
-    if (!t || t.id === this.locked || !canFire(t, this.paused)) return null;
+    if (!t || !this.eligible(t)) return null;
     return t;
+  }
+
+  private eligible(target: TargetDescriptor): boolean {
+    return target.id !== this.locked && canFire(target, this.paused);
   }
 
   private dwellFor(target: TargetDescriptor): number {
@@ -266,57 +301,71 @@ export class DwellSelection extends BaseSelection {
     return effectiveDwellMs(target, this.dwell, this.tuning);
   }
 
-  /** Credits the time ticks held back (between the extrapolation limit and now) to the active target. */
-  private creditHeld(): void {
-    const active = this.activeTarget();
-    const entry = active ? this.progress.get(active.id) : undefined;
-    if (active && entry && this.heldMs > 0) {
-      entry.dwellMs = this.dwellFor(active);
-      entry.value = Math.min(1, entry.value + this.heldMs / entry.dwellMs);
-    }
-    this.heldMs = 0;
-  }
-
-  /** Credits and decays progress over `[lastT, t]`, then fires the engaged target if it is full. */
-  private advance(t: number, creditUntil: number): void {
-    const from = this.lastT ?? t;
-    const active = this.activeTarget();
-    this.lastT ??= t;
-    if (t > from) {
-      this.lastT = t;
-      this.decayAndCredit(from, t, creditUntil, active);
-    }
-    if (active) {
-      const entry = this.progress.get(active.id);
-      if (entry && entry.value >= 1) this.fire(active, entry, t);
-    }
-  }
-
-  private decayAndCredit(
-    from: number,
-    t: number,
-    creditUntil: number,
-    active: TargetDescriptor | null,
-  ): void {
-    const decayPerMs = this.dwell.decayPerSecond / 1000;
-    for (const [id, entry] of this.progress) {
-      if (id === active?.id) {
-        entry.dwellMs = this.dwellFor(active);
-        const creditEnd = Math.max(from, Math.min(t, creditUntil));
-        const creditMs = creditEnd - from;
-        const holdEnd = (this.lastValidT ?? from) + this.tuning.holdMs;
-        const decayStart = Math.max(creditEnd, Math.min(t, holdEnd));
-        this.heldMs += decayStart - creditEnd;
-        const decayMs = t - decayStart;
-        entry.value = Math.min(
-          1,
-          Math.max(0, entry.value + creditMs / entry.dwellMs - decayMs * decayPerMs),
-        );
-      } else {
-        entry.value = Math.max(0, entry.value - (t - from) * decayPerMs);
-        if (entry.value === 0 && entry.emitted === 0) this.progress.delete(id);
+  private onValidSample(hit: HitTestResult, sample: GazeSample): void {
+    const t = sample.t;
+    const target = hit.inRestZone ? null : hit.target;
+    const anchor = this.anchor;
+    // The interval since the last valid sample is dwell only if this sample
+    // confirms the same eligible target, soon enough.
+    const confirmed =
+      anchor !== null &&
+      target !== null &&
+      target.id === anchor.targetId &&
+      t >= anchor.t &&
+      t - anchor.t <= this.tuning.holdMs &&
+      this.eligible(target)
+        ? anchor
+        : null;
+    // Time passes without credit: decay for others, hold or decay for the engaged target.
+    this.elapse(t);
+    this.provisionalMs = 0;
+    this.engage(hit, t, sample);
+    if (confirmed && target) {
+      const entry = this.progress.get(target.id);
+      if (entry) {
+        entry.dwellMs = this.dwellFor(target);
+        entry.value = Math.min(1, entry.value + (t - confirmed.t) / entry.dwellMs);
+        // Rounding: n confirmed intervals summing to exactly dwellMs reach 1.
+        if (entry.value >= 1 - FULL_EPSILON) this.fire(target, entry, t);
       }
     }
+  }
+
+  /** Moves time to `t` without crediting anything: decay, and hold for the engaged target. */
+  private elapse(t: number): void {
+    const from = this.lastT ?? t;
+    if (this.lastT === null || t > this.lastT) this.lastT = t;
+    if (t <= from) return;
+    const decayPerMs = this.dwell.decayPerSecond / 1000;
+    const heldId = this.activeTarget()?.id;
+    const holdEnd = (this.lastValidT ?? from) + this.tuning.holdMs;
+    for (const [id, entry] of this.progress) {
+      const decayStart = id === heldId ? Math.max(from, Math.min(t, holdEnd)) : from;
+      const decayMs = t - decayStart;
+      if (decayMs > 0) entry.value = Math.max(0, entry.value - decayMs * decayPerMs);
+      if (entry.value === 0 && entry.emitted === 0 && id !== heldId) this.progress.delete(id);
+    }
+  }
+
+  /** Display-only fill between samples: at most `extrapolateMs` after the anchor, never past the hold. */
+  private extrapolate(t: number): void {
+    const anchor = this.anchor;
+    const active = this.activeTarget();
+    if (!anchor || active?.id !== anchor.targetId || t - anchor.t > this.tuning.holdMs) {
+      this.provisionalMs = 0;
+      return;
+    }
+    const entry = this.progress.get(active.id);
+    if (entry) entry.dwellMs = this.dwellFor(active);
+    this.provisionalMs = Math.max(0, Math.min(t, anchor.t + this.tuning.extrapolateMs) - anchor.t);
+  }
+
+  private shown(id: string, entry: DwellEntry): number {
+    const extra =
+      this.provisionalMs > 0 && this.anchor?.targetId === id
+        ? this.provisionalMs / entry.dwellMs
+        : 0;
+    return Math.min(1, entry.value + extra);
   }
 
   private fire(target: TargetDescriptor, entry: DwellEntry, t: number): void {
@@ -337,6 +386,7 @@ export class DwellSelection extends BaseSelection {
       entry.dwellMs = this.dwell.repeatIntervalMs;
     } else {
       this.locked = target.id;
+      this.anchor = null;
     }
   }
 
@@ -355,20 +405,21 @@ export class DwellSelection extends BaseSelection {
     this.engaged = target;
     this.engagedHit = hit;
     const active = this.activeTarget();
+    this.anchor = active ? { targetId: active.id, t } : null;
     if (active && !this.progress.has(active.id)) {
       this.progress.set(active.id, { value: 0, dwellMs: this.dwellFor(active), emitted: 0 });
     }
   }
 
   private queueProgress(t: number): void {
-    for (const [id, entry] of this.progress) {
-      if (entry.value === entry.emitted) continue;
-      entry.emitted = entry.value;
-      this.queue(this.progressEvent(id, entry.value, entry.dwellMs, t));
-    }
-    // Entries that reached 0 and were announced can go (unless engaged and active).
     const activeId = this.activeTarget()?.id;
     for (const [id, entry] of this.progress) {
+      const shown = this.shown(id, entry);
+      if (shown !== entry.emitted) {
+        entry.emitted = shown;
+        this.queue(this.progressEvent(id, shown, entry.dwellMs, t));
+      }
+      // Entries that reached 0 and were announced can go (unless engaged and active).
       if (entry.value === 0 && entry.emitted === 0 && id !== activeId) this.progress.delete(id);
     }
   }

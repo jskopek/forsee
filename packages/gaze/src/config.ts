@@ -48,16 +48,19 @@ export interface FixationConfig {
 /** Fine tuning of the dwell method that is not a user-facing dwell setting. */
 export interface SelectionTuning {
   /**
-   * Between samples, frame ticks keep crediting dwell to the engaged target
-   * for at most this long after the last valid sample, ms (sources slower
-   * than 60 Hz still get a smooth progress fill; a stalled source does not
-   * keep dwelling).
+   * Between samples, frame ticks show a provisional fill on the engaged
+   * target for at most this long after the last valid sample, ms, so
+   * sources slower than 60 Hz still get a smooth indicator. It is display
+   * only: it never fires, and it is dropped unless the next valid sample
+   * confirms the same target.
    */
   readonly extrapolateMs: number;
   /**
    * After the last valid sample, progress is held (neither grows nor decays)
-   * this long before it starts decaying, ms. Covers blinks. Valid samples at
-   * most this far apart also count as continuous gaze (slow sources).
+   * this long before it starts decaying, ms. Covers blinks. Two consecutive
+   * valid samples on the same eligible target at most this far apart count
+   * as continuous gaze, and the interval between them is credited (slow
+   * sources); longer gaps are not dwell.
    */
   readonly holdMs: number;
   /** Likelihood at which adaptive dwell is neutral (factor 1). */
@@ -146,7 +149,8 @@ export const DEFAULT_FIXATION_CONFIG: FixationConfig = Object.freeze({
 /**
  * Dwell tuning defaults.
  * - `extrapolateMs` 100: covers sources down to 10 Hz without a jerky fill.
- * - `holdMs` 300: a blink does not cost progress.
+ * - `holdMs` 300: a blink does not cost progress, and sources down to about
+ *   3.3 Hz can dwell.
  * - `neutralLikelihood` 0.05 and `likelihoodExponent` 0.35: a key the
  *   predictor gives about 1 in 20 (roughly a uniform letter) is unchanged;
  *   a 20% key is about 0.6x, a 1% key about 1.75x, before clamping to the

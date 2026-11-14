@@ -5,6 +5,7 @@
  * sample timestamps and the injected `Clock`. Contracts are in `contracts.ts`.
  */
 export * from './contracts';
+export * from './activation';
 export * from './config';
 export * from './filter';
 export * from './fixation';
