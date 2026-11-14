@@ -1,4 +1,4 @@
-import type { Clock, GazeControl } from '@forsee/core';
+import type { Clock, ErrorReporter, GazeControl } from '@forsee/core';
 import type {
   ActivateEvent,
   CalibrationPoint,
@@ -12,8 +12,10 @@ import type {
   Point,
   SelectionEvent,
   SelectionMethodId,
+  SourceError,
   TargetDescriptor,
 } from '@forsee/plugin-api';
+import type { GazeEngineConfig, GazeEngineConfigPatch } from './config';
 
 /**
  * Engine-internal contracts of the gaze package (B1 implements them; B2,
@@ -81,6 +83,11 @@ export interface Fixation {
   readonly durationMs: number;
   /** Spread of the samples (max dispersion), CSS pixels. */
   readonly dispersionPx: number;
+  /**
+   * Per-axis standard deviation of the samples around the centroid,
+   * `sqrt((varX + varY) / 2)`, CSS pixels. Drives the key distribution.
+   */
+  readonly spreadPx: number;
 }
 
 /** Output of the fixation detector for one sample. */
@@ -89,6 +96,13 @@ export interface FixationState {
   readonly fixation: Fixation | null;
   /** True on the first sample of a new fixation. */
   readonly started: boolean;
+  /**
+   * The fixation that ended with this sample (a saccade, or an invalid run
+   * longer than the blink tolerance), if any. Both `ended` and `started`
+   * are set only when a new fixation starts on the same sample, which needs
+   * `minDurationMs` 0.
+   */
+  readonly ended?: Fixation;
 }
 
 /** Dispersion/duration-threshold fixation detector (I-DT or similar). */
@@ -109,11 +123,23 @@ export interface HitTestResult {
   readonly distribution: KeyDistribution;
 }
 
+/**
+ * Fields to change on a registered target. A field set to `undefined`
+ * removes an optional field (for example `likelihood` back to "no opinion").
+ */
+export type TargetPatch = {
+  readonly [K in Exclude<keyof TargetDescriptor, 'id'>]?: TargetDescriptor[K] | undefined;
+};
+
 /** Live handle on a registered target. */
 export interface TargetHandle extends Disposable {
   readonly id: string;
-  /** Replaces fields of the descriptor (`id` cannot change). Cheap; call it on every layout change. */
-  update(patch: Partial<Omit<TargetDescriptor, 'id'>>): void;
+  /**
+   * Replaces fields of the descriptor (`id` cannot change). Cheap; call it
+   * on every layout change. No-op after `dispose`. Throws
+   * `ForseeError('invalid-argument')` for an invalid rect, class or role.
+   */
+  update(patch: TargetPatch): void;
 }
 
 /**
@@ -123,8 +149,22 @@ export interface TargetHandle extends Disposable {
  * near its edge).
  */
 export interface TargetRegistry {
-  /** Throws `ForseeError('duplicate')` if the id is registered. */
+  /**
+   * Throws `ForseeError('duplicate')` if the id is registered and
+   * `ForseeError('invalid-argument')` for an invalid descriptor.
+   */
   register(target: TargetDescriptor): TargetHandle;
+  /**
+   * Registers several targets at once with a single change notification.
+   * All or nothing: if any descriptor is invalid or duplicated, none is
+   * registered and the error is thrown.
+   */
+  registerAll(targets: readonly TargetDescriptor[]): TargetHandle[];
+  /**
+   * Runs `fn` with change notifications deferred; listeners are called once
+   * afterwards if anything changed (bulk updates and disposals).
+   */
+  batch<T>(fn: () => T): T;
   get(id: string): TargetDescriptor | undefined;
   list(): readonly TargetDescriptor[];
   /**
@@ -132,6 +172,13 @@ export interface TargetRegistry {
    * dwelt on, if any).
    */
   hitTest(point: Point, current: string | null): HitTestResult;
+  /**
+   * The key distribution for a selection of `firedId` made while gaze was
+   * centred at `centre` with per-axis spread `spreadPx` (a 2D Gaussian,
+   * floored at the registry's minimum sigma, over nearby character targets).
+   * A fired target without `text` gets a single entry of probability 1.
+   */
+  keyDistribution(centre: Point, spreadPx: number, firedId: string): KeyDistribution;
   /** Called after any register/update/dispose (the UI may redraw debug overlays). */
   onDidChange(listener: () => void): Disposable;
 }
@@ -183,7 +230,10 @@ export interface SelectionMethod extends Disposable {
   readonly id: SelectionMethodId;
   process(input: SelectionInput): void;
   onEvent(listener: (event: SelectionEvent) => void): Disposable;
-  /** While paused, only `wake` targets can fire (dwell method) or nothing (others). */
+  /**
+   * While paused, only `wake` targets can fire: by dwell (`wakeMs`) for the
+   * dwell method, by press or switch for the others.
+   */
   setPaused(paused: boolean): void;
   /** Clears all progress (for example after a layout change). */
   reset(): void;
@@ -240,6 +290,25 @@ export interface GazePipelineOptions {
   readonly dwell: DwellConfig;
   /** Executes a target's command on activation, typically `kernel.commands.execute`. */
   readonly executeCommand: (command: string, args: unknown, source: string) => Promise<unknown>;
+  /** Initial selection method. Default `dwell`. */
+  readonly method?: SelectionMethodId;
+  /** Engine configuration (filter, fixation, dwell tuning, tick rate); missing fields use defaults. */
+  readonly engine?: GazeEngineConfigPatch;
+  /**
+   * When an activated target's command is `composition.insert` and its args
+   * carry no `distribution`, add the activation's `KeyDistribution`. Default true.
+   */
+  readonly attachDistribution?: boolean;
+  /** Where failed commands and throwing listeners go. Default: core's `defaultErrorReporter`. */
+  readonly reportError?: ErrorReporter;
+}
+
+/** The target gaze is engaged with changed (hover highlight for every method). */
+export interface EngageEvent {
+  /** The engaged target, or null (nothing, or a rest zone). */
+  readonly targetId: string | null;
+  readonly inRestZone: boolean;
+  readonly t: number;
 }
 
 /**
@@ -260,4 +329,18 @@ export interface GazePipeline extends GazeControl, Disposable {
   onSample(listener: (sample: GazeSample) => void): Disposable;
   /** Fired after a target's command ran (or failed). */
   onActivate(listener: (event: ActivateEvent) => void): Disposable;
+  /** The engaged (hovered, highlighted) target changed. */
+  onEngage(listener: (event: EngageEvent) => void): Disposable;
+  /** The active source reported an error (a non-recoverable one has stopped it). */
+  onSourceError(listener: (error: SourceError) => void): Disposable;
+  /** The switch method's confirm input (a key, switch or blink detector): `pressed` true fires. */
+  switchInput(pressed: boolean): void;
+  /** The current selection method. */
+  readonly selectionMethod: SelectionMethodId;
+  /** The current dwell configuration (for `adjustDwell`). */
+  readonly dwellConfig: DwellConfig;
+  /** The current engine configuration. */
+  readonly engineConfig: GazeEngineConfig;
+  /** Updates the engine configuration; throws `ForseeError('invalid-argument')`. Resets the filter and fixation state. */
+  setEngineConfig(patch: GazeEngineConfigPatch): void;
 }
