@@ -1,8 +1,21 @@
 import { FakeClock, SequentialIdSource, createKernel, isForseeError } from '@forsee/core';
-import type { ActivateEvent, GazeSample, KeyDistribution, Point } from '@forsee/plugin-api';
+import type {
+  ActivateEvent,
+  GazeSample,
+  KeyDistribution,
+  Point,
+  TargetDescriptor,
+} from '@forsee/plugin-api';
 import { describe, expect, it, vi } from 'vitest';
+import { withActivationDistribution } from './activation';
 import { DEFAULT_DWELL_CONFIG, type GazeEngineConfigPatch } from './config';
-import type { CalibrationModel, EngageEvent, GazePipeline, SelectionEvent } from './contracts';
+import type {
+  ActivationOutcome,
+  CalibrationModel,
+  EngageEvent,
+  GazePipeline,
+  SelectionEvent,
+} from './contracts';
 import { createGazePipeline } from './pipeline';
 import { createTargetRegistry } from './targets';
 import {
@@ -10,6 +23,7 @@ import {
   WAKE_ID,
   centreOf,
   fixtureRegistry,
+  fixtureTargets,
   keyRect,
   letterCentre,
 } from './test-support';
@@ -32,10 +46,12 @@ function setup(
     method?: 'dwell' | 'direct' | 'switch';
     execute?: Exec;
     kind?: 'pointer' | 'gaze';
+    targets?: TargetDescriptor[];
   } = {},
 ) {
   const clock = new FakeClock();
-  const targets = fixtureRegistry();
+  const targets = createTargetRegistry();
+  targets.registerAll(options.targets ?? fixtureTargets());
   const execute = vi.fn<Exec>(options.execute ?? (() => Promise.resolve(true)));
   const reportError = vi.fn();
   const pipeline = createGazePipeline({
@@ -534,5 +550,161 @@ describe('gaze pipeline: sources and lifecycle', () => {
     expect(Math.abs((activations(t.selection)[0]?.t ?? 0) - 400)).toBeLessThanOrEqual(FRAME + 1e-6);
     t.pipeline.setEngineConfig({ filter: { kind: 'none' } });
     expect(t.pipeline.engineConfig.filter.kind).toBe('none');
+  });
+});
+
+// ------------------------------------------------------------------ review round 1
+
+describe('gaze pipeline: unobserved time never fires (review round 1)', () => {
+  it('reviewer reproduction with real clock ticks: a slow source moving to a rest zone fires nothing', () => {
+    const t = setup({ engine: { tickIntervalMs: FRAME } });
+    const sample = (p: Point, time: number): GazeSample => ({
+      ...p,
+      t: time,
+      confidence: 1,
+      valid: true,
+    });
+    const a = letterCentre('a');
+    const bar = { x: 500, y: 40 };
+    t.play([0, 200, 400, 600].map((time) => sample(a, time)));
+    t.play([800, 1000, 1200].map((time) => sample(bar, time)));
+    t.clock.advance(1000);
+    expect(activations(t.selection)).toEqual([]);
+    expect(t.execute).not.toHaveBeenCalled();
+  });
+
+  it('a slow source staying on the key still fires on time', () => {
+    const t = setup({ engine: { tickIntervalMs: FRAME } });
+    const a = letterCentre('a');
+    t.play([0, 200, 400, 600, 800].map((time) => ({ ...a, t: time, confidence: 1, valid: true })));
+    expect(activations(t.selection).map((e) => [e.targetId, e.t])).toEqual([[A, 800]]);
+    expect(t.execute).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('gaze pipeline: who executes an activation (review round 1)', () => {
+  type Delivered = [ActivateEvent, ActivationOutcome];
+
+  it('a target with a command: the pipeline executes it once and reports executedBy pipeline', async () => {
+    const t = setup();
+    const delivered: Delivered[] = [];
+    t.pipeline.onActivate((event, outcome) => delivered.push([event, outcome]));
+    t.play(new GazeScript({ seed: 3, jitterPx: 4 }).fixate(letterCentre('a'), 1000).samples);
+    await flush();
+    expect(t.execute).toHaveBeenCalledTimes(1);
+    expect(delivered).toHaveLength(1);
+    const [event, outcome] = delivered[0] ?? [];
+    expect(event).toBe(activations(t.selection)[0]);
+    expect(outcome).toEqual({
+      executedBy: 'pipeline',
+      failed: false,
+      invocation: {
+        command: 'composition.insert',
+        args: { text: 'a', distribution: event?.distribution },
+      },
+    });
+    expect(t.execute.mock.calls[0]?.[1]).toEqual(
+      outcome?.executedBy === 'pipeline' ? outcome.invocation?.args : undefined,
+    );
+  });
+
+  it('a failed command is reported as failed', async () => {
+    const t = setup({ execute: () => Promise.reject(new Error('boom')) });
+    const outcomes: ActivationOutcome[] = [];
+    t.pipeline.onActivate((_event, outcome) => outcomes.push(outcome));
+    t.play(new GazeScript().fixate(letterCentre('a'), 1000).samples);
+    await flush();
+    expect(outcomes).toMatchObject([{ executedBy: 'pipeline', failed: true }]);
+  });
+
+  it('a target without a command: the pipeline executes nothing and delivers the full event to the owner', () => {
+    // A layout key: text for the distribution, no command.
+    const t = setup({
+      targets: fixtureTargets().map((d) =>
+        d.id === A ? { id: d.id, rect: d.rect, dwellClass: d.dwellClass, text: 'a' } : d,
+      ),
+    });
+    const delivered: Delivered[] = [];
+    // The owner (like the keyboard's activation adapter) executes, attaching the distribution.
+    t.pipeline.onActivate((event, outcome) => {
+      delivered.push([event, outcome]);
+      if (outcome.executedBy !== 'owner' || !event.targetId.startsWith('keyboard/')) return;
+      const run = withActivationDistribution(
+        { command: 'composition.insert', args: { text: 'a' } },
+        event,
+      );
+      void t.execute(run.command, run.args, 'gaze');
+    });
+    // Another listener that owns nothing does nothing.
+    const bystander = vi.fn();
+    t.pipeline.onActivate((event, outcome) => {
+      if (outcome.executedBy === 'owner' && event.targetId.startsWith('panel/')) bystander();
+    });
+    t.play(new GazeScript({ seed: 8, jitterPx: 5 }).fixate(letterCentre('a'), 1000).samples);
+    // Delivered synchronously, with everything the owner needs.
+    expect(delivered).toHaveLength(1);
+    const [event, outcome] = delivered[0] ?? [];
+    expect(outcome).toEqual({ executedBy: 'owner' });
+    expect(event).toMatchObject({ targetId: A, method: 'dwell', repeatIndex: 0 });
+    expect(event?.point).toBeDefined();
+    expect(event?.distribution.entries[0]).toMatchObject({ targetId: A, text: 'a' });
+    // Executed exactly once, by the owner, with the distribution attached.
+    expect(t.execute).toHaveBeenCalledTimes(1);
+    expect(t.execute.mock.calls[0]?.[1]).toEqual({
+      text: 'a',
+      distribution: event?.distribution,
+    });
+    expect(bystander).not.toHaveBeenCalled();
+  });
+
+  it('a wake target without a command is handled by the pipeline itself', () => {
+    const clock = new FakeClock();
+    const targets = createTargetRegistry();
+    targets.register({
+      id: WAKE_ID,
+      rect: { x: 800, y: 400, width: 100, height: 100 },
+      dwellClass: 'function',
+      role: 'wake',
+    });
+    const pipeline = createGazePipeline({
+      clock,
+      targets,
+      dwell: PLAIN,
+      executeCommand: () => Promise.resolve(),
+      engine: { tickIntervalMs: 0 },
+    });
+    const outcomes: ActivationOutcome[] = [];
+    pipeline.onActivate((_e, outcome) => outcomes.push(outcome));
+    const source = new ManualGazeSource();
+    pipeline.setSource(source);
+    pipeline.pause();
+    source.emit(...new GazeScript().fixate(WAKE, 2100).samples);
+    expect(outcomes).toEqual([{ executedBy: 'pipeline', failed: false }]);
+  });
+
+  it('attachDistribution false leaves the invocation alone', async () => {
+    const clock = new FakeClock();
+    const execute = vi.fn<Exec>(() => Promise.resolve());
+    const pipeline = createGazePipeline({
+      clock,
+      targets: fixtureRegistry(),
+      dwell: PLAIN,
+      executeCommand: execute,
+      attachDistribution: false,
+      engine: { tickIntervalMs: 0 },
+    });
+    const outcomes: ActivationOutcome[] = [];
+    pipeline.onActivate((_e, outcome) => outcomes.push(outcome));
+    const source = new ManualGazeSource();
+    pipeline.setSource(source);
+    source.emit(...new GazeScript().fixate(letterCentre('a'), 1000).samples);
+    await flush();
+    expect(outcomes).toEqual([
+      {
+        executedBy: 'pipeline',
+        failed: false,
+        invocation: { command: 'composition.insert', args: { text: 'a' } },
+      },
+    ]);
   });
 });

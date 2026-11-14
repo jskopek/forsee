@@ -1,7 +1,7 @@
-import type { LocaleTag, Rect } from './common';
+import type { LocaleTag, Point, Rect } from './common';
 import type { CommandExposure, CommandHandler } from './commands';
 import type { ContextEntryInput } from './context';
-import type { DwellClass, GazeSource } from './gaze';
+import type { DwellClass, GazeSource, KeyDistribution } from './gaze';
 import type { LayoutDefinition } from './layout';
 import type { PluginPlatform } from './manifest';
 import type { PredictionProvider } from './prediction';
@@ -231,11 +231,37 @@ export interface PanelTarget {
   readonly disabled?: boolean;
 }
 
-/** `activate` delivered to a panel for one of its targets. */
+/**
+ * `activate` delivered to a panel for one of its targets.
+ *
+ * Permissions: `point` and `distribution` are delivered without `gaze.read`,
+ * because they describe only the plugin's own UI at the moment one of its
+ * own targets fired, not the gaze stream. The host must keep them that way:
+ * `point` is clamped to the panel frame, and `distribution` contains only
+ * this panel's own targets, so an activation never reveals where the user
+ * looked outside the panel or anything about other owners' targets.
+ */
 export interface PanelActivation {
   readonly panelId: string;
   readonly targetId: string;
   readonly repeatIndex: number;
+  /**
+   * Where the user was looking when the target fired, CSS pixels relative to
+   * the panel frame's top-left (like `PanelTarget.rect`), clamped to the
+   * frame. Absent when the host has no point (for example a switch press
+   * with no gaze).
+   */
+  readonly point?: Point;
+  /**
+   * The selection's uncertainty over this panel's own targets: entries for
+   * any other target (keyboard keys, other panels, other plugins) are
+   * removed, `targetId`s are the panel-local `PanelTarget.id`s, the fired
+   * target is always present, and probabilities are renormalised to sum to
+   * 1. A plugin that predicts from noisy selections passes it on (for
+   * example as `composition.insert`'s `distribution`). Absent when the host
+   * delivers none.
+   */
+  readonly distribution?: KeyDistribution;
 }
 
 // ---------------------------------------------------------------- gaze sources
