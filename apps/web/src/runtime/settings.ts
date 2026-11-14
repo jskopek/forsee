@@ -85,23 +85,18 @@ export const UI_SETTING_FIELDS: readonly SettingField[] = [
   },
 ];
 
-/** `app.layout`: which layout, and which family when none is chosen. */
+/**
+ * `app.layout`: which keyboard is in use. (Before the standard layouts
+ * became a plugin it also held a `family`; a stored value is kept but no
+ * longer read.)
+ */
 export const LAYOUT_SETTING_FIELDS: readonly SettingField[] = [
   {
     key: 'layoutId',
-    label: 'Keyboard layout',
-    description: 'Layout id. Empty chooses the default layout of the family for the language.',
+    label: 'Keyboard',
+    description:
+      'Id of the keyboard in use. Empty, or a keyboard no longer on offer, chooses the default for the language.',
     type: 'string',
     default: '',
-  },
-  {
-    key: 'family',
-    label: 'Keyboard size',
-    type: 'select',
-    default: 'precise',
-    options: [
-      { label: 'Full keyboard (precise pointing)', value: 'precise' },
-      { label: 'Large keys (coarse pointing)', value: 'coarse' },
-    ],
   },
 ];

@@ -59,6 +59,9 @@ importers:
       '@forsee/plugin-host':
         specifier: workspace:*
         version: link:../../packages/plugin-host
+      '@forsee/plugin-keyboards':
+        specifier: workspace:*
+        version: link:../../plugins/keyboards
       '@forsee/plugin-prediction-ngram':
         specifier: workspace:*
         version: link:../../plugins/prediction-ngram
@@ -279,6 +282,22 @@ importers:
       react-dom:
         specifier: ^19.3.1
         version: 19.3.1(react@19.3.1)
+
+  plugins/keyboards:
+    dependencies:
+      '@forsee/layouts':
+        specifier: workspace:*
+        version: link:../../packages/layouts
+      '@forsee/plugin-api':
+        specifier: workspace:*
+        version: link:../../packages/plugin-api
+    devDependencies:
+      '@forsee/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@forsee/plugin-host':
+        specifier: workspace:*
+        version: link:../../packages/plugin-host
 
   plugins/prediction-ngram:
     dependencies:

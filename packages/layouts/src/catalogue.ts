@@ -30,8 +30,10 @@ function load(json: unknown): LayoutDefinition {
 export const LAYOUT_JSON_SCHEMA: Readonly<Record<string, unknown>> = layoutSchema;
 
 /**
- * Built-in layouts, in catalogue order: within a family and language the
- * first one is the default. Ids are `forsee/<name>`.
+ * The standard layouts, in catalogue order: within a family and language the
+ * first one is the default. Ids are `forsee/<name>`. The app offers them
+ * through the `forsee.keyboards` plugin (as `forsee.keyboards/<name>`) and
+ * uses the first as its fallback keyboard when no plugin offers one.
  */
 export const BUILTIN_LAYOUTS: readonly LayoutDefinition[] = [
   load(enQwerty),

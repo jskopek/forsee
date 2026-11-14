@@ -1,0 +1,10 @@
+{
+  "id": "forsee.keyboards",
+  "name": "Standard keyboards",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "minAppVersion": "0.0.0",
+  "description": "The keyboards Forsee comes with: QWERTY, alphabetical, German QWERTZ and large-key groups. Choose which one you use in Settings → Keyboard.",
+  "author": "Forsee",
+  "permissions": []
+}

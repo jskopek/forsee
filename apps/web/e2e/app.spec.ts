@@ -163,7 +163,9 @@ test.describe('with speech', () => {
     );
 
     // The coarse layout: a group, then a letter in it, then back to the groups.
-    await expect(page.locator('[data-layout-id="forsee/en-coarse-groups"]')).toBeVisible();
+    await expect(
+      page.locator('[data-layout-id="forsee.keyboards/en-coarse-groups"]'),
+    ).toBeVisible();
     const group = page.getByRole('group', { name: 'Keyboard: ABCDE' });
     await dwellUntil(page, key(page, 'ABCDE'), () => group.isVisible(), 3000);
     expect(await dwellType(page, key(page, 'C'))).toBe('c');

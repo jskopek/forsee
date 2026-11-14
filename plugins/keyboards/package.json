@@ -1,0 +1,19 @@
+{
+  "name": "@forsee/plugin-keyboards",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "First-party plugin: the standard keyboard layouts (QWERTY, alphabetical, QWERTZ, large groups).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@forsee/layouts": "workspace:*",
+    "@forsee/plugin-api": "workspace:*"
+  },
+  "devDependencies": {
+    "@forsee/core": "workspace:*",
+    "@forsee/plugin-host": "workspace:*"
+  }
+}

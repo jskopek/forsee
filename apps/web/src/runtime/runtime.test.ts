@@ -8,9 +8,20 @@ import {
   manifest as ngramManifest,
   NGRAM_PLUGIN_ID,
 } from '@forsee/plugin-prediction-ngram';
-import { QUICKFIRE_PHRASE_SET_ID, QUICKFIRE_SPEAK_COMMAND } from '@forsee/plugin-quickfire';
+import {
+  KEYBOARDS_PLUGIN_ID,
+  showSettingKey as keyboardShowSetting,
+} from '@forsee/plugin-keyboards';
+import {
+  quickfirePlugin,
+  QUICKFIRE_PHRASE_SET_ID,
+  QUICKFIRE_PLUGIN_ID,
+  QUICKFIRE_SPEAK_COMMAND,
+  showSettingKey,
+} from '@forsee/plugin-quickfire';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defaultFirstPartyPlugins } from './first-party';
+import { FALLBACK_LAYOUT } from './layout';
 import { PLUGIN_INSTALL_PATH } from './profile-storage';
 import {
   createTestBrowser,
@@ -307,8 +318,10 @@ describe('blocked first-party plugins', () => {
     const browser = createTestBrowser();
     const runtime = await boot(browser, { appVersion: '0.0.0-dev' });
     expect(runtime.pluginHost.get(NGRAM_PLUGIN_ID)?.state).toBe('blocked');
-    expect(runtime.startupIssues.map((i) => i.part)).toEqual(['plugins', 'plugins']);
+    expect(runtime.startupIssues.map((i) => i.part)).toEqual(['plugins', 'plugins', 'plugins']);
     expect(runtime.startupIssues[0]?.message).toMatch(/blocked: It needs Forsee 0\.0\.0/);
+    // Even with the keyboards plugin blocked, there is a keyboard.
+    expect(runtime.layout.fallback).toBe(true);
   });
 });
 
@@ -393,6 +406,35 @@ describe('plugins', () => {
     const again = await boot(createTestBrowser({ files: browser.files }));
     expect(again.pluginHost.get('forsee.quickfire')?.state).toBe('disabled');
   });
+
+  it('keeps plugin options across a restart, and offers them only while the plugin is on', async () => {
+    const shownPhrases = (runtime: ForseeRuntime): string[] =>
+      runtime.kernel.extensions
+        .list('phraseSets')
+        .flatMap((s) => s.contribution.categories.flatMap((c) => c.phrases.map((p) => p.id)));
+    const optionsOf = (runtime: ForseeRuntime) =>
+      runtime.kernel.extensions.list('settings').find((c) => c.owner === QUICKFIRE_PLUGIN_ID);
+
+    const browser = createTestBrowser();
+    const runtime = await boot(browser);
+    expect(optionsOf(runtime)?.contribution.fields).toHaveLength(7);
+    runtime.settings.set(QUICKFIRE_PLUGIN_ID, showSettingKey('help'), false);
+    await vi.waitFor(() => expect(shownPhrases(runtime)).not.toContain('help'));
+    await runtime.flush();
+    await runtime.dispose();
+
+    const again = await boot(createTestBrowser({ files: browser.files }));
+    expect(again.settings.get(QUICKFIRE_PLUGIN_ID, showSettingKey('help'))).toBe(false);
+    expect(shownPhrases(again)).not.toContain('help');
+    expect(shownPhrases(again)).toContain('yes');
+
+    await again.pluginHost.disable(QUICKFIRE_PLUGIN_ID);
+    expect(optionsOf(again)).toBeUndefined();
+    expect(shownPhrases(again)).toEqual([]);
+    await again.pluginHost.enable(QUICKFIRE_PLUGIN_ID);
+    expect(optionsOf(again)).toBeDefined();
+    expect(shownPhrases(again)).not.toContain('help');
+  });
 });
 
 describe('input modes', () => {
@@ -451,28 +493,81 @@ describe('input modes', () => {
   });
 });
 
-describe('layout', () => {
-  it('switches to the coarse family and back, replacing the runtime', async () => {
+describe('keyboards', () => {
+  const QWERTY = 'forsee.keyboards/en-qwerty';
+  const ALPHABETICAL = 'forsee.keyboards/en-alphabetical';
+  const COARSE = 'forsee.keyboards/en-coarse-groups';
+
+  it('come from the standard keyboards plugin; one is chosen, replacing the runtime', async () => {
     const browser = createTestBrowser();
     const runtime = await boot(browser);
+    expect(runtime.layout.catalogue.map((l) => l.id)).toEqual([
+      QWERTY,
+      ALPHABETICAL,
+      'forsee.keyboards/de-qwertz',
+      COARSE,
+    ]);
+    expect(runtime.layout.definition.id).toBe(QWERTY);
+    expect(runtime.layout.fallback).toBe(false);
+
     const changed = vi.fn();
     runtime.layout.onDidChange(changed);
     const before = runtime.layout.runtime;
-    runtime.layout.setFamily('coarse');
+    runtime.layout.select(COARSE);
     expect(runtime.layout.definition.family).toBe('coarse');
     expect(runtime.layout.runtime).not.toBe(before);
     expect(changed).toHaveBeenCalledTimes(1);
-    runtime.layout.select('forsee/en-alphabetical');
-    expect(runtime.layout.definition.id).toBe('forsee/en-alphabetical');
-    // The family follows the chosen layout.
-    expect(runtime.layout.family).toBe('precise');
-    expect(changed).toHaveBeenCalledTimes(2);
-    runtime.layout.select('forsee/en-coarse-groups');
-    expect(runtime.layout.family).toBe('coarse');
-    runtime.layout.select('forsee/en-alphabetical');
-    expect(() => runtime.layout.select('nope/missing')).toThrow(/no layout/);
+    runtime.layout.select(ALPHABETICAL);
+    expect(runtime.layout.definition.id).toBe(ALPHABETICAL);
+    expect(() => runtime.layout.select('nope/missing')).toThrow(/no keyboard/);
     await runtime.kernel.commands.execute('layout.showPage', { page: 'numbers' }, 'app');
     expect(runtime.layout.runtime.view.pageId).toBe('numbers');
+  });
+
+  it('cannot be turned off: the standard keyboards plugin is required', async () => {
+    const runtime = await boot(createTestBrowser());
+    expect(runtime.pluginHost.get(KEYBOARDS_PLUGIN_ID)).toMatchObject({
+      state: 'active',
+      required: true,
+    });
+    await expect(runtime.pluginHost.disable(KEYBOARDS_PLUGIN_ID)).rejects.toMatchObject({
+      code: 'invalid-argument',
+    });
+    expect(runtime.layout.catalogue).toHaveLength(4);
+  });
+
+  it('keep the keyboard chosen before they became a plugin (old ids are migrated)', async () => {
+    const browser = createTestBrowser();
+    const a = await boot(browser);
+    a.settings.set('app.layout', 'layoutId', 'forsee/en-coarse-groups');
+    expect(a.layout.definition.id).toBe(COARSE);
+    await a.flush();
+    await a.dispose();
+    const b = await boot(createTestBrowser({ files: browser.files }));
+    expect(b.layout.definition.id).toBe(COARSE);
+  });
+
+  it('a keyboard switched off in the plugin options leaves the list; the default takes over', async () => {
+    const runtime = await boot(createTestBrowser());
+    runtime.layout.select(ALPHABETICAL);
+    runtime.settings.set(KEYBOARDS_PLUGIN_ID, keyboardShowSetting('en-alphabetical'), false);
+    await vi.waitFor(() => expect(runtime.layout.definition.id).toBe(QWERTY));
+    expect(runtime.layout.catalogue.map((l) => l.id)).not.toContain(ALPHABETICAL);
+    // Offered again, it is the chosen one again.
+    runtime.settings.set(KEYBOARDS_PLUGIN_ID, keyboardShowSetting('en-alphabetical'), true);
+    await vi.waitFor(() => expect(runtime.layout.definition.id).toBe(ALPHABETICAL));
+  });
+
+  it('fall back to a built-in keyboard when no plugin offers one', async () => {
+    const browser = createTestBrowser();
+    const runtime = await boot(browser, {
+      firstPartyPlugins: () => [quickfirePlugin],
+    });
+    expect(runtime.layout.catalogue).toEqual([]);
+    expect(runtime.layout.fallback).toBe(true);
+    expect(runtime.layout.definition.id).toBe(FALLBACK_LAYOUT.id);
+    await runtime.kernel.commands.execute('composition.insert', { text: 'hi' }, 'keyboard');
+    expect(runtime.kernel.composition.text).toBe('hi');
   });
 });
 

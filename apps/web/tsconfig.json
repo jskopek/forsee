@@ -20,6 +20,7 @@
     { "path": "../../packages/storage" },
     { "path": "../../packages/ui" },
     { "path": "../../plugins/prediction-ngram" },
-    { "path": "../../plugins/quickfire" }
+    { "path": "../../plugins/quickfire" },
+    { "path": "../../plugins/keyboards" }
   ]
 }

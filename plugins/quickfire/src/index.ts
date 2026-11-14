@@ -5,16 +5,23 @@
  * of the set at once, interrupting whatever is being said. It has no UI: the
  * app renders the phrase set and binds each tile to the command.
  *
+ * Settings (namespace `forsee.quickfire`): one on/off switch per reply,
+ * `show.<phrase id>`, all on by default. A reply switched off leaves the
+ * phrase set (and so the screen); when every reply is off, no phrase set is
+ * registered at all.
+ *
  * Permissions: `speech.output` only. It never reads or changes the
  * composition (`speech.speak` does not touch it).
  */
 import type {
+  Disposable,
   ForseeApi,
   JsonValue,
   Phrase,
   PhraseSet,
   PluginManifest,
   PluginModule,
+  SettingField,
 } from '@forsee/plugin-api';
 import manifestJson from '../manifest.json';
 
@@ -53,6 +60,34 @@ export const QUICKFIRE_PHRASE_SET: PhraseSet = {
   categories: [{ id: 'quickfire', name: 'Quick-fire', phrases: QUICKFIRE_PHRASES }],
 };
 
+/** Setting key that shows or hides one reply. */
+export function showSettingKey(phraseId: string): string {
+  return `show.${phraseId}`;
+}
+
+/** The plugin's settings: one switch per reply, in display order. */
+export const QUICKFIRE_SETTING_FIELDS: readonly SettingField[] = QUICKFIRE_PHRASES.map(
+  (phrase) => ({
+    key: showSettingKey(phrase.id),
+    label: phrase.label ?? phrase.text,
+    description: `Show "${phrase.text}" in the quick replies.`,
+    type: 'boolean',
+    default: true,
+  }),
+);
+
+/** The phrase set with only the replies switched on, or `null` when none is. */
+export function visiblePhraseSet(settings: Readonly<Record<string, unknown>>): PhraseSet | null {
+  const phrases = QUICKFIRE_PHRASES.filter(
+    (phrase) => settings[showSettingKey(phrase.id)] !== false,
+  );
+  if (phrases.length === 0) return null;
+  return {
+    ...QUICKFIRE_PHRASE_SET,
+    categories: [{ id: 'quickfire', name: 'Quick-fire', phrases }],
+  };
+}
+
 function phraseIdOf(args: unknown): string {
   const id =
     typeof args === 'object' && args !== null && !Array.isArray(args)
@@ -65,7 +100,23 @@ function phraseIdOf(args: unknown): string {
 /** The plugin module. */
 export const quickfireModule: PluginModule = {
   async activate(api: ForseeApi) {
-    await api.register.phraseSet(QUICKFIRE_PHRASE_SET);
+    await api.settings.registerSchema(QUICKFIRE_SETTING_FIELDS);
+
+    // The phrase set follows the settings: re-registered (replaced) on change.
+    let registered: Disposable | null = null;
+    const apply = async (): Promise<void> => {
+      const set = visiblePhraseSet(await api.settings.getAll());
+      registered?.dispose();
+      registered = set ? await api.register.phraseSet(set) : null;
+    };
+    await apply();
+    let sync: Promise<void> = Promise.resolve();
+    await api.events.on('settings.changed', () => {
+      // One update at a time, in order. The phrase set is static and valid, so
+      // an update fails only when the plugin was turned off meanwhile (the API
+      // is disposed); then there is nothing left to show.
+      sync = sync.then(apply).catch(() => undefined);
+    });
     await api.register.command({
       id: QUICKFIRE_SPEAK_COMMAND,
       title: 'Speak a quick-fire reply',

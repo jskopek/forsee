@@ -92,6 +92,8 @@ export interface InstalledPlugin {
   /** SHA-256 of the bundle for `directory` plugins. */
   readonly sha256?: string;
   readonly enabled: boolean;
+  /** A first-party plugin the app cannot run without: always enabled, `disable` rejects. */
+  readonly required: boolean;
 }
 
 /**
@@ -125,6 +127,12 @@ export interface FirstPartyPlugin {
   readonly module: PluginModule;
   /** Files listed in `manifest.contributes`, bundled with the app. */
   readonly files?: PluginFiles;
+  /**
+   * The app cannot work without it (for example the plugin that supplies the
+   * keyboards): it is always enabled, whatever the stored record says, and
+   * `disable` rejects with `invalid-argument`.
+   */
+  readonly required?: boolean;
 }
 
 /** What to install from the profile's plugin folder. */
@@ -154,7 +162,10 @@ export interface PluginHost extends Disposable {
   uninstall(pluginId: string): Promise<void>;
   /** Enables a plugin and loads it if allowed. Also retries a `failed` plugin. */
   enable(pluginId: string): Promise<void>;
-  /** Disposes everything the plugin registered (`ExtensionRegistry.disposeOwner`, commands, context). */
+  /**
+   * Disposes everything the plugin registered (`ExtensionRegistry.disposeOwner`, commands, context).
+   * Rejects with `invalid-argument` for a required first-party plugin.
+   */
   disable(pluginId: string): Promise<void>;
   /** Restricted mode (on by default): community code does not run. Declarative plugins still load. */
   readonly restrictedMode: boolean;

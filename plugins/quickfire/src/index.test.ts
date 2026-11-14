@@ -2,15 +2,17 @@ import type { SpeechService } from '@forsee/core';
 import type { PluginManifest, SpeakOptions } from '@forsee/plugin-api';
 import { validateManifest } from '@forsee/plugin-host';
 import { createTestPluginApi } from '@forsee/plugin-host/testing';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import manifestJson from '../manifest.json';
 import {
   manifest,
   QUICKFIRE_PHRASE_SET_ID,
   QUICKFIRE_PHRASES,
   QUICKFIRE_PLUGIN_ID,
+  QUICKFIRE_SETTING_FIELDS,
   QUICKFIRE_SPEAK_COMMAND,
   quickfireModule,
+  showSettingKey,
 } from './index';
 
 function recordingSpeech(): SpeechService & { calls: [string, SpeakOptions | undefined][] } {
@@ -90,5 +92,40 @@ describe('forsee.quickfire', () => {
       kernel.commands.execute(QUICKFIRE_SPEAK_COMMAND, { phraseId: 'yes' }, 'app'),
     ).rejects.toMatchObject({ code: 'permission-denied' });
     expect(speech.calls).toEqual([]);
+  });
+
+  it('has one setting per reply, all on', async () => {
+    const { kernel } = await activate();
+    expect(QUICKFIRE_SETTING_FIELDS.map((f) => f.key)).toEqual(
+      QUICKFIRE_PHRASES.map((p) => showSettingKey(p.id)),
+    );
+    expect(Object.values(kernel.settings.getAll(QUICKFIRE_PLUGIN_ID))).toEqual(
+      QUICKFIRE_PHRASES.map(() => true),
+    );
+    const section = kernel.extensions.list('settings').find((c) => c.owner === QUICKFIRE_PLUGIN_ID);
+    expect(section?.contribution.fields[0]?.label).toBe('Yes');
+  });
+
+  it('hides a reply switched off, and shows it again when switched on', async () => {
+    const { kernel } = await activate();
+    const shown = (): string[] =>
+      kernel.extensions
+        .list('phraseSets')
+        .flatMap((s) => s.contribution.categories.flatMap((c) => c.phrases.map((p) => p.id)));
+
+    kernel.settings.set(QUICKFIRE_PLUGIN_ID, showSettingKey('no'), false);
+    await vi.waitFor(() => expect(shown()).not.toContain('no'));
+    expect(shown()).toHaveLength(QUICKFIRE_PHRASES.length - 1);
+
+    kernel.settings.set(QUICKFIRE_PLUGIN_ID, showSettingKey('no'), true);
+    await vi.waitFor(() => expect(shown()).toEqual(QUICKFIRE_PHRASES.map((p) => p.id)));
+  });
+
+  it('registers no phrase set when every reply is off', async () => {
+    const { kernel } = await activate();
+    for (const phrase of QUICKFIRE_PHRASES) {
+      kernel.settings.set(QUICKFIRE_PLUGIN_ID, showSettingKey(phrase.id), false);
+    }
+    await vi.waitFor(() => expect(kernel.extensions.list('phraseSets')).toEqual([]));
   });
 });

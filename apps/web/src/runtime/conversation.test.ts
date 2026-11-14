@@ -13,7 +13,7 @@ describe('the conversation path', () => {
     const runtime = await browser.boot();
     const { kernel } = runtime;
     expect(runtime.startupIssues).toEqual([]);
-    expect(runtime.layout.definition.id).toBe('forsee/en-qwerty');
+    expect(runtime.layout.definition.id).toBe('forsee.keyboards/en-qwerty');
     expect(runtime.profile).toMatchObject({ storage: 'opfs', persistent: true, created: true });
 
     runtime.speech.updateSettings({ voiceId: 'forsee.web-speech/Serena' });

@@ -19,6 +19,7 @@
     "@forsee/plugin-api": "workspace:*",
     "@forsee/plugin-host": "workspace:*",
     "@forsee/plugin-prediction-ngram": "workspace:*",
+    "@forsee/plugin-keyboards": "workspace:*",
     "@forsee/plugin-quickfire": "workspace:*",
     "@forsee/prediction": "workspace:*",
     "@forsee/speech": "workspace:*",

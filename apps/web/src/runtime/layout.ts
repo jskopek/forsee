@@ -13,6 +13,7 @@ import {
   type LayoutRuntime,
 } from '@forsee/layouts';
 import type { Disposable, LayoutDefinition, LayoutFamily } from '@forsee/plugin-api';
+import { migrateLayoutId } from '@forsee/plugin-keyboards';
 import { LAYOUT_SETTINGS_NAMESPACE } from './settings';
 import type { RuntimeLayout } from './types';
 
@@ -21,17 +22,29 @@ interface Active {
   readonly runtime: LayoutRuntime;
 }
 
-function familyOf(value: unknown): LayoutFamily {
-  return value === 'coarse' ? 'coarse' : 'precise';
-}
+/**
+ * The keyboard used when no plugin offers one (the standard keyboards plugin
+ * failed to start, or every layout in it is switched off): built in, so a
+ * gaze user is never left without a way to type or to reach Settings.
+ */
+export const FALLBACK_LAYOUT: LayoutDefinition = Object.freeze({
+  ...BUILTIN_LAYOUTS[0]!,
+  id: 'app/fallback-qwerty',
+  name: 'Fallback keyboard (QWERTY)',
+});
+
+/** Family whose default is chosen when no keyboard is picked (or the picked one is gone). */
+const DEFAULT_FAMILY: LayoutFamily = 'precise';
 
 /**
- * The active keyboard layout: built-ins plus layouts contributed through the
- * extension registry; the one named by `app.layout/layoutId` if it exists,
- * else `pickDefaultLayout` for `app.layout/family` and the locale. A new
- * `LayoutRuntime` is made whenever the choice (or the chosen definition)
- * changes. Also registers `layout.showPage` and `layout.back` (declared by
- * `@forsee/layouts`) on the current runtime.
+ * The active keyboard. Plugins make keyboards available (the `layouts`
+ * extension point; the standard ones come from `forsee.keyboards`); exactly
+ * one is in use: the one named by `app.layout/layoutId` if it is offered,
+ * else the default for the language. With none offered, `FALLBACK_LAYOUT`.
+ * Ids stored before the standard layouts became a plugin are migrated on
+ * read. A new `LayoutRuntime` is made whenever the choice (or the chosen
+ * definition) changes. Also registers `layout.showPage` and `layout.back`
+ * (declared by `@forsee/layouts`) on the current runtime.
  */
 export function createLayoutController(
   kernel: Kernel,
@@ -40,18 +53,15 @@ export function createLayoutController(
   const subscriptions = new DisposableStore();
   const bus = new EventBus<{ changed: Active }>({ onListenerError: reportError });
 
-  const catalogue = (): readonly LayoutDefinition[] => [
-    ...BUILTIN_LAYOUTS,
-    ...kernel.extensions.list('layouts').map((c) => c.contribution),
-  ];
-  const family = (): LayoutFamily =>
-    familyOf(kernel.settings.get(LAYOUT_SETTINGS_NAMESPACE, 'family'));
+  const catalogue = (): readonly LayoutDefinition[] =>
+    kernel.extensions.list('layouts').map((c) => c.contribution);
   const choose = (): LayoutDefinition => {
     const layouts = catalogue();
-    const id = kernel.settings.get(LAYOUT_SETTINGS_NAMESPACE, 'layoutId');
-    const named =
-      typeof id === 'string' && id !== '' ? layouts.find((l) => l.id === id) : undefined;
-    return named ?? pickDefaultLayout(layouts, family(), kernel.locale);
+    if (layouts.length === 0) return FALLBACK_LAYOUT;
+    const stored = kernel.settings.get(LAYOUT_SETTINGS_NAMESPACE, 'layoutId');
+    const id = typeof stored === 'string' ? migrateLayoutId(stored) : '';
+    const named = id === '' ? undefined : layouts.find((l) => l.id === id);
+    return named ?? pickDefaultLayout(layouts, DEFAULT_FAMILY, kernel.locale);
   };
   const make = (definition: LayoutDefinition): Active => ({
     definition,
@@ -115,23 +125,15 @@ export function createLayoutController(
     get runtime() {
       return active.runtime;
     },
-    get family() {
-      return family();
+    get fallback() {
+      return active.definition === FALLBACK_LAYOUT;
     },
     onDidChange: (listener) => bus.on('changed', listener),
     select(layoutId) {
-      const chosen = catalogue().find((l) => l.id === layoutId);
-      if (!chosen) {
-        throw new ForseeError('not-found', `There is no layout "${layoutId}".`);
+      if (!catalogue().some((l) => l.id === layoutId)) {
+        throw new ForseeError('not-found', `There is no keyboard "${layoutId}".`);
       }
       kernel.settings.set(LAYOUT_SETTINGS_NAMESPACE, 'layoutId', layoutId);
-      // Keep the family in step, so `family` describes the active layout and
-      // the family's default is right if this layout later disappears.
-      kernel.settings.set(LAYOUT_SETTINGS_NAMESPACE, 'family', chosen.family);
-    },
-    setFamily(next) {
-      kernel.settings.set(LAYOUT_SETTINGS_NAMESPACE, 'layoutId', '');
-      kernel.settings.set(LAYOUT_SETTINGS_NAMESPACE, 'family', familyOf(next));
     },
     dispose() {
       subscriptions.dispose();
