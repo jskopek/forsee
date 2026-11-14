@@ -9,8 +9,17 @@
     height: 100%;
   }
 
+  html {
+    background: #0b0f17; /* the surface colour, so nothing flashes white while loading */
+  }
+
   body {
     margin: 0; /* remove default body margin to allow edge-to-edge UI */
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    user-select: none;
   }
 
   * {
@@ -24,3 +33,21 @@
  * from the `@forsee/ui` Tailwind preset. The prototype's hover-driven
  * `.animate-dwell-fill` rules are gone: selection never depends on hover.
  */
+
+/* The boot message appears only if starting takes noticeably long (no flash). */
+.forsee-boot-message {
+  opacity: 0;
+  animation: forsee-boot-in 250ms ease-out 600ms forwards;
+}
+
+@keyframes forsee-boot-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .forsee-boot-message {
+    animation-duration: 1ms;
+  }
+}
