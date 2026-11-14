@@ -8,6 +8,16 @@ import type { SettingField } from './settings';
  */
 export const API_VERSION = 1;
 
+/** How settled the plugin API is: `provisional` (may change) or `stable`. */
+export type ApiStability = 'provisional' | 'stable';
+
+/**
+ * The plugin API is **provisional** until the first end-to-end release of
+ * Forsee: until then it may change, including incompatibly, without a change
+ * to `API_VERSION`. See `packages/plugin-api/README.md`.
+ */
+export const API_STABILITY: ApiStability = 'provisional';
+
 /**
  * Permission scopes a plugin can request (plan section 6).
  *

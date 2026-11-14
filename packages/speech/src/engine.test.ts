@@ -5,7 +5,7 @@ import { createSpeechService } from './engine';
 import { createRecordedMessageProvider } from './recorded';
 import { applySpeechSettings, DEFAULT_SPEECH_SETTINGS } from './settings';
 import { FakeAudioPlayer, FakeVoiceProvider, fakeVoice } from './testing';
-import { selectVoice, splitVoiceId } from './voices';
+import { globalVoiceId, isVoiceProviderId, selectVoice, splitVoiceId } from './voices';
 
 async function flush(): Promise<void> {
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
@@ -183,6 +183,48 @@ describe('speech engine: providers and routing', () => {
     expect((await engine.listVoices()).map((v) => v.id)).not.toContain('zed');
   });
 
+  it('routes to plugin providers, whose ids contain a slash, even for voice ids with slashes', async () => {
+    const extensions = new ExtensionRegistry();
+    const clock = new FakeClock();
+    const plugin = new FakeVoiceProvider({
+      id: 'community.voices/neural',
+      clock,
+      voices: [fakeVoice('community.voices/neural', 'en/ava', 'en-GB')],
+    });
+    const { engine, main, errors } = setup({ extensions });
+    extensions.register('voiceProviders', 'community.voices', plugin);
+    const voices = await engine.listVoices();
+    const ava = voices.find((v) => v.providerId === 'community.voices/neural');
+    expect(ava).toBeDefined();
+    const voiceId = globalVoiceId('community.voices/neural', 'en/ava');
+    void engine.speak('hello', { voiceId });
+    expect(plugin.spoken.map((u) => [u.text, u.voiceId])).toEqual([['hello', voiceId]]);
+    expect(main.spoken).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
+  it('reports whether a synthesis provider is available', () => {
+    const { engine } = setup();
+    expect(engine.isAvailable()).toBe(true);
+    const clock = new FakeClock();
+    const empty = createSpeechService({ clock, newId: () => 'u1' });
+    expect(empty.isAvailable()).toBe(false);
+    const recordedOnly = createSpeechService({
+      clock,
+      newId: () => 'u1',
+      providers: [
+        createRecordedMessageProvider({
+          clock,
+          readFile: () => Promise.resolve(new Uint8Array([1])),
+          player: new FakeAudioPlayer(),
+        }),
+      ],
+    });
+    expect(recordedOnly.isAvailable()).toBe(false);
+    engine.dispose();
+    expect(engine.isAvailable()).toBe(false);
+  });
+
   it('rejects a duplicate provider id and skips failing listVoices', async () => {
     const { engine, main, errors } = setup();
     expect(() => engine.registerProvider(main)).toThrow(ForseeError);
@@ -240,9 +282,23 @@ describe('speech engine: voice selection', () => {
     expect(() => engine.setVoice('  ')).toThrow(ForseeError);
   });
 
-  it('splitVoiceId keeps slashes inside the voice id', () => {
-    expect(splitVoiceId('web/a/b')).toEqual({ providerId: 'web', voiceId: 'a/b' });
+  it('splits global voice ids at the last slash and escapes slashes in voice ids', () => {
+    expect(globalVoiceId('web', 'a/b')).toBe('web/a%2Fb');
+    expect(splitVoiceId('web/a%2Fb')).toEqual({ providerId: 'web', voiceId: 'a/b' });
+    expect(splitVoiceId('community.voices/neural/a%2Fb')).toEqual({
+      providerId: 'community.voices/neural',
+      voiceId: 'a/b',
+    });
     expect(splitVoiceId('nope')).toBeUndefined();
+  });
+
+  it('accepts app and plugin provider ids, nothing else', () => {
+    for (const id of ['forsee.web-speech', 'community.voices/neural', 'a/b']) {
+      expect(isVoiceProviderId(id), id).toBe(true);
+    }
+    for (const id of ['', '/a', 'a/', 'a//b', 'a/b/c', 'a b', 'a%2F', 3]) {
+      expect(isVoiceProviderId(id), String(id)).toBe(false);
+    }
   });
 });
 

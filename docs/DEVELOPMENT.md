@@ -48,7 +48,7 @@ Each package's `exports` points at `src/index.ts`. Vite, Vitest and `tsc` all re
 
 ### Tests
 
-Put unit tests next to the code as `src/**/*.test.ts` (or `.tsx`); the root `vitest.config.js` picks them up, default environment is Node. Import `describe`, `it`, `expect` from `vitest`. Browser end-to-end tests live in `apps/web/e2e`.
+Put unit tests next to the code as `src/**/*.test.ts` (or `.tsx`); the root `vitest.config.js` picks them up, default environment is Node. Import `describe`, `it`, `expect` from `vitest`. Browser end-to-end tests live in `apps/web/e2e`. Tests that need several packages working together (real kernel, speech engine, prediction engine, layouts and plugin host) live in `packages/integration-tests`, a private test-only package.
 
 ### Styling
 

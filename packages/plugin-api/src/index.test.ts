@@ -1,10 +1,13 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import {
+  API_STABILITY,
   API_VERSION,
   BUILTIN_COMMAND_IDS,
   DWELL_CLASSES,
   EXTENSION_POINTS,
   FIXED_PERMISSION_SCOPES,
+  formatVoiceId,
+  parseVoiceId,
   PLUGIN_API_PACKAGE,
   PLUGIN_EVENT_PERMISSIONS,
   REGION_IDS,
@@ -23,10 +26,33 @@ import {
 // Available in Node and browsers, but not part of the ES2022 lib this package compiles against.
 declare function structuredClone<T>(value: T): T;
 
+describe('voice ids', () => {
+  it('round-trip whatever the provider and voice ids contain', () => {
+    const cases: [string, string, string][] = [
+      ['forsee.web-speech', 'Samantha', 'forsee.web-speech/Samantha'],
+      ['community.voices/neural', 'Ava', 'community.voices/neural/Ava'],
+      ['forsee.web-speech', 'urn/voice/1', 'forsee.web-speech/urn%2Fvoice%2F1'],
+      ['community.voices/neural', 'a/b%2Fc', 'community.voices/neural/a%2Fb%252Fc'],
+      ['p', 'Google UK English Female', 'p/Google UK English Female'],
+    ];
+    for (const [providerId, voiceId, global] of cases) {
+      expect(formatVoiceId(providerId, voiceId)).toBe(global);
+      expect(parseVoiceId(global)).toEqual({ providerId, voiceId });
+    }
+  });
+
+  it('rejects ids without both parts', () => {
+    for (const bad of ['', 'nope', '/voice', 'provider/']) {
+      expect(parseVoiceId(bad), bad).toBeUndefined();
+    }
+  });
+});
+
 describe('constants', () => {
   it('exports its package name and API version', () => {
     expect(PLUGIN_API_PACKAGE).toBe('@forsee/plugin-api');
     expect(API_VERSION).toBe(1);
+    expect(API_STABILITY).toBe('provisional');
   });
 
   it('lists every built-in command exactly once', () => {
@@ -37,6 +63,7 @@ describe('constants', () => {
       'composition.clear': true,
       'composition.undo': true,
       'composition.acceptPrediction': true,
+      'composition.speak': true,
       'speech.speak': true,
       'speech.stop': true,
       'gaze.pause': true,

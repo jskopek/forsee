@@ -165,8 +165,8 @@ Already identified and deliberately deferred:
 3. **Plugins cannot record the partner's side of a conversation.** `HistoryApi` is read-only.
 4. **`HostBridge` has no lifecycle events** (suspend, resume, low battery).
 5. **Word detection assumes spaces** (`PARTIAL_WORD` in `packages/core/src/composition.ts`).
-6. **Speaking with no voice available still clears the text.** It is logged and undo restores it, but the UI is not told.
-7. **A plugin's voice, rate, pitch, volume and recording options are dropped** when it calls `speech.speak` through the plugin API, because the kernel command accepts only text and a log flag.
+6. ~~**Speaking with no voice available still clears the text.** It is logged and undo restores it, but the UI is not told.~~ Fixed in review round 1: the kernel emits `speech.unavailable` with the text and record id (see ARCHITECTURE.md, "Decisions: permissions and speech (review round 1)").
+7. ~~**A plugin's voice, rate, pitch, volume and recording options are dropped** when it calls `speech.speak` through the plugin API, because the kernel command accepts only text and a log flag.~~ Fixed in review round 1: `speech.speak` takes and passes on every speak option, `interrupt` included.
 8. **No rate limits or storage quotas for plugins,** and no timeouts on calls into plugin providers.
 9. **Network use by plugin output sinks is not enforced** in the plugin host; it depends on the sandbox's content security policy.
 10. **Bundle hashes are recorded but not verified** at install.

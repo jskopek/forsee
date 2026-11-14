@@ -1,8 +1,11 @@
-import type { Voice } from '@forsee/plugin-api';
+import { formatVoiceId, parseVoiceId, type Voice } from '@forsee/plugin-api';
 
-/** The global id of a voice: `<providerId>/<voiceId>`. */
+/**
+ * The global id of a voice, `<providerId>/<escaped voiceId>`: the scheme
+ * documented in `@forsee/plugin-api` (`formatVoiceId`).
+ */
 export function globalVoiceId(providerId: string, voiceId: string): string {
-  return `${providerId}/${voiceId}`;
+  return formatVoiceId(providerId, voiceId);
 }
 
 /** The global id of `voice`. */
@@ -11,15 +14,25 @@ export function voiceGlobalId(voice: Voice): string {
 }
 
 /**
- * Splits a global voice id at its first `/`. Provider ids never contain a
- * slash; voice ids may. Returns `undefined` when there is no provider part.
+ * Splits a global voice id into provider id and voice id (`parseVoiceId`
+ * from `@forsee/plugin-api`): at the last `/`, unescaping the voice id.
+ * Provider ids may contain a `/` (plugin providers are
+ * `<pluginId>/<localId>`); voice ids may too, escaped. Returns `undefined`
+ * when either part is missing.
  */
 export function splitVoiceId(
   globalId: string,
 ): { readonly providerId: string; readonly voiceId: string } | undefined {
-  const slash = globalId.indexOf('/');
-  if (slash <= 0) return undefined;
-  return { providerId: globalId.slice(0, slash), voiceId: globalId.slice(slash + 1) };
+  return parseVoiceId(globalId);
+}
+
+/**
+ * Whether `id` is acceptable as a voice provider id: an app provider's bare
+ * id (no `/`) or a plugin provider's `<pluginId>/<localId>`. Non-empty
+ * segments, at most one `/`, no whitespace or control characters, no `%`.
+ */
+export function isVoiceProviderId(id: unknown): id is string {
+  return typeof id === 'string' && /^[^\s/%\p{Cc}]+(?:\/[^\s/%\p{Cc}]+)?$/u.test(id);
 }
 
 /** Lower-cases a locale tag and turns `_` into `-` (Android reports `en_US`). */
