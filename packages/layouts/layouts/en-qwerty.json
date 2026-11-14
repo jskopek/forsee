@@ -226,7 +226,7 @@
               "label": "Speak",
               "icon": "speak",
               "width": 1,
-              "action": { "command": "speech.speak" }
+              "action": { "command": "composition.speak" }
             }
           ]
         }
@@ -482,7 +482,7 @@
               "label": "Speak",
               "icon": "speak",
               "width": 1,
-              "action": { "command": "speech.speak" },
+              "action": { "command": "composition.speak" },
               "returnToPage": "letters"
             }
           ]
@@ -706,7 +706,7 @@
               "label": "Speak",
               "icon": "speak",
               "width": 1,
-              "action": { "command": "speech.speak" }
+              "action": { "command": "composition.speak" }
             }
           ]
         }
@@ -900,7 +900,7 @@
               "label": "Speak",
               "icon": "speak",
               "width": 2.5,
-              "action": { "command": "speech.speak" }
+              "action": { "command": "composition.speak" }
             }
           ]
         }
