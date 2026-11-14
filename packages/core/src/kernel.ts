@@ -9,6 +9,9 @@ import type {
   PermissionScope,
   RegionState,
   SettingChange,
+  SpeakCommandArgs,
+  SpeakCommandResult,
+  SpeakOptions,
   TextTransformTrigger,
   UtteranceRecord,
 } from '@forsee/plugin-api';
@@ -20,7 +23,7 @@ import { ConversationLog, type ConversationEventMap } from './conversation';
 import { DisposableStore } from './disposable';
 import { EventBus } from './event-bus';
 import { ExtensionRegistry } from './extensions';
-import type { Clock, IdSource } from './platform';
+import { splitProfilePath, type Clock, type IdSource } from './platform';
 import { RegionModel } from './regions';
 import type {
   CompositionPersistence,
@@ -48,8 +51,19 @@ export interface KernelEventMap {
   'command.willExecute': CommandEventMap['willExecute'];
   'command.didExecute': CommandEventMap['didExecute'];
   'command.failed': CommandEventMap['failed'];
-  /** `speech.speak` handed text to the speech service (or would have, if absent). */
+  /** `speech.speak` or `composition.speak` handed text to the speech service (or would have, if absent). */
   'speech.requested': { readonly text: string; readonly recordId: string | null };
+  /**
+   * Text could not be spoken: there is no speech service (`no-service`), the
+   * service reports no usable voice (`no-voice`), or `speak` failed
+   * (`error`). The text is not lost: it is in the event, in history (when
+   * logged) and, for `composition.speak`, one undo away. The UI should show it.
+   */
+  'speech.unavailable': {
+    readonly text: string;
+    readonly recordId: string | null;
+    readonly reason: 'no-service' | 'no-voice' | 'error';
+  };
   'gaze.pauseChanged': { readonly paused: boolean };
 }
 
@@ -74,15 +88,8 @@ export interface KernelOptions {
   readonly defaultLocale?: LocaleTag;
 }
 
-/** Result of the `speech.speak` command. */
-export interface SpeakCommandResult {
-  /** True if a speech service was asked to speak. */
-  readonly spoken: boolean;
-  /** The text after commit transforms ("" if there was nothing to say). */
-  readonly text: string;
-  /** History record id, or null when not logged. */
-  readonly recordId: string | null;
-}
+/** Result of `speech.speak` and `composition.speak` (defined in `@forsee/plugin-api`). */
+export type { SpeakCommandResult };
 
 /** The assembled kernel. */
 export interface Kernel extends Disposable {
@@ -118,6 +125,88 @@ export interface Kernel extends Disposable {
 }
 
 const WORD_BOUNDARY = /[\s.,!?;:]$/u;
+
+const SPEAK_OPTION_KEYS: ReadonlySet<string> = new Set([
+  'text',
+  'log',
+  'voiceId',
+  'rate',
+  'pitch',
+  'volume',
+  'recording',
+  'interrupt',
+]);
+
+function invalidSpeak(message: string): never {
+  throw new ForseeError('invalid-argument', `speech.speak: ${message}`);
+}
+
+function speakNumber(value: unknown, name: string, min: number, max: number): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) {
+    invalidSpeak(`${name} must be a number from ${min} to ${max}`);
+  }
+  return value;
+}
+
+function speakBoolean(value: unknown, name: string): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'boolean') invalidSpeak(`${name} must be a boolean`);
+  return value;
+}
+
+/** Whether `path` is a safe profile-relative path (no `..`, no scheme, no backslash). */
+function isSafeProfilePath(path: string): boolean {
+  if (path === '' || path.length > 512 || path.includes(':')) return false;
+  try {
+    splitProfilePath(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validates the arguments of `speech.speak` (they may come from a layout
+ * file or a plugin) and splits them into text, log flag and speech options.
+ */
+function readSpeakArgs(args: unknown): { text: string; log: boolean; options: SpeakOptions } {
+  if (typeof args !== 'object' || args === null || Array.isArray(args)) {
+    invalidSpeak('needs { text: string }; to speak the composition use composition.speak');
+  }
+  const a = args as Partial<Record<keyof SpeakCommandArgs, unknown>>;
+  for (const key of Object.keys(a)) {
+    if (!SPEAK_OPTION_KEYS.has(key)) invalidSpeak(`unknown argument ${JSON.stringify(key)}`);
+  }
+  if (typeof a.text !== 'string' || a.text.trim() === '') {
+    invalidSpeak('text must be a non-empty string; to speak the composition use composition.speak');
+  }
+  if (a.voiceId !== undefined && (typeof a.voiceId !== 'string' || a.voiceId === '')) {
+    invalidSpeak('voiceId must be a non-empty string');
+  }
+  if (a.recording !== undefined) {
+    if (typeof a.recording !== 'string' || !isSafeProfilePath(a.recording)) {
+      invalidSpeak('recording must be a safe profile-relative path');
+    }
+  }
+  const rate = speakNumber(a.rate, 'rate', 0.1, 10);
+  const pitch = speakNumber(a.pitch, 'pitch', 0, 2);
+  const volume = speakNumber(a.volume, 'volume', 0, 1);
+  const interrupt = speakBoolean(a.interrupt, 'interrupt');
+  const log = speakBoolean(a.log, 'log');
+  return {
+    text: a.text,
+    log: log !== false,
+    options: {
+      ...(a.voiceId === undefined ? {} : { voiceId: a.voiceId }),
+      ...(rate === undefined ? {} : { rate }),
+      ...(pitch === undefined ? {} : { pitch }),
+      ...(volume === undefined ? {} : { volume }),
+      ...(a.recording === undefined ? {} : { recording: a.recording }),
+      ...(interrupt === undefined ? {} : { interrupt }),
+    },
+  };
+}
 
 /** Composition root: wires the kernel subsystems and registers the built-in commands. */
 export function createKernel(options: KernelOptions): Kernel {
@@ -235,11 +324,12 @@ export function createKernel(options: KernelOptions): Kernel {
     title: string,
     handler: (args: CommandArgsMap[K]) => unknown,
     requires: readonly PermissionScope[] = [],
+    isPublic = true,
   ): void => {
     disposables.add(
       commands.register(id, (args) => handler(args as CommandArgsMap[K]), {
         title,
-        public: true,
+        public: isPublic,
         requires,
       }),
     );
@@ -286,41 +376,98 @@ export function createKernel(options: KernelOptions): Kernel {
     },
     writesComposition,
   );
+  /**
+   * The shared tail of `speech.speak` and `composition.speak`: commit
+   * transforms, history, then the speech service. Never touches the
+   * composition.
+   */
+  const speakText = async (
+    raw: string,
+    log: boolean,
+    options: SpeakOptions,
+  ): Promise<SpeakCommandResult> => {
+    if (raw === '') return { spoken: false, text: '', recordId: null };
+    const text = (await runTextTransforms('commit', raw)).trim();
+    if (text === '') return { spoken: false, text: '', recordId: null };
+    const record = log ? conversation.append({ body: text, sender: 'user' }) : null;
+    const recordId = record?.id ?? null;
+    bus.emit('speech.requested', { text, recordId });
+    if (!speech || speech.isAvailable?.() === false) {
+      bus.emit('speech.unavailable', {
+        text,
+        recordId,
+        reason: speech ? 'no-voice' : 'no-service',
+      });
+      return { spoken: false, text, recordId };
+    }
+    speech.speak(text, options).catch((error: unknown) => {
+      reportError(error, 'speech.speak');
+      bus.emit('speech.unavailable', { text, recordId, reason: 'error' });
+    });
+    return { spoken: true, text, recordId };
+  };
+
   register(
     'speech.speak',
-    'Speak',
-    async (args): Promise<SpeakCommandResult> => {
-      const raw = args?.text !== undefined ? args.text.trim() : composition.commit();
-      if (raw === '') return { spoken: false, text: '', recordId: null };
-      const text = (await runTextTransforms('commit', raw)).trim();
-      if (text === '') return { spoken: false, text: '', recordId: null };
-      const record =
-        args?.log === false ? null : conversation.append({ body: text, sender: 'user' });
-      const recordId = record?.id ?? null;
-      bus.emit('speech.requested', { text, recordId });
-      if (!speech) return { spoken: false, text, recordId };
-      speech.speak(text).catch((error: unknown) => reportError(error, 'speech.speak'));
-      return { spoken: true, text, recordId };
+    'Speak text',
+    (args) => {
+      const { text, log, options } = readSpeakArgs(args);
+      return speakText(text.trim(), log, options);
     },
     ['speech.output'],
   );
-  register('speech.stop', 'Stop speaking', () => {
-    if (!speech) return false;
-    speech.stop();
-    return true;
-  });
-  register('gaze.pause', 'Pause gaze', () => {
-    if (!gaze) return false;
-    gaze.pause();
-    bus.emit('gaze.pauseChanged', { paused: true });
-    return true;
-  });
-  register('gaze.resume', 'Resume gaze', () => {
-    if (!gaze) return false;
-    gaze.resume();
-    bus.emit('gaze.pauseChanged', { paused: false });
-    return true;
-  });
+  register(
+    'composition.speak',
+    'Speak',
+    (args) => {
+      if (args !== undefined && (typeof args !== 'object' || args === null)) {
+        throw new ForseeError('invalid-argument', 'composition.speak takes { log?: boolean }');
+      }
+      if (args?.log !== undefined && typeof args.log !== 'boolean') {
+        throw new ForseeError('invalid-argument', 'composition.speak: log must be a boolean');
+      }
+      // Commit synchronously, inside `execute`, so nothing typed after the
+      // Speak key is swept into this utterance.
+      return speakText(composition.commit(), args?.log !== false, {});
+    },
+    ['speech.output', 'composition.read', 'composition.write'],
+  );
+  register(
+    'speech.stop',
+    'Stop speaking',
+    () => {
+      if (!speech) return false;
+      speech.stop();
+      return true;
+    },
+    ['speech.output'],
+  );
+  // Pausing or resuming selection changes whether the user can type at all,
+  // so plugins cannot do it; the app, layout keys and the wake target can.
+  register(
+    'gaze.pause',
+    'Pause gaze',
+    () => {
+      if (!gaze) return false;
+      gaze.pause();
+      bus.emit('gaze.pauseChanged', { paused: true });
+      return true;
+    },
+    [],
+    false,
+  );
+  register(
+    'gaze.resume',
+    'Resume gaze',
+    () => {
+      if (!gaze) return false;
+      gaze.resume();
+      bus.emit('gaze.pauseChanged', { paused: false });
+      return true;
+    },
+    [],
+    false,
+  );
 
   let started = false;
   let disposed = false;
