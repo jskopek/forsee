@@ -20,7 +20,9 @@ export default defineConfig({
     ...(executablePath ? { launchOptions: { executablePath } } : {}),
   },
   webServer: {
-    command: `pnpm exec vite preview --port ${port} --strictPort`,
+    // `--host` listens on every address. Without it Vite binds `localhost`, which on some
+    // machines (GitHub's runners) is IPv6 only, so the LAN test's 127.0.0.1 is refused.
+    command: `pnpm exec vite preview --host --port ${port} --strictPort`,
     url: baseURL,
     // Never test another checkout's server that happens to hold the port.
     reuseExistingServer: false,
