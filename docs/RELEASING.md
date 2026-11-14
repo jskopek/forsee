@@ -6,10 +6,16 @@ How the macOS and Windows apps are built, signed, published and updated, and the
 
 1. Work is merged into `main`.
 2. The **Release** workflow (`.github/workflows/release.yml`) builds the Mac app (`Forsee.dmg`, plus a `.zip` for the updater) and the Windows installer (`Forsee-Setup.exe`). It signs them if the signing secrets below are set.
-3. If the version in `apps/desktop/package.json` has no tag yet (`v0.2.0`, ...) **and** both apps are signed, the workflow publishes a GitHub Release with that tag. Otherwise the builds are kept only as workflow artifacts (Actions → the run → Artifacts), which is how to test a change before releasing it.
+3. If the version in `apps/desktop/package.json` has no tag yet (`v0.2.0`, ...), **and** `CHANGELOG.md` has an entry for it, **and** both apps are signed, the workflow publishes a GitHub Release with that tag, using the changelog entry as its release notes. Otherwise the builds are kept only as workflow artifacts (Actions → the run → Artifacts), which is how to test a change before releasing it.
 4. Installed copies check GitHub Releases about ten seconds after start and every four hours. They download a new version in the background and install it when Forsee is closed. Forsee never restarts by itself, because someone may be mid-sentence. The menu has Check for Updates / Restart to Update.
 
-**To release a new version:** run `pnpm release:version 0.2.1` (it sets the desktop and web app versions), commit, and merge to `main`. A merge that doesn't change the version only builds; it does not update anyone.
+**To release a new version:**
+
+1. Run `pnpm release:version 0.2.1`. It sets the desktop and web app versions and adds a `## 0.2.1` entry at the top of `CHANGELOG.md`.
+2. Replace the entry's TODO line with what changed, written for the people who use Forsee. This text is what they see as the release notes.
+3. Commit and merge to `main`.
+
+A merge that doesn't change the version only builds; it doesn't update anyone. A version without a finished changelog entry can't be released: CI (`pnpm release:check`) fails on the pull request, and the Release workflow refuses it before building.
 
 Rules that keep updates working:
 

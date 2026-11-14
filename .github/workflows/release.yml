@@ -1,9 +1,12 @@
 # Builds the macOS and Windows apps on every push to main (and on pull
-# requests that change packaging), signs them when
-# the signing secrets are set up, and publishes a GitHub Release when the
-# version in apps/desktop/package.json is new (no tag v<version> yet) and
-# both apps are signed. Installed copies update themselves from that
-# release. Unsigned builds are kept as workflow artifacts for testing only.
+# requests that change packaging), and signs them when the signing secrets
+# are set up. A GitHub Release is published only when all of these hold:
+#   - this is main,
+#   - the version in apps/desktop/package.json is new (no tag v<version>),
+#   - CHANGELOG.md has an entry for it (it becomes the release notes),
+#   - both apps are signed.
+# Installed copies update themselves from that release. Other builds are
+# kept as workflow artifacts, for testing only.
 #
 # Set-up and secret names: docs/RELEASING.md.
 name: Release
@@ -45,6 +48,16 @@ jobs:
             echo "is-new=true" >> "$GITHUB_OUTPUT"
             echo "v$version is new."
           fi
+      # A new version is released only with its CHANGELOG.md entry, which
+      # becomes the release notes. Without one this fails before building.
+      - name: Release notes from CHANGELOG.md
+        if: steps.version.outputs.is-new == 'true'
+        run: node apps/desktop/scripts/release-notes.mjs > release-notes.md
+      - if: steps.version.outputs.is-new == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: release-notes.md
 
   mac:
     needs: version
@@ -227,6 +240,9 @@ jobs:
           pattern: forsee-*
           path: dist
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -236,4 +252,4 @@ jobs:
           gh release create "v$VERSION" dist/* \
             --target "$GITHUB_SHA" \
             --title "Forsee $VERSION" \
-            --generate-notes
+            --notes-file release-notes.md

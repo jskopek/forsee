@@ -19,6 +19,7 @@
     "e2e": "pnpm --filter @forsee/web run e2e",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "release:version": "node apps/desktop/scripts/set-version.mjs",
+    "release:check": "node apps/desktop/scripts/release-notes.mjs > /dev/null",
     "desktop": "pnpm --filter @forsee/desktop start"
   },
   "devDependencies": {
