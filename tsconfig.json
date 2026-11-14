@@ -38,6 +38,9 @@
       "path": "./packages/ui"
     },
     {
+      "path": "./packages/integration-tests"
+    },
+    {
       "path": "./tools/lm-build"
     },
     {
