@@ -1,0 +1,17 @@
+{
+  "name": "@forsee/integration-tests",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Cross-package tests: real kernel, speech engine, prediction engine, layouts and plugin host together. Tests only; no production code.",
+  "dependencies": {
+    "@forsee/core": "workspace:*",
+    "@forsee/host": "workspace:*",
+    "@forsee/layouts": "workspace:*",
+    "@forsee/plugin-api": "workspace:*",
+    "@forsee/plugin-host": "workspace:*",
+    "@forsee/prediction": "workspace:*",
+    "@forsee/speech": "workspace:*"
+  }
+}

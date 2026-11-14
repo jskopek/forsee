@@ -126,7 +126,8 @@ function matchLeadingCase(word: string, model: string): string {
 export class CompositionBuffer implements Disposable {
   readonly events: EventBus<CompositionEventMap>;
   private current: Record_ = { text: '', steps: [], autoSpace: false };
-  private history: Record_[] = [];
+  /** Undo steps: the state before each change, and the change's reason. */
+  private history: { readonly record: Record_; readonly reason: CompositionChangeReason }[] = [];
   private readonly historyLimit: number;
   private readonly clock: Clock | undefined;
   private readonly matchCase: boolean;
@@ -288,8 +289,18 @@ export class CompositionBuffer implements Disposable {
   undo(): boolean {
     const previous = this.history.pop();
     if (!previous) return false;
-    this.apply('undo', previous, false);
+    this.apply('undo', previous.record, false);
     return true;
+  }
+
+  /**
+   * Reason of the change the next `undo` would revert (`commit` when undo
+   * would bring back text that was spoken), or `undefined` when there is
+   * nothing to undo. The plugin host uses it: undoing a commit reveals a
+   * past utterance, which is history.
+   */
+  get nextUndoReason(): CompositionChangeReason | undefined {
+    return this.history.at(-1)?.reason;
   }
 
   /** Number of undo steps available. */
@@ -326,7 +337,7 @@ export class CompositionBuffer implements Disposable {
   private apply(reason: CompositionChangeReason, next: Record_, recordUndo = true): void {
     const previous = this.current;
     if (recordUndo && this.historyLimit > 0) {
-      this.history.push(previous);
+      this.history.push({ record: previous, reason });
       if (this.history.length > this.historyLimit) this.history.shift();
     }
     this.current = next;

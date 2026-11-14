@@ -14,6 +14,7 @@ import type {
   PredictionProviderCapabilities,
   PredictionRequest,
   PredictionResult,
+  SpeechEndReason,
   TextTransform,
   TextTransformInput,
   TextTransformTrigger,
@@ -171,7 +172,31 @@ export function sanitizePredictionResult(
   };
 }
 
-/** Wraps a plugin's prediction provider (see `RegisterApi.predictionProvider`). */
+/** An empty result for `request`, given when a provider may not see it. */
+export function emptyPredictionResult(
+  request: PredictionRequest,
+  providerId: string,
+  stage: 'instant' | 'refined',
+): PredictionResult {
+  return {
+    requestId: request.requestId,
+    providerId,
+    stage,
+    completions: [],
+    nextWords: [],
+    letters: {},
+    phrases: [],
+  };
+}
+
+/**
+ * Wraps a plugin's prediction provider (see `RegisterApi.predictionProvider`).
+ * Every call checks the plugin's permissions at that moment: without
+ * `composition.read` the plugin is not called at all (`predict` answers an
+ * empty result, `refine` null, `learn`/`forget` nothing); `conversation`
+ * needs `history.read`, `context` needs `context.read`, and `learn`/`forget`
+ * also need `lm.write`.
+ */
 export function wrapPredictionProvider(
   raw: unknown,
   id: string,
@@ -191,11 +216,15 @@ export function wrapPredictionProvider(
       history: ctx.has('history.read'),
       context: ctx.has('context.read'),
     });
+  // Every request carries the composition, so nothing reaches the plugin
+  // unless it holds `composition.read` at the moment of the call.
+  const mayRead = (): boolean => ctx.has('composition.read');
   const wrapped: PredictionProvider = {
     id,
     capabilities,
     predict(request) {
       ctx.assertLive();
+      if (!mayRead()) return emptyPredictionResult(request, id, 'instant');
       const answer: unknown = predict.call(provider, filter(request));
       if (isThenable(answer)) {
         return Promise.resolve(answer).then((r) =>
@@ -208,6 +237,7 @@ export function wrapPredictionProvider(
       ? {
           async refine(request: PredictionRequest, cancellation: CancellationToken) {
             ctx.assertLive();
+            if (!mayRead()) return null;
             const answer = await refine.call(provider, filter(request), cancellation);
             if (answer === null || answer === undefined) return null;
             return sanitizePredictionResult(answer, request, id, 'refined');
@@ -218,7 +248,7 @@ export function wrapPredictionProvider(
       ? {
           async learn(event: LearnEvent) {
             ctx.assertLive();
-            if (!ctx.has('lm.write')) return;
+            if (!mayRead() || !ctx.has('lm.write')) return;
             await learn.call(provider, toCloneSafe(event));
           },
         }
@@ -227,7 +257,7 @@ export function wrapPredictionProvider(
       ? {
           async forget(request: ForgetRequest) {
             ctx.assertLive();
-            if (!ctx.has('lm.write')) return;
+            if (!mayRead() || !ctx.has('lm.write')) return;
             await forget.call(provider, toCloneSafe(request));
           },
         }
@@ -259,7 +289,11 @@ export function readContextEntryInput(value: unknown, name = 'entry'): ContextEn
 
 // ---------------------------------------------------------------- text transforms
 
-/** Wraps a plugin's text transform: validates triggers and output. */
+/**
+ * Wraps a plugin's text transform: validates triggers and output. A
+ * transform sees the composition and can change it, so it is called only
+ * while the plugin holds both `composition.read` and `composition.write`.
+ */
 export function wrapTextTransform(raw: unknown, id: string, ctx: WrapperContext): TextTransform {
   const transform = requireObject(raw, 'transform');
   const name = requireString(transform.name, 'transform.name', {
@@ -279,7 +313,7 @@ export function wrapTextTransform(raw: unknown, id: string, ctx: WrapperContext)
     triggers: [...new Set(triggers as TextTransformTrigger[])],
     async transform(input: TextTransformInput) {
       ctx.assertLive();
-      if (!ctx.has('composition.write')) return null;
+      if (!ctx.has('composition.read') || !ctx.has('composition.write')) return null;
       const out = await fn.call(transform, { ...input });
       if (out === null) return null;
       return requireString(out, 'transform result', { max: LIMITS.textLength });
@@ -307,7 +341,21 @@ function readVoices(value: unknown, providerId: string): Voice[] {
   });
 }
 
-/** Wraps a plugin's voice provider: fixed id, validated voice lists. */
+const END_REASONS: readonly SpeechEndReason[] = ['completed', 'stopped', 'error'];
+
+/** Scopes a voice provider needs at the moment it is given an utterance. */
+export const VOICE_PROVIDER_SCOPES: readonly PermissionScope[] = [
+  'speech.output',
+  'composition.read',
+];
+
+/**
+ * Wraps a plugin's voice provider: fixed id, validated voice lists, a
+ * validated handle. Utterances are what the user composed, so `speak` is
+ * delivered only while the plugin holds `speech.output` and
+ * `composition.read`; otherwise it throws `permission-denied` (the speech
+ * queue ends that utterance with `error`) without calling the plugin.
+ */
 export function wrapVoiceProvider(raw: unknown, id: string, ctx: WrapperContext): VoiceProvider {
   const provider = requireObject(raw, 'provider');
   const listVoices = requireFunction(provider.listVoices, 'provider.listVoices');
@@ -321,12 +369,28 @@ export function wrapVoiceProvider(raw: unknown, id: string, ctx: WrapperContext)
     },
     speak(utterance, events) {
       ctx.assertLive();
-      if (!ctx.has('speech.output')) {
-        throw new ForseeError('permission-denied', `${ctx.pluginId} no longer holds speech.output`);
+      for (const scope of VOICE_PROVIDER_SCOPES) {
+        if (!ctx.has(scope)) {
+          throw new ForseeError('permission-denied', `${ctx.pluginId} does not hold ${scope}`);
+        }
       }
-      return speak.call(provider, toCloneSafe(utterance), events) as ReturnType<
-        VoiceProvider['speak']
-      >;
+      const handle = requireObject(
+        speak.call(provider, toCloneSafe(utterance), events),
+        'speech handle',
+      );
+      const handleStop = requireFunction(handle.stop, 'speech handle.stop');
+      const done: unknown = handle.done;
+      if (!isThenable(done)) invalid('speech handle.done must be a promise');
+      return {
+        utteranceId: utterance.id,
+        stop: () => {
+          handleStop.call(handle);
+        },
+        done: Promise.resolve(done).then(
+          (reason) => (END_REASONS.includes(reason as SpeechEndReason) ? reason : 'error'),
+          () => 'error',
+        ) as Promise<SpeechEndReason>,
+      };
     },
     stop() {
       stop.call(provider);

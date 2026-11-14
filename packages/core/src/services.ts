@@ -18,12 +18,21 @@ import type { CompositionSnapshot } from './composition';
  */
 export interface SpeechService {
   /**
-   * Speaks `text`, interrupting nothing (queued after current speech per the
-   * speech package's policy). Resolves when the utterance ends.
+   * Speaks `text`. Queued after current speech per the speech package's
+   * policy, unless `options.interrupt`. The kernel passes the options of
+   * `speech.speak` (`voiceId`, `rate`, `pitch`, `volume`, `recording`,
+   * `interrupt`; never `log`, which is the kernel's). Resolves when the
+   * utterance ends.
    */
   speak(text: string, options?: SpeakOptions): Promise<SpeechEndReason>;
   /** Stops all speech immediately and clears the queue. */
   stop(): void;
+  /**
+   * Whether anything can be spoken right now (at least one voice provider
+   * that synthesises). Optional; when absent the kernel assumes true. When
+   * false the kernel does not call `speak` and emits `speech.unavailable`.
+   */
+  isAvailable?(): boolean;
 }
 
 /** What the kernel needs from the gaze pipeline (B1 implements it). */

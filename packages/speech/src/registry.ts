@@ -8,6 +8,7 @@ import {
   type ExtensionRegistry,
 } from '@forsee/core';
 import type { Voice, VoiceProvider } from '@forsee/plugin-api';
+import { isVoiceProviderId } from './voices';
 
 /** Events of `VoiceProviderRegistry`. */
 export interface ProviderRegistryEventMap {
@@ -116,7 +117,8 @@ export class VoiceProviderRegistry implements Disposable {
 
   private add(provider: VoiceProvider, source: Entry['source']): Disposable {
     const id = provider.id;
-    if (typeof id !== 'string' || id === '' || id.includes('/')) {
+    // App providers have bare ids; plugin providers arrive as `<pluginId>/<localId>`.
+    if (!isVoiceProviderId(id)) {
       throw new ForseeError('invalid-argument', `Invalid voice provider id: ${String(id)}`);
     }
     if (this.entries.has(id)) {

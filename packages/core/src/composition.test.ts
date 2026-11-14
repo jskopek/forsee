@@ -308,3 +308,23 @@ describe('snapshot and restore', () => {
     },
   );
 });
+
+describe('nextUndoReason', () => {
+  it('names the change the next undo reverts', () => {
+    const b = buffer();
+    expect(b.nextUndoReason).toBeUndefined();
+    b.insert('hello');
+    expect(b.nextUndoReason).toBe('insert');
+    b.commit();
+    expect(b.nextUndoReason).toBe('commit');
+    b.insert('x');
+    b.deleteGrapheme();
+    expect(b.nextUndoReason).toBe('delete-grapheme');
+    b.undo();
+    b.undo();
+    expect(b.nextUndoReason).toBe('commit');
+    b.undo();
+    expect(b.text).toBe('hello');
+    expect(b.nextUndoReason).toBe('insert');
+  });
+});

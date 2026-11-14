@@ -183,22 +183,34 @@ describe('createKernel', () => {
       expect(byId.get(id)).toMatchObject({ public: true, requires: ['composition.write'] });
     }
     expect(byId.get('speech.speak')).toMatchObject({ public: true, requires: ['speech.output'] });
-    for (const id of ['speech.stop', 'gaze.pause', 'gaze.resume']) {
-      expect(byId.get(id)).toMatchObject({ public: true, requires: [] });
+    expect(byId.get('speech.stop')).toMatchObject({ public: true, requires: ['speech.output'] });
+    expect(byId.get('composition.speak')).toMatchObject({
+      public: true,
+      requires: ['speech.output', 'composition.read', 'composition.write'],
+    });
+    for (const id of ['gaze.pause', 'gaze.resume']) {
+      expect(byId.get(id)).toMatchObject({ public: false, requires: [] });
     }
 
     const typist = { pluginId: 'community.typist', hasPermission: () => false };
-    let denied: unknown;
-    try {
-      kernel.commands.authorize('composition.insert', typist);
-    } catch (error) {
-      denied = error;
+    for (const id of ['composition.insert', 'speech.stop', 'gaze.pause', 'composition.speak']) {
+      expect(() => kernel.commands.authorize(id, typist), id).toThrow(
+        expect.objectContaining({ code: 'permission-denied' }) as Error,
+      );
     }
-    expect(denied).toMatchObject({ code: 'permission-denied' });
-    expect(() => kernel.commands.authorize('speech.stop', typist)).not.toThrow();
+    const speaker = {
+      pluginId: 'community.speaker',
+      hasPermission: (scope: string) => scope === 'speech.output',
+    };
+    expect(() => kernel.commands.authorize('speech.speak', speaker)).not.toThrow();
+    expect(() => kernel.commands.authorize('speech.stop', speaker)).not.toThrow();
+    // Speaking the composition also reads and clears it.
+    expect(() => kernel.commands.authorize('composition.speak', speaker)).toThrow(
+      expect.objectContaining({ code: 'permission-denied' }) as Error,
+    );
   });
 
-  it('speech.speak commits the composition, logs it and calls the speech service', async () => {
+  it('composition.speak commits the composition, logs it and calls the speech service', async () => {
     const speech = {
       speak: vi.fn(() => Promise.resolve('completed' as const)),
       stop: vi.fn(),
@@ -207,66 +219,189 @@ describe('createKernel', () => {
     const requested = vi.fn();
     kernel.bus.on('speech.requested', requested);
     kernel.composition.insert('  I am hungry ');
-    const result = (await kernel.commands.execute('speech.speak')) as SpeakCommandResult;
+    const result = (await kernel.commands.execute('composition.speak')) as SpeakCommandResult;
     expect(result).toMatchObject({ spoken: true, text: 'I am hungry' });
     expect(kernel.composition.text).toBe('');
-    expect(speech.speak).toHaveBeenCalledWith('I am hungry');
+    expect(kernel.composition.nextUndoReason).toBe('commit');
+    expect(speech.speak).toHaveBeenCalledWith('I am hungry', {});
     expect(kernel.conversation.listRecent(1)[0]).toMatchObject({
       body: 'I am hungry',
       sender: 'user',
     });
     expect(requested).toHaveBeenCalledWith({ text: 'I am hungry', recordId: result.recordId });
+    await kernel.commands.execute('composition.undo');
+    expect(kernel.composition.text).toBe('  I am hungry ');
   });
 
-  it('speech.speak with text leaves the composition alone and honours log: false', async () => {
+  it('composition.speak honours log: false and does nothing on an empty composition', async () => {
     const speech = {
       speak: vi.fn(() => Promise.resolve('completed' as const)),
       stop: vi.fn(),
     } satisfies SpeechService;
     const { kernel } = setup({ speech });
-    kernel.composition.insert('draft');
-    const result = (await kernel.commands.execute('speech.speak', {
-      text: 'Yes',
-      log: false,
-    })) as SpeakCommandResult;
-    expect(result).toEqual({ spoken: true, text: 'Yes', recordId: null });
-    expect(kernel.composition.text).toBe('draft');
-    expect(kernel.conversation.listRecent(5)).toEqual([]);
-  });
-
-  it('speech.speak with nothing to say does nothing', async () => {
-    const speech = {
-      speak: vi.fn(() => Promise.resolve('completed' as const)),
-      stop: vi.fn(),
-    } satisfies SpeechService;
-    const { kernel } = setup({ speech });
-    await expect(kernel.commands.execute('speech.speak')).resolves.toEqual({
+    await expect(kernel.commands.execute('composition.speak')).resolves.toEqual({
       spoken: false,
       text: '',
       recordId: null,
     });
     expect(speech.speak).not.toHaveBeenCalled();
+    kernel.composition.insert('quiet');
+    await expect(kernel.commands.execute('composition.speak', { log: false })).resolves.toEqual({
+      spoken: true,
+      text: 'quiet',
+      recordId: null,
+    });
+    expect(kernel.conversation.listRecent(5)).toEqual([]);
+    await expect(
+      kernel.commands.execute('composition.speak', { log: 'no' } as never),
+    ).rejects.toMatchObject({ code: 'invalid-argument' });
   });
 
-  it('speech.speak still logs when no speech service is present, and reports speech failures', async () => {
-    const { kernel } = setup();
-    kernel.composition.insert('hello');
-    await expect(kernel.commands.execute('speech.speak')).resolves.toMatchObject({
-      spoken: false,
-      text: 'hello',
+  it('speech.speak speaks the given text and never reads or changes the composition', async () => {
+    const speech = {
+      speak: vi.fn(() => Promise.resolve('completed' as const)),
+      stop: vi.fn(),
+    } satisfies SpeechService;
+    const { kernel } = setup({ speech });
+    kernel.composition.insert('secret draft');
+    const changes = vi.fn();
+    kernel.bus.on('composition.changed', changes);
+    const result = (await kernel.commands.execute('speech.speak', {
+      text: 'Yes',
+      log: false,
+    })) as SpeakCommandResult;
+    expect(result).toEqual({ spoken: true, text: 'Yes', recordId: null });
+    expect(JSON.stringify(result)).not.toContain('secret');
+    expect(kernel.composition.text).toBe('secret draft');
+    expect(changes).not.toHaveBeenCalled();
+    expect(kernel.conversation.listRecent(5)).toEqual([]);
+  });
+
+  it('speech.speak requires non-empty text (the old no-text form is gone)', async () => {
+    const speech = {
+      speak: vi.fn(() => Promise.resolve('completed' as const)),
+      stop: vi.fn(),
+    } satisfies SpeechService;
+    const { kernel } = setup({ speech });
+    kernel.composition.insert('secret draft');
+    for (const args of [
+      undefined,
+      {},
+      { log: false },
+      { text: '' },
+      { text: '   ' },
+      { text: 3 },
+    ]) {
+      await expect(
+        kernel.commands.execute('speech.speak', args as never),
+        JSON.stringify(args),
+      ).rejects.toMatchObject({ code: 'invalid-argument' });
+    }
+    expect(kernel.composition.text).toBe('secret draft');
+    expect(speech.speak).not.toHaveBeenCalled();
+  });
+
+  it('speech.speak passes voice, rate, pitch, volume, recording and interrupt to the service', async () => {
+    const speech = {
+      speak: vi.fn(() => Promise.resolve('completed' as const)),
+      stop: vi.fn(),
+    } satisfies SpeechService;
+    const { kernel } = setup({ speech });
+    await kernel.commands.execute('speech.speak', {
+      text: 'Help',
+      voiceId: 'community.voices/neural/Ava',
+      rate: 1.5,
+      pitch: 0.8,
+      volume: 0.5,
+      recording: 'phrases/audio/help.wav',
+      interrupt: true,
+      log: false,
     });
+    expect(speech.speak).toHaveBeenCalledWith('Help', {
+      voiceId: 'community.voices/neural/Ava',
+      rate: 1.5,
+      pitch: 0.8,
+      volume: 0.5,
+      recording: 'phrases/audio/help.wav',
+      interrupt: true,
+    });
+  });
+
+  it('speech.speak rejects invalid options, including unsafe recording paths', async () => {
+    const speech = {
+      speak: vi.fn(() => Promise.resolve('completed' as const)),
+      stop: vi.fn(),
+    } satisfies SpeechService;
+    const { kernel } = setup({ speech });
+    for (const extra of [
+      { rate: 0 },
+      { rate: Number.NaN },
+      { pitch: 3 },
+      { volume: -1 },
+      { voiceId: '' },
+      { interrupt: 'yes' },
+      { log: 1 },
+      { colour: 'red' },
+      { recording: '../settings.json' },
+      { recording: '/etc/passwd' },
+      { recording: 'a//b.wav' },
+      { recording: 'a\\b.wav' },
+      { recording: 'https://example.com/a.wav' },
+      { recording: '' },
+    ]) {
+      await expect(
+        kernel.commands.execute('speech.speak', { text: 'hi', ...extra } as never),
+        JSON.stringify(extra),
+      ).rejects.toMatchObject({ code: 'invalid-argument' });
+    }
+    expect(speech.speak).not.toHaveBeenCalled();
+  });
+
+  it('emits speech.unavailable and keeps the text when nothing can speak', async () => {
+    const { kernel } = setup();
+    const unavailable = vi.fn();
+    kernel.bus.on('speech.unavailable', unavailable);
+    kernel.composition.insert('hello');
+    const result = (await kernel.commands.execute('composition.speak')) as SpeakCommandResult;
+    expect(result).toMatchObject({ spoken: false, text: 'hello' });
     expect(kernel.conversation.listRecent(1)).toHaveLength(1);
+    expect(unavailable).toHaveBeenCalledWith({
+      text: 'hello',
+      recordId: result.recordId,
+      reason: 'no-service',
+    });
+    await kernel.commands.execute('composition.undo');
+    expect(kernel.composition.text).toBe('hello');
     await expect(kernel.commands.execute('speech.stop')).resolves.toBe(false);
 
+    const voiceless = {
+      speak: vi.fn(() => Promise.resolve('completed' as const)),
+      stop: vi.fn(),
+      isAvailable: () => false,
+    } satisfies SpeechService;
+    const second = setup({ speech: voiceless });
+    const events = vi.fn();
+    second.kernel.bus.on('speech.unavailable', events);
+    await expect(
+      second.kernel.commands.execute('speech.speak', { text: 'hi', log: false }),
+    ).resolves.toEqual({ spoken: false, text: 'hi', recordId: null });
+    expect(voiceless.speak).not.toHaveBeenCalled();
+    expect(events).toHaveBeenCalledWith({ text: 'hi', recordId: null, reason: 'no-voice' });
+  });
+
+  it('reports speech failures and tells the UI', async () => {
     const failing = {
       speak: () => Promise.reject(new Error('no voice')),
       stop: vi.fn(),
     } satisfies SpeechService;
     const second = setup({ speech: failing });
+    const unavailable = vi.fn();
+    second.kernel.bus.on('speech.unavailable', unavailable);
     await second.kernel.commands.execute('speech.speak', { text: 'hi' });
     await Promise.resolve();
     await Promise.resolve();
     expect(second.reportError).toHaveBeenCalledWith(expect.any(Error), 'speech.speak');
+    expect(unavailable).toHaveBeenCalledWith(expect.objectContaining({ reason: 'error' }));
     await expect(second.kernel.commands.execute('speech.stop')).resolves.toBe(true);
     expect(failing.stop).toHaveBeenCalled();
   });
@@ -320,7 +455,7 @@ describe('createKernel', () => {
     await vi.waitFor(() => expect(kernel.composition.text).toBe('be right back '));
     await kernel.commands.execute('composition.undo');
     expect(kernel.composition.text).toBe('brb ');
-    const result = (await kernel.commands.execute('speech.speak')) as SpeakCommandResult;
+    const result = (await kernel.commands.execute('composition.speak')) as SpeakCommandResult;
     expect(result.text).toBe('brb! (en-GB)');
     expect(reportError).toHaveBeenCalledWith(expect.any(Error), 'textTransform:p/broken');
   });

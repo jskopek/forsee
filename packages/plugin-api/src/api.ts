@@ -73,8 +73,16 @@ export interface CommandsApi {
    * owned by the app or by another plugin only if that command is public
    * and the plugin holds every scope the command requires (see
    * `CommandDescriptor`): the `composition.*` built-ins require
-   * `composition.write` and `speech.speak` requires `speech.output`. Another
-   * plugin's private commands always reject with `permission-denied`.
+   * `composition.write`; `speech.speak` and `speech.stop` require
+   * `speech.output`; `composition.speak` requires `speech.output`,
+   * `composition.read` and `composition.write`; `gaze.pause` and
+   * `gaze.resume` are not public. Another plugin's private commands always
+   * reject with `permission-denied`.
+   *
+   * Data rules on top of that: the results of the `composition.*` built-ins
+   * are `undefined` unless the plugin holds `composition.read`, and
+   * `composition.undo` at a step that would bring back spoken text (a
+   * commit) also needs `history.read`.
    */
   execute<K extends string>(id: K, args?: CommandArgs<K>): Promise<unknown>;
   /** Lists every registered command. */
@@ -106,9 +114,14 @@ export interface CompositionApi {
   undo(): Promise<void>;
 }
 
-/** Speaking. `speak` needs `speech.output`. */
+/** Speaking. `speak` and `stop` need `speech.output`. */
 export interface SpeechApi {
-  /** Speaks `text` (and logs it unless `options.log` is false). Resolves when speech has started. */
+  /**
+   * Speaks `text` (non-blank) with the given options (voice, rate, pitch,
+   * volume, recording, interrupt), and logs it unless `options.log` is
+   * false. Never touches the composition. Resolves once the request has
+   * been handed to the speech service.
+   */
   speak(text: string, options?: SpeakOptions): Promise<void>;
   /** Stops all speech immediately. */
   stop(): Promise<void>;
@@ -200,14 +213,23 @@ export interface RegisterApi {
   vocabulary(vocabulary: Vocabulary): Promise<Disposable>;
   command(command: CommandContribution): Promise<Disposable>;
   /**
-   * Requests carry `conversation` only if the plugin holds `history.read` and
-   * `context` only with `context.read`; `learn`/`forget` are called only with `lm.write`.
+   * Needs `composition.read`: every request carries the composition. The
+   * permission is checked again on every call into the provider, so once it
+   * is revoked the provider is not called (and its registration is
+   * disposed). Requests carry `conversation` only if the plugin holds
+   * `history.read` and `context` only with `context.read`; `learn`/`forget`
+   * are called only with `lm.write`.
    */
   predictionProvider(provider: PredictionProvider): Promise<Disposable>;
+  /** Needs `context.write`. */
   contextProvider(provider: ContextProvider): Promise<Disposable>;
-  /** Needs `composition.write`. */
+  /** Needs `composition.read` and `composition.write` (a transform sees and changes the text). */
   textTransform(transform: TextTransform): Promise<Disposable>;
-  /** Needs `speech.output`. */
+  /**
+   * Needs `speech.output` and `composition.read` (a voice is given everything
+   * the user says). The provider id becomes `<pluginId>/<id>`; see
+   * `formatVoiceId` for how its voices are named.
+   */
   voiceProvider(provider: VoiceProvider): Promise<Disposable>;
   /** Needs `composition.read`. Network sinks also need `network:<host>`. */
   outputSink(sink: OutputSink): Promise<Disposable>;

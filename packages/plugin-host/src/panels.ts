@@ -7,6 +7,11 @@ import type { PanelTargetSet, PanelTargetStore } from './contracts';
  * (`set`, `clear`); the UI and B10 read (`get`, `list`, `onDidChange`),
  * translate the panel-relative rectangles into viewport targets for the gaze
  * engine, and report activations back with `activate`.
+ *
+ * Rectangles are stored as the plugin gave them (within ±100 000 px of the
+ * frame). Whoever translates them **must clip each one to the panel's frame**:
+ * a target lying over the keyboard would take the user's selections and tell
+ * the plugin which keys were chosen, which is the composition.
  */
 export class PanelTargets implements PanelTargetStore {
   private readonly sets = new Map<string, PanelTargetSet>();

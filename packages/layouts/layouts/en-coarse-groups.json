@@ -355,7 +355,7 @@
               "label": "Speak",
               "icon": "speak",
               "width": 1,
-              "action": { "command": "speech.speak" }
+              "action": { "command": "composition.speak" }
             }
           ]
         }

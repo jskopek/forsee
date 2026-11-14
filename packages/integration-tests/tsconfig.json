@@ -1,0 +1,33 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../plugin-api"
+    },
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../host"
+    },
+    {
+      "path": "../layouts"
+    },
+    {
+      "path": "../plugin-host"
+    },
+    {
+      "path": "../prediction"
+    },
+    {
+      "path": "../speech"
+    }
+  ]
+}

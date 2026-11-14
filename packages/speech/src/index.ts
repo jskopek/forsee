@@ -32,6 +32,7 @@ export {
 export { createWebSpeechProvider, WEB_SPEECH_PROVIDER_ID } from './web-speech';
 export {
   globalVoiceId,
+  isVoiceProviderId,
   normaliseLocale,
   selectVoice,
   splitVoiceId,

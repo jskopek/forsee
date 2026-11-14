@@ -118,6 +118,30 @@ importers:
         specifier: workspace:*
         version: link:../plugin-api
 
+  packages/integration-tests:
+    dependencies:
+      '@forsee/core':
+        specifier: workspace:*
+        version: link:../core
+      '@forsee/host':
+        specifier: workspace:*
+        version: link:../host
+      '@forsee/layouts':
+        specifier: workspace:*
+        version: link:../layouts
+      '@forsee/plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
+      '@forsee/plugin-host':
+        specifier: workspace:*
+        version: link:../plugin-host
+      '@forsee/prediction':
+        specifier: workspace:*
+        version: link:../prediction
+      '@forsee/speech':
+        specifier: workspace:*
+        version: link:../speech
+
   packages/layouts:
     dependencies:
       '@forsee/core':

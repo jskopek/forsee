@@ -79,7 +79,7 @@ describe('built-in layouts', () => {
     }
   });
 
-  it('type characters with composition.insert { text } and speak with speech.speak', () => {
+  it('type characters with composition.insert { text } and speak with composition.speak', () => {
     for (const layout of BUILTIN_LAYOUTS) {
       const keys = allKeys(layout).filter((k) => k.spacer !== true && k.group !== true);
       for (const key of keys) {
@@ -90,9 +90,18 @@ describe('built-in layouts', () => {
         }
       }
       const speaks = keys.filter(
-        (k) => k.spacer !== true && k.group !== true && k.action.command === 'speech.speak',
+        (k) => k.spacer !== true && k.group !== true && k.action.command === 'composition.speak',
       );
       expect(speaks.length, layout.id).toBeGreaterThan(0);
+      // `speech.speak` needs text; a key bound to it without text would fail.
+      const bare = keys.filter(
+        (k) =>
+          k.spacer !== true &&
+          k.group !== true &&
+          k.action.command === 'speech.speak' &&
+          typeof k.action.args?.text !== 'string',
+      );
+      expect(bare, layout.id).toEqual([]);
     }
   });
 

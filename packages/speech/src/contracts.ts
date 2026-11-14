@@ -162,6 +162,8 @@ export interface SpeechEngine extends SpeechService, Disposable {
   speak(text: string, options?: SpeakOptions): Promise<SpeechEndReason>;
   /** Synchronous: stops the current utterance and clears the queue. */
   stop(): void;
+  /** Whether a synthesis provider is registered (the kernel emits `speech.unavailable` otherwise). */
+  isAvailable(): boolean;
   readonly queue: UtteranceQueue;
   readonly events: EventBus<SpeechEngineEventMap>;
   /** Voices from every registered provider; by default only `local` ones. */
