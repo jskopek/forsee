@@ -40,7 +40,7 @@ function renderApp(): TestHost {
       keyboard={<KeyboardView runtime={host.runtime} />}
       actions={
         <>
-          <SpeakButton command={{ command: 'speech.speak' }} />
+          <SpeakButton command={{ command: 'composition.speak' }} />
           <PauseButton />
         </>
       }
