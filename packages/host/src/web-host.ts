@@ -68,7 +68,10 @@ export interface WebHostOptions {
 
 /** The real browser environment. Only called when no override is given. */
 function browserEnvironment(): WebHostEnvironment {
-  const g = globalThis as typeof globalThis & { crypto?: Crypto };
+  const g = globalThis as typeof globalThis & {
+    crypto?: Omit<Crypto, 'randomUUID'> & { randomUUID?: Crypto['randomUUID'] };
+  };
+  const crypto = g.crypto;
   return {
     performance: g.performance,
     dateNow: () => Date.now(),
@@ -76,11 +79,16 @@ function browserEnvironment(): WebHostEnvironment {
     clearTimeout: (h) => g.clearTimeout(h as number),
     setInterval: (cb, ms) => g.setInterval(cb, ms),
     clearInterval: (h) => g.clearInterval(h as number),
-    ...(g.crypto
+    ...(crypto
       ? {
           crypto: {
-            randomUUID: () => g.crypto.randomUUID(),
-            getRandomValues: (array: Uint8Array<ArrayBuffer>) => g.crypto.getRandomValues(array),
+            // `randomUUID` exists only in secure contexts (HTTPS, localhost):
+            // over plain HTTP on a LAN address it is missing, and ids then
+            // come from `getRandomValues`, which works everywhere.
+            ...(typeof crypto.randomUUID === 'function'
+              ? { randomUUID: () => crypto.randomUUID() }
+              : {}),
+            getRandomValues: (array: Uint8Array<ArrayBuffer>) => crypto.getRandomValues(array),
           },
         }
       : {}),
