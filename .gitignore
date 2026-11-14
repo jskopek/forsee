@@ -257,3 +257,6 @@ lerna-debug.log*
 
 # Archived files
 archive/
+
+# Agent worktrees
+.claude/worktrees/
