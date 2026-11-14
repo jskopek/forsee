@@ -24,6 +24,7 @@ export {
   marginRestZones,
   type AppFrameGridOptions,
   type AppFrameProps,
+  type ControlBarPosition,
 } from './app-frame';
 export {
   ChoiceGroup,

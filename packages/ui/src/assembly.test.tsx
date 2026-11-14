@@ -35,7 +35,7 @@ function ids(h: TestHost): string[] {
 
 describe('appFrameGrid', () => {
   it('adds a banner row and keeps the keyboard row at its minimum share', () => {
-    const grid = appFrameGrid({ actions: 'side', banner: true, keyboardMinPercent: 55 });
+    const grid = appFrameGrid({ actions: 'right', banner: true, keyboardMinPercent: 55 });
     expect(grid.gridTemplateAreas).toBe(
       '"banner actions" "composition actions" "predictions actions" "keyboard actions"',
     );
@@ -48,6 +48,21 @@ describe('appFrameGrid', () => {
       '"banner" "composition" "predictions" "keyboard" "actions"',
     );
     expect(grid.gridTemplateColumns).toBe('minmax(0, 1fr)');
+  });
+
+  it('puts a left control bar before every row', () => {
+    const grid = appFrameGrid({ actions: 'left', banner: false, keyboardMinPercent: 55 });
+    expect(grid.gridTemplateAreas).toBe(
+      '"actions composition" "actions predictions" "actions keyboard"',
+    );
+    expect(String(grid.gridTemplateColumns).endsWith('minmax(0, 1fr)')).toBe(true);
+  });
+
+  it('puts a top control bar at the end of the composition row only', () => {
+    const grid = appFrameGrid({ actions: 'top', banner: true, keyboardMinPercent: 55 });
+    expect(grid.gridTemplateAreas).toBe(
+      '"banner banner" "composition actions" "predictions predictions" "keyboard keyboard"',
+    );
   });
 
   it('has no banner or action areas when they are absent', () => {

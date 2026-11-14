@@ -10,6 +10,7 @@ import {
   message,
   openApp,
   rest,
+  speakButton,
   spoken,
   spokenTexts,
   test,
@@ -32,7 +33,7 @@ test.describe('with speech', () => {
     await openApp(page);
     const letterMs = await faster(page, 4);
     expect(letterMs).toBe(400);
-    // Faster, Slower and the shown value are the in-place controls; Speak is the layout's key.
+    // Faster, Slower and the shown value are the in-place controls; Speak is in the control bar.
     await expect(page.getByRole('button', { name: 'Speak', exact: true })).toHaveCount(1);
 
     // Each letter fires only after resting on it (adaptive dwell: 0.6 to 1.5 times 400 ms).
@@ -54,10 +55,10 @@ test.describe('with speech', () => {
     expect(word.toLowerCase().startsWith('hel')).toBe(true);
     expect(await dwellType(page, first)).toBe(`${word} `);
 
-    // Speak is the layout's key; "Stop speaking" appears only while speech plays.
+    // Speak is in the control bar and turns into "Stop speaking" while speech plays.
     const stop = page.getByRole('button', { name: 'Stop speaking' });
     await expect(stop).toHaveCount(0);
-    await dwellUntil(page, key(page, 'Speak'), () => stop.isVisible(), 3000);
+    await dwellUntil(page, speakButton(page), () => stop.isVisible(), 3000);
     await expectMessage(page, '');
     expect(await spokenTexts(page)).toContain(word);
     await expect(page.getByRole('button', { name: 'Stop speaking' })).toHaveCount(0);
@@ -270,7 +271,7 @@ test.describe('speech before any click or tap', () => {
     expect(await dwellType(page, key(page, 'i'))).toBe('hi');
     await dwellUntil(
       page,
-      key(page, 'Speak'),
+      speakButton(page),
       async () => ((await message(page).textContent()) ?? '').startsWith(PLACEHOLDER),
       4000,
     );
@@ -300,7 +301,7 @@ test.describe('touch', () => {
     }
     // No dwell wait: the letters are there straight away.
     await expect(message(page)).toHaveText('hi', { timeout: 300 });
-    const speak = await key(page, 'Speak').boundingBox();
+    const speak = await speakButton(page).boundingBox();
     if (!speak) throw new Error('Speak');
     await page.touchscreen.tap(speak.x + speak.width / 2, speak.y + speak.height / 2);
     await expect.poll(() => spokenTexts(page)).toEqual(['hi']);

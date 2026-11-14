@@ -14,16 +14,14 @@ import {
 } from '@forsee/layouts';
 import type { Disposable, LayoutDefinition, LayoutFamily } from '@forsee/plugin-api';
 import { migrateLayoutId } from '@forsee/plugin-keyboards';
-import { chromeCommands, withoutKeysFor } from './chrome-keys';
-import { LAYOUT_SETTINGS_NAMESPACE, screenLayoutOf, type ScreenLayout } from './settings';
+import { withoutKeysFor } from './keyboard-filter';
+import { LAYOUT_SETTINGS_NAMESPACE } from './settings';
 import type { RuntimeLayout } from './types';
 
 interface Active {
   /** The keyboard as offered. */
   readonly source: LayoutDefinition;
-  /** The screen layout it was adapted to. */
-  readonly screen: ScreenLayout;
-  /** `source` without the keys the screen shows as fixed controls (what is rendered). */
+  /** `source` without keys for the control bar's commands (what is rendered). */
   readonly definition: LayoutDefinition;
   readonly runtime: LayoutRuntime;
 }
@@ -69,32 +67,27 @@ export function createLayoutController(
     const named = id === '' ? undefined : layouts.find((l) => l.id === id);
     return named ?? pickDefaultLayout(layouts, DEFAULT_FAMILY, kernel.locale);
   };
-  const screen = (): ScreenLayout =>
-    screenLayoutOf(kernel.settings.get(LAYOUT_SETTINGS_NAMESPACE, 'screenLayout'));
-  const make = (source: LayoutDefinition, layout: ScreenLayout): Active => {
-    const definition = withoutKeysFor(source, chromeCommands(layout));
+  const make = (source: LayoutDefinition): Active => {
+    const definition = withoutKeysFor(source);
     return {
       source,
-      screen: layout,
       definition,
       runtime: createLayoutRuntime(definition, { onListenerError: reportError }),
     };
   };
 
-  let active = make(choose(), screen());
+  let active = make(choose());
 
   const refresh = (): void => {
     let next: LayoutDefinition;
-    let layout: ScreenLayout;
     try {
       next = choose();
-      layout = screen();
     } catch (error) {
       reportError(error, 'runtime.layout');
       return;
     }
-    if (next === active.source && layout === active.screen) return;
-    active = make(next, layout);
+    if (next === active.source) return;
+    active = make(next);
     bus.emit('changed', active);
   };
 

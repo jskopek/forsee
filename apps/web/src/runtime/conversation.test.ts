@@ -51,8 +51,9 @@ describe('the conversation path', () => {
     await kernel.commands.execute('composition.acceptPrediction', { text: word }, 'app');
     expect(kernel.composition.text).toBe(`${word} `);
 
-    dwellOn(browser, keyboard, 'k-speak', 1600);
     lookAway(browser);
+    // Speak is in the control bar, not on the keyboard.
+    await runtime.kernel.commands.execute('composition.speak', undefined, 'app');
     await settle();
 
     const spoken = browser.synthesis.spoken;

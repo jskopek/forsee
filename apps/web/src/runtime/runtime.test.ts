@@ -638,8 +638,9 @@ describe('offline promise', () => {
     const keyboard = mountTestKeyboard(runtime);
     dwellOn(browser, keyboard, 'k-h');
     dwellOn(browser, keyboard, 'k-i');
-    dwellOn(browser, keyboard, 'k-speak', 1600);
     lookAway(browser);
+    // Speak is in the control bar, not on the keyboard.
+    await runtime.kernel.commands.execute('composition.speak', undefined, 'app');
     await settle();
     browser.synthesis.start();
     browser.synthesis.end();

@@ -12,15 +12,14 @@ import {
   PhraseBar,
   PredictionStrip,
   SpeakButton,
-  StopSpeakingButton,
   useClickSound,
   useComposition,
   useMediaQuery,
   useSetting,
+  type ControlBarPosition,
 } from '@forsee/ui';
 import { useCallback, useState, type ReactNode } from 'react';
 import {
-  layoutHasSpeakKey,
   useActiveLayout,
   useProblems,
   useQuickfireTiles,
@@ -30,9 +29,8 @@ import {
 import { usePhysicalKeyboard, useUnlockSpeechOnGesture } from './input';
 import { useNotices, type Notice } from './notices';
 import { DWELL_FASTER_COMMAND, DWELL_SLOWER_COMMAND, type ForseeRuntime } from './runtime';
-import { screenLayoutOf } from './runtime/settings';
+import { controlBarSettingOf, type ControlBarSetting } from './runtime/settings';
 import { SettingsSheet } from './SettingsSheet';
-import { TopBarScreen } from './TopBarScreen';
 
 /** The app once the runtime is up: the provider of the host UI around the screen. */
 export function MainScreen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
@@ -43,7 +41,31 @@ export function MainScreen({ runtime }: { readonly runtime: ForseeRuntime }): Re
   );
 }
 
-const SIDE_ITEM = 'flex min-h-0';
+const SIDE_ITEM = 'flex min-h-0 min-w-0';
+
+/** Where the control bar goes for a setting and orientation. */
+export function controlBarPosition(
+  setting: ControlBarSetting,
+  portrait: boolean,
+): ControlBarPosition {
+  if (setting !== 'auto') return setting;
+  return portrait ? 'top' : 'right';
+}
+
+/** Keyboard sides that touch the screen's edge (they get the larger edge keys). */
+function keyboardEdges(position: ControlBarPosition): {
+  top: boolean;
+  right: boolean;
+  bottom: boolean;
+  left: boolean;
+} {
+  return {
+    top: false,
+    right: position !== 'right',
+    bottom: position !== 'bottom',
+    left: position !== 'left',
+  };
+}
 
 function Screen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
   const portrait = useMediaQuery('(orientation: portrait)');
@@ -63,10 +85,11 @@ function Screen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
   usePhysicalKeyboard(runtime, physicalKeyboard && !settingsOpen);
 
   const problemCount = problems.issues.length + problems.errors.length;
-  const screen = screenLayoutOf(useSetting(runtime.settings.namespaces.layout, 'screenLayout'));
-  const ownSpeakKey = layoutHasSpeakKey(layout.definition);
-  // Option B in portrait: Speak sits at the end of the message, not in the bottom bar.
-  const speakInMessageRow = screen === 'rail' && portrait;
+  const position = controlBarPosition(
+    controlBarSettingOf(useSetting(runtime.settings.namespaces.ui, 'controlBar')),
+    portrait,
+  );
+  const vertical = position === 'left' || position === 'right';
 
   const banner = locked ? (
     <UnlockPrompt onUnlock={() => runtime.speech.unlock()} />
@@ -74,9 +97,7 @@ function Screen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
     <PhraseBar label="Quick replies" idPrefix="quickfire" tiles={tiles} />
   ) : null;
 
-  const speak = ownSpeakKey ? (
-    <StopSpeakingButton speaking={speaking} />
-  ) : (
+  const speak = (
     <SpeakButton
       command={{ command: 'composition.speak' }}
       speaking={speaking}
@@ -118,24 +139,25 @@ function Screen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
           portrait={portrait}
         />
       )}
-      {speakInMessageRow && <div className="flex w-[clamp(6.5rem,18vw,10.5rem)]">{speak}</div>}
     </div>
   );
 
+  // Speak is always the control nearest the message, Settings the furthest.
+  // A top bar shares the message row, so it has no room for the dwell controls.
   const actions = (
     <>
-      {!speakInMessageRow && (
-        <div className={`${SIDE_ITEM} ${portrait ? 'flex-1' : 'flex-[1.1]'}`}>{speak}</div>
+      <div className={`${SIDE_ITEM} ${vertical ? 'flex-[1.1]' : 'flex-1'}`}>{speak}</div>
+      {position !== 'top' && (
+        <div className={`${SIDE_ITEM} ${vertical ? 'flex-[2.6]' : 'flex-[3]'}`}>
+          <DwellSpeedControls
+            horizontal={!vertical}
+            commands={{
+              faster: { command: DWELL_FASTER_COMMAND },
+              slower: { command: DWELL_SLOWER_COMMAND },
+            }}
+          />
+        </div>
       )}
-      <div className={`${SIDE_ITEM} ${portrait ? 'flex-[3]' : 'flex-[2.6]'}`}>
-        <DwellSpeedControls
-          horizontal={portrait}
-          commands={{
-            faster: { command: DWELL_FASTER_COMMAND },
-            slower: { command: DWELL_SLOWER_COMMAND },
-          }}
-        />
-      </div>
       <div className={`${SIDE_ITEM} flex-1`}>
         <PauseButton />
       </div>
@@ -149,13 +171,7 @@ function Screen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
       runtime={layout.runtime}
       targets={runtime.gaze.targets}
       // Only sides that touch the screen's edge get the larger edge keys.
-      edges={
-        screen === 'top'
-          ? { top: false, right: true, bottom: true, left: true }
-          : portrait
-            ? { top: false, right: true, bottom: false, left: true }
-            : { top: false, right: false, bottom: true, left: true }
-      }
+      edges={keyboardEdges(position)}
     />
   );
   const overlay = (
@@ -172,20 +188,6 @@ function Screen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
     </>
   );
 
-  if (screen === 'top') {
-    return (
-      <TopBarScreen
-        banner={banner}
-        message={composition}
-        speak={speak}
-        settings={settingsButton}
-        keyboard={keyboard}
-        inert={settingsOpen}
-        overlay={overlay}
-      />
-    );
-  }
-
   return (
     <AppFrame
       banner={banner}
@@ -193,7 +195,7 @@ function Screen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
       predictions={<PredictionStrip />}
       keyboard={keyboard}
       actions={actions}
-      actionsPosition={portrait ? 'bottom' : 'side'}
+      actionsPosition={position}
       inert={settingsOpen}
       overlay={overlay}
     />

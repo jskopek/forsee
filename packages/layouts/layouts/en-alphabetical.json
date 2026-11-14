@@ -194,20 +194,6 @@
               "label": "Space",
               "action": { "command": "composition.insert", "args": { "text": " " } },
               "width": 2
-            },
-            {
-              "id": "k-clear",
-              "label": "Clear",
-              "icon": "clear",
-              "width": 1,
-              "action": { "command": "composition.clear" }
-            },
-            {
-              "id": "k-speak",
-              "label": "Speak",
-              "icon": "speak",
-              "width": 1.5,
-              "action": { "command": "composition.speak" }
             }
           ]
         }
@@ -388,20 +374,6 @@
               "label": "Space",
               "action": { "command": "composition.insert", "args": { "text": " " } },
               "width": 4.5
-            },
-            {
-              "id": "n-clear",
-              "label": "Clear",
-              "icon": "clear",
-              "width": 1.5,
-              "action": { "command": "composition.clear" }
-            },
-            {
-              "id": "n-speak",
-              "label": "Speak",
-              "icon": "speak",
-              "width": 2.5,
-              "action": { "command": "composition.speak" }
             }
           ]
         }

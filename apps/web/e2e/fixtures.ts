@@ -182,6 +182,13 @@ export function key(page: Page, name: string): Locator {
   return keyboard(page).getByRole('button', { name, exact: true });
 }
 
+/** The Speak button in the control bar (keyboards have no Speak key). */
+export function speakButton(page: Page): Locator {
+  return page
+    .getByRole('complementary', { name: 'Controls' })
+    .getByRole('button', { name: 'Speak', exact: true });
+}
+
 /** The message being written (the composition bar's text, without the placeholder). */
 export function message(page: Page): Locator {
   return page.locator('[data-forsee-measure="composition"] output');

@@ -14,7 +14,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useActiveLayout, useKeyboardCatalogue, type Problems } from './hooks';
 import { PluginsSection } from './PluginsSection';
 import type { ForseeRuntime } from './runtime';
-import { screenLayoutOf, type ScreenLayout } from './runtime/settings';
+import { controlBarSettingOf, type ControlBarSetting } from './runtime/settings';
 
 type Tab = 'keyboard' | 'voice' | 'speech' | 'input' | 'plugins' | 'problems';
 
@@ -96,11 +96,13 @@ export function SettingsSheet({
 
 const SECTION = 'flex h-full min-h-0 flex-col gap-[clamp(1rem,3vh,2rem)]';
 
-/** Prototype screen layouts, for trying option A against option B. */
-const SCREEN_LAYOUTS: Choice<ScreenLayout>[] = [
-  { value: 'current', label: 'Current' },
-  { value: 'rail', label: 'Side rail (B)' },
-  { value: 'top', label: 'Top bar (A)' },
+/** Where the control bar (Speak, Pause, Settings) can go. */
+const CONTROL_BAR_POSITIONS: Choice<ControlBarSetting>[] = [
+  { value: 'auto', label: 'Automatic' },
+  { value: 'right', label: 'Right' },
+  { value: 'left', label: 'Left' },
+  { value: 'top', label: 'Top' },
+  { value: 'bottom', label: 'Bottom' },
 ];
 
 /** Keyboards per page (the active one is marked). */
@@ -109,8 +111,8 @@ const KEYBOARDS_PER_PAGE = 6;
 function KeyboardSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
   const active = useActiveLayout(runtime).definition;
   const catalogue = useKeyboardCatalogue(runtime);
-  const layoutNs = runtime.settings.namespaces.layout;
-  const screen = screenLayoutOf(useSetting(layoutNs, 'screenLayout'));
+  const ui = runtime.settings.namespaces.ui;
+  const controlBar = controlBarSettingOf(useSetting(ui, 'controlBar'));
   const [page, setPage] = useState(0);
   const pages = Math.max(1, Math.ceil(catalogue.length / KEYBOARDS_PER_PAGE));
   const current = Math.min(page, pages - 1);
@@ -142,12 +144,12 @@ function KeyboardSection({ runtime }: { readonly runtime: ForseeRuntime }): Reac
         />
       )}
       <ChoiceGroup
-        label="Screen layout (prototype)"
-        idPrefix="settings/screen-layout"
-        choices={SCREEN_LAYOUTS}
-        value={screen}
-        onChoose={(value) => runtime.settings.set(layoutNs, 'screenLayout', value)}
-        columns={3}
+        label="Control bar (Speak, Pause, Settings)"
+        idPrefix="settings/control-bar"
+        choices={CONTROL_BAR_POSITIONS}
+        value={controlBar}
+        onChoose={(value) => runtime.settings.set(ui, 'controlBar', value)}
+        columns={5}
         className="max-h-[8rem] flex-1"
       />
       <p className="text-[clamp(0.9rem,2.2vh,1.15rem)] text-ink-muted">

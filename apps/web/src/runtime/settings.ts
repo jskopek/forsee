@@ -66,8 +66,36 @@ export function speakModeOf(value: unknown): SpeakMode {
 /** Settings namespace of the screen itself (feedback and extra input). */
 export const UI_SETTINGS_NAMESPACE = 'app.ui';
 
-/** `app.ui`: dwell click sound and typing on a physical keyboard. */
+/**
+ * Where the control bar (Speak, Pause, Settings) sits. `auto` is right in
+ * landscape and top in portrait.
+ */
+export type ControlBarSetting = 'auto' | 'right' | 'left' | 'top' | 'bottom';
+
+/** Narrows a stored value to a control bar position setting. */
+export function controlBarSettingOf(value: unknown): ControlBarSetting {
+  return value === 'right' || value === 'left' || value === 'top' || value === 'bottom'
+    ? value
+    : 'auto';
+}
+
+/** `app.ui`: control bar position, dwell click sound and typing on a physical keyboard. */
 export const UI_SETTING_FIELDS: readonly SettingField[] = [
+  {
+    key: 'controlBar',
+    label: 'Control bar',
+    description:
+      'Where Speak, Pause and Settings sit. Automatic puts them on the right in landscape and next to the message in portrait.',
+    type: 'select',
+    default: 'auto',
+    options: [
+      { label: 'Automatic', value: 'auto' },
+      { label: 'Right', value: 'right' },
+      { label: 'Left', value: 'left' },
+      { label: 'Top, next to the message', value: 'top' },
+      { label: 'Bottom', value: 'bottom' },
+    ],
+  },
   {
     key: 'clickSound',
     label: 'Click sound',
@@ -99,29 +127,4 @@ export const LAYOUT_SETTING_FIELDS: readonly SettingField[] = [
     type: 'string',
     default: '',
   },
-  {
-    key: 'screenLayout',
-    label: 'Screen layout',
-    description:
-      'Where Speak, Settings and the other fixed controls sit around the keyboard. Prototype: "current" is the original screen, "rail" puts Speak at the top of the side rail (option B), "top" puts every fixed control in the message row (option A).',
-    type: 'select',
-    default: 'current',
-    options: [
-      { label: 'Current', value: 'current' },
-      { label: 'Side rail (B)', value: 'rail' },
-      { label: 'Top bar (A)', value: 'top' },
-    ],
-  },
 ];
-
-/**
- * Prototype screen layouts (see `screenLayout`). Delete `top` (and
- * `TopBarScreen.tsx`) once option A is ruled out; delete `current` once B
- * becomes the only screen.
- */
-export type ScreenLayout = 'current' | 'rail' | 'top';
-
-/** Narrows a stored value to a screen layout. */
-export function screenLayoutOf(value: unknown): ScreenLayout {
-  return value === 'rail' || value === 'top' ? value : 'current';
-}

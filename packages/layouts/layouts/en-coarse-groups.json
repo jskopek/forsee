@@ -349,13 +349,6 @@
               "icon": "undo",
               "width": 1,
               "action": { "command": "composition.undo" }
-            },
-            {
-              "id": "k-speak",
-              "label": "Speak",
-              "icon": "speak",
-              "width": 1,
-              "action": { "command": "composition.speak" }
             }
           ]
         }

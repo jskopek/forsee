@@ -12,6 +12,7 @@ import {
   message,
   openApp,
   rest,
+  speakButton,
   test,
 } from './fixtures';
 
@@ -142,7 +143,7 @@ test.describe('notices at 1024x768', () => {
     await dwellType(page, key(page, 'h'));
     await dwellType(page, key(page, 'i'));
     const prompt = page.getByRole('button', { name: 'Turn on speech' });
-    await dwellUntil(page, key(page, 'Speak'), () => prompt.isVisible(), 4000);
+    await dwellUntil(page, speakButton(page), () => prompt.isVisible(), 4000);
     await page.screenshot({
       path: shotPath('prompt-speech-1024x768.png', (n) => testInfo.outputPath(n)),
     });
@@ -199,8 +200,8 @@ test.describe('target sizes at 1024x768', () => {
     report.predictions = await smallestTarget(
       page.getByRole('group', { name: 'Word predictions' }),
     );
-    report['action bar'] = await smallestTarget(
-      page.getByRole('complementary', { name: 'Actions' }),
+    report['control bar'] = await smallestTarget(
+      page.getByRole('complementary', { name: 'Controls' }),
     );
 
     await chooseLayout(page, 'English large groups, en');

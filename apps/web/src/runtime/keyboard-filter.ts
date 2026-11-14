@@ -1,30 +1,24 @@
 import type { LayoutDefinition, LayoutKey } from '@forsee/plugin-api';
-import type { ScreenLayout } from './settings';
 
 /**
- * Commands the screen itself shows as fixed controls, per screen layout. A
- * keyboard's own keys for them are removed so each control exists once and
- * never moves when the keyboard or its page changes.
+ * Commands a keyboard may not have keys for. Speak lives only in the control
+ * bar, so it is in one place whatever keyboard or page is showing; Clear has
+ * no key at all (holding Delete clears, and Undo brings the text back).
+ * Built-in keyboards already leave them out; this also covers keyboards from
+ * other plugins.
  */
-export function chromeCommands(screen: ScreenLayout): readonly string[] {
-  switch (screen) {
-    case 'rail':
-      return ['composition.speak'];
-    case 'top':
-      return ['composition.speak', 'composition.clear'];
-    case 'current':
-      return [];
-  }
-}
+export const CONTROL_BAR_COMMANDS: readonly string[] = ['composition.speak', 'composition.clear'];
 
 /**
  * `definition` without the keys whose action is one of `commands` (inside
  * group keys too). Rows left empty are dropped, so the rest of the row or
- * page takes the room. Returns `definition` itself when nothing matches.
+ * page takes the room. A key that only reaches a command as a later step
+ * (Delete escalating to clear) is kept. Returns `definition` itself when
+ * nothing matches.
  */
 export function withoutKeysFor(
   definition: LayoutDefinition,
-  commands: readonly string[],
+  commands: readonly string[] = CONTROL_BAR_COMMANDS,
 ): LayoutDefinition {
   if (commands.length === 0) return definition;
   const drops = (key: LayoutKey): boolean =>

@@ -17,10 +17,14 @@ export interface AppFrameProps {
   readonly predictions?: ReactNode;
   /** The rest of the height: the keyboard (at least `keyboardMinPercent` of the frame). */
   readonly keyboard?: ReactNode;
-  /** A slim bar of actions (speak, pause, dwell speed). */
+  /** The control bar (speak, pause, settings, dwell speed). */
   readonly actions?: ReactNode;
-  /** Where the action bar goes. Default `side` (right); `bottom` suits portrait screens. */
-  readonly actionsPosition?: 'side' | 'bottom';
+  /**
+   * Where the control bar goes. Default `right`. `left` and `right` are a
+   * column the full height of the frame; `bottom` is a row under the
+   * keyboard; `top` sits in the composition row, at the end of the message.
+   */
+  readonly actionsPosition?: ControlBarPosition;
   /** Smallest share of the height the keyboard gets, percent. Default 55. */
   readonly keyboardMinPercent?: number;
   /** Rendered above everything (the pause overlay, dialogs). */
@@ -56,9 +60,12 @@ export function marginRestZones(outer: Rect, inner: Rect, idPrefix = 'frame'): T
     .map(([side, rect]) => restDescriptor(`${idPrefix}/margin-${side}`, rect));
 }
 
+/** Where `AppFrame` puts the control bar. */
+export type ControlBarPosition = 'right' | 'left' | 'top' | 'bottom';
+
 /** Options of `appFrameGrid`. */
 export interface AppFrameGridOptions {
-  readonly actions: 'side' | 'bottom' | 'none';
+  readonly actions: ControlBarPosition | 'none';
   /** A banner row above the composition bar. */
   readonly banner: boolean;
   /** Smallest share of the frame's height the keyboard row may get, percent. */
@@ -69,14 +76,16 @@ export interface AppFrameGridOptions {
  * The CSS grid of `AppFrame`, with the named areas `banner`, `composition`,
  * `predictions`, `keyboard` and `actions`. The fixed rows are clamped to the
  * viewport height and the keyboard row takes the rest, never less than
- * `keyboardMinPercent` of the height. A side action bar spans every row.
+ * `keyboardMinPercent` of the height. A left or right control bar spans every
+ * row; a top one shares the composition row; a bottom one is a row of its own.
  */
 export function appFrameGrid({
   actions,
   banner,
   keyboardMinPercent,
 }: AppFrameGridOptions): CSSProperties {
-  const stacked = actions === 'bottom';
+  // Short rows suit a horizontal bar (top or bottom), which leaves less width.
+  const stacked = actions === 'bottom' || actions === 'top';
   const rows: [string, string][] = [];
   if (banner) {
     rows.push(['banner', stacked ? 'clamp(3.25rem, 7vh, 5rem)' : 'clamp(3rem, 8vh, 4.5rem)']);
@@ -96,11 +105,32 @@ export function appFrameGrid({
     ]);
   }
   rows.push(['keyboard', `minmax(${keyboardMinPercent}%, 1fr)`]);
-  if (stacked) rows.push(['actions', 'clamp(3.5rem, 9vh, 5.5rem)']);
-  const side = actions === 'side';
+  if (actions === 'bottom') rows.push(['actions', 'clamp(3.5rem, 9vh, 5.5rem)']);
+
+  const column = 'clamp(6.5rem, 11vw, 10.5rem)';
+  const area = (name: string): string => {
+    switch (actions) {
+      case 'right':
+        return `"${name} actions"`;
+      case 'left':
+        return `"actions ${name}"`;
+      case 'top':
+        return name === 'composition' ? '"composition actions"' : `"${name} ${name}"`;
+      default:
+        return `"${name}"`;
+    }
+  };
+  const columns =
+    actions === 'right'
+      ? `minmax(0, 1fr) ${column}`
+      : actions === 'left'
+        ? `${column} minmax(0, 1fr)`
+        : actions === 'top'
+          ? 'minmax(0, 1fr) clamp(16rem, 42vw, 31.5rem)'
+          : 'minmax(0, 1fr)';
   return {
-    gridTemplateAreas: rows.map(([area]) => (side ? `"${area} actions"` : `"${area}"`)).join(' '),
-    gridTemplateColumns: side ? 'minmax(0, 1fr) clamp(6.5rem, 11vw, 10.5rem)' : 'minmax(0, 1fr)',
+    gridTemplateAreas: rows.map(([name]) => area(name)).join(' '),
+    gridTemplateColumns: columns,
     gridTemplateRows: rows.map(([, size]) => size).join(' '),
   };
 }
@@ -108,8 +138,8 @@ export function appFrameGrid({
 /**
  * The full-screen frame with named regions: an optional banner row, the
  * composition bar, the prediction strip under it, the keyboard filling the
- * rest (never less than `keyboardMinPercent` of the height), and a slim
- * action bar at the side or the bottom. No page scrolling; safe-area insets
+ * rest (never less than `keyboardMinPercent` of the height), and the control
+ * bar on any side (see `actionsPosition`). No page scrolling; safe-area insets
  * respected (tablets); the margin around the content is a rest zone.
  */
 export function AppFrame({
@@ -118,7 +148,7 @@ export function AppFrame({
   predictions,
   keyboard,
   actions,
-  actionsPosition = 'side',
+  actionsPosition = 'right',
   keyboardMinPercent = 55,
   overlay,
   inert = false,
@@ -186,9 +216,9 @@ export function AppFrame({
         </main>
         {hasActions && (
           <aside
-            aria-label="Actions"
+            aria-label="Controls"
             className={`flex min-h-0 min-w-0 gap-[clamp(0.375rem,1.2vh,0.75rem)] ${
-              actionsPosition === 'side' ? 'flex-col' : 'flex-row'
+              actionsPosition === 'left' || actionsPosition === 'right' ? 'flex-col' : 'flex-row'
             }`}
             style={{ gridArea: 'actions' }}
             data-region="actions"
