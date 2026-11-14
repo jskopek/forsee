@@ -1,6 +1,7 @@
-import type { ExtensionRegistry } from '@forsee/core';
+import type { Clock, ErrorReporter, ExtensionRegistry } from '@forsee/core';
 import type {
   Candidate,
+  ContextEntry,
   ConversationContext,
   Disposable,
   ForgetRequest,
@@ -11,6 +12,7 @@ import type {
   PredictionProvider,
   PredictionRequest,
   PredictionResult,
+  RegisteredContribution,
 } from '@forsee/plugin-api';
 
 /**
@@ -59,6 +61,13 @@ export interface PredictionSession extends Disposable {
    * showing it.
    */
   onUpdate(listener: (result: PredictionResult) => void): Disposable;
+  /**
+   * Tells the session which candidate (by `text`) the user is dwelling on,
+   * or `null`. Later updates of this session keep that candidate at the
+   * index it had in the last result delivered (see `CandidateStabiliser`),
+   * in every list it appears in.
+   */
+  pin(text: string | null): void;
 }
 
 /**
@@ -78,11 +87,38 @@ export interface PredictionEngine extends Disposable {
   forget(request: ForgetRequest): Promise<void>;
 }
 
+/** What a provider may see and do, decided by the plugin host from its permissions. */
+export interface ProviderAccess {
+  /** Receive `request.conversation` (`history.read`). */
+  readonly conversation: boolean;
+  /** Receive `request.context` (`context.read`). */
+  readonly context: boolean;
+  /** Receive `learn` and `forget` calls (`lm.write`). */
+  readonly learn: boolean;
+}
+
 /** Options for `createPredictionEngine`. */
 export interface PredictionEngineOptions {
   readonly extensions: ExtensionRegistry;
   /** Per-provider weight when merging; default 1. */
   readonly weights?: Readonly<Record<string, number>>;
+  /** Needed for timeouts; without it providers are never timed out. */
+  readonly clock?: Clock;
+  /** Where provider failures and timeouts are reported (default: `defaultErrorReporter`). */
+  readonly reportError?: ErrorReporter;
+  /** Unexpired context entries to attach to requests (for example `() => kernel.context.list()`). */
+  readonly context?: () => readonly ContextEntry[];
+  /**
+   * Permission hook: what each registered provider may see. The plugin host
+   * supplies it from its permission manager. Default: contributions owned
+   * by `"app"` get everything; any other owner gets nothing extra (no
+   * conversation, no context, no learning).
+   */
+  readonly access?: (contribution: RegisteredContribution<'predictionProviders'>) => ProviderAccess;
+  /** A promise-returning `predict` that has not answered after this long is ignored (default 250 ms). */
+  readonly predictTimeoutMs?: number;
+  /** `refine` is cancelled and ignored after this long (default 1000 ms). */
+  readonly refineTimeoutMs?: number;
 }
 
 /**
@@ -109,15 +145,28 @@ export interface Tokeniser {
   normalise(word: string): string;
 }
 
-/** A static language model loaded from a model file (word n-grams with backoff plus a character model). */
+/**
+ * A static language model loaded from a model file (word n-grams with
+ * backoff plus a character model). `previous` holds the preceding words of
+ * the sentence, most recent last, optionally starting with `"<s>"` (see
+ * `ForseeTokeniser.context`). Candidate `score`s are conditional
+ * probabilities P(word | previous).
+ */
 export interface LanguageModel {
   readonly locale: LocaleTag;
   /** Most likely completions of `prefix` given the previous words. */
   completions(previous: readonly string[], prefix: string, limit: number): readonly Candidate[];
   /** Most likely next words. */
   nextWords(previous: readonly string[], limit: number): readonly Candidate[];
-  /** Distribution over the next grapheme after `prefix`. */
+  /**
+   * Distribution over the next grapheme after `prefix`: values in 0..1
+   * summing to at most 1 (the rest is "end of word or anything else").
+   */
   letterDistribution(previous: readonly string[], prefix: string): Readonly<Record<string, number>>;
+  /** P(word | previous); 0 for words the model does not know. */
+  probability(previous: readonly string[], word: string): number;
+  /** Total probability of the words starting with `prefix` (1 or less; `""` covers every word). */
+  prefixProbability(previous: readonly string[], prefix: string): number;
 }
 
 /** One entry of the user's visible, editable vocabulary. */
@@ -140,12 +189,16 @@ export interface UserModel extends LanguageModel {
   /** JSON form; `load` accepts what `serialise` produced. */
   serialise(): unknown;
   load(data: unknown): boolean;
+  /** Total recency-weighted count of everything learned; 0 when empty. Drives the interpolation weight. */
+  mass(): number;
 }
 
 /** Signature of the first-party n-gram provider factory B4 exports. */
 export type NgramProviderFactory = (options: {
   readonly base: LanguageModel;
   readonly user: UserModel;
+  /** Phrase store fed by `learn`; phrases are suggested only when present. */
+  readonly phrases?: PhraseRecall;
 }) => PredictionProvider;
 
 /**
