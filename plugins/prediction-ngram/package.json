@@ -1,0 +1,19 @@
+{
+  "name": "@forsee/plugin-prediction-ngram",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "First-party plugin: the offline n-gram word predictor, registered through the public plugin API.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@forsee/core": "workspace:*",
+    "@forsee/plugin-api": "workspace:*",
+    "@forsee/prediction": "workspace:*"
+  },
+  "devDependencies": {
+    "@forsee/plugin-host": "workspace:*"
+  }
+}
