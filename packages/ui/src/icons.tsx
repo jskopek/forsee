@@ -18,6 +18,22 @@ const ICON_PATHS: Readonly<Record<string, readonly string[]>> = {
   play: ['M7 4.5l12 7.5-12 7.5z'],
   faster: ['M4 6l7 6-7 6', 'M12 6l7 6-7 6'],
   slower: ['M20 6l-7 6 7 6', 'M12 6l-7 6 7 6'],
+  settings: [
+    'M12 8.5a3.5 3.5 0 1 0 0 7a3.5 3.5 0 1 0 0-7z',
+    'M12 2.5v3',
+    'M12 18.5v3',
+    'M2.5 12h3',
+    'M18.5 12h3',
+    'M5.3 5.3l2.1 2.1',
+    'M16.6 16.6l2.1 2.1',
+    'M5.3 18.7l2.1-2.1',
+    'M16.6 7.4l2.1-2.1',
+  ],
+  close: ['M6 6l12 12', 'M18 6L6 18'],
+  check: ['M4.5 12.5l5 5 10-11'],
+  alert: ['M12 3.5l9.5 16.5h-19z', 'M12 10v4.5', 'M12 17.5v.01'],
+  previous: ['M15 5l-7 7 7 7'],
+  next: ['M9 5l7 7-7 7'],
 };
 
 /** Names of the built-in icons. */

@@ -1,9 +1,15 @@
-import { GAZE_SETTINGS_NAMESPACE, adjustDwell, type DwellAdjustment } from '@forsee/gaze';
+import {
+  DWELL_ADJUSTMENT_DEFAULTS,
+  GAZE_SETTINGS_NAMESPACE,
+  adjustDwell,
+  type DwellAdjustment,
+} from '@forsee/gaze';
 import { DWELL_CLASSES, type CommandInvocation, type DwellClass } from '@forsee/plugin-api';
 import { useState, type ReactNode } from 'react';
 import { GazeTarget } from './gaze-target';
 import { Icon } from './icons';
 import { useHostUi, useSetting } from './provider';
+import { useRestZone } from './rest-zone';
 
 const BUTTON = 'h-full w-full min-h-[3.5rem] px-2';
 const LABEL = 'text-[clamp(0.95rem,2.2vh,1.35rem)]';
@@ -62,6 +68,55 @@ export function SpeakButton({
   );
 }
 
+/** Props of `StopSpeakingButton`. */
+export interface StopSpeakingButtonProps {
+  /** True while speech is playing; the button exists only then. */
+  readonly speaking: boolean;
+  /** What "Stop" runs. Default `{ command: 'speech.stop' }`. */
+  readonly command?: CommandInvocation;
+  /** Target id. Default `actions/stop`. */
+  readonly id?: string;
+  readonly className?: string;
+}
+
+/**
+ * "Stop speaking", for screens where Speak lives on the keyboard. While
+ * nothing is being said, its place is kept as an empty rest area, so the
+ * controls around it never move under the user's gaze.
+ */
+export function StopSpeakingButton({
+  speaking,
+  command = { command: 'speech.stop' },
+  id = 'actions/stop',
+  className = '',
+}: StopSpeakingButtonProps): ReactNode {
+  const [, zoneRef] = useRestZone(`${id}-idle`);
+  if (!speaking) {
+    return (
+      <div
+        ref={zoneRef}
+        aria-hidden="true"
+        data-part="stop-idle"
+        data-forsee-measure={`${id}-idle`}
+        className={`h-full w-full min-h-[3.5rem] rounded-xl border-2 border-dashed border-surface-overlay ${className}`}
+      />
+    );
+  }
+  return (
+    <GazeTarget
+      id={id}
+      dwellClass="function"
+      command={command}
+      label="Stop speaking"
+      appearance="danger"
+      className={`${BUTTON} ${className}`}
+    >
+      <Icon name="stop" size={32} />
+      <span className={LABEL}>Stop</span>
+    </GazeTarget>
+  );
+}
+
 /** Props of `PauseButton`. */
 export interface PauseButtonProps {
   /** Default `{ command: 'gaze.pause' }`. */
@@ -101,6 +156,17 @@ export interface DwellSpeedControlsProps {
   readonly idPrefix?: string;
   /** Lay the two buttons out side by side instead of stacked. */
   readonly horizontal?: boolean;
+  /**
+   * Commands that step dwell instead of the built-in step (for example the
+   * app runtime's `gaze.dwellFaster` / `gaze.dwellSlower`, which also store
+   * and announce the new value). The pipeline executes them; the shown
+   * letter dwell follows `app.gaze/dwell.letterMs`. `classes` and `stepMs`
+   * are then the command's business and are ignored.
+   */
+  readonly commands?: {
+    readonly faster: CommandInvocation;
+    readonly slower: CommandInvocation;
+  };
   readonly className?: string;
 }
 
@@ -120,6 +186,7 @@ export function DwellSpeedControls({
   stepMs,
   idPrefix = 'actions/dwell',
   horizontal = false,
+  commands,
   className = '',
 }: DwellSpeedControlsProps): ReactNode {
   const { services, reportError } = useHostUi();
@@ -128,6 +195,10 @@ export function DwellSpeedControls({
   const [local, setLocal] = useState<{ letterMs: number; atLimit: boolean } | null>(null);
   const letterMs =
     typeof stored === 'number' ? stored : (local?.letterMs ?? gaze?.dwellConfig.classMs.letter);
+  const atLimit = commands
+    ? letterMs !== undefined &&
+      (letterMs <= DWELL_ADJUSTMENT_DEFAULTS.minMs || letterMs >= DWELL_ADJUSTMENT_DEFAULTS.maxMs)
+    : local?.atLimit === true;
 
   const step = (direction: DwellAdjustment['direction']): void => {
     if (!gaze) return;
@@ -163,7 +234,7 @@ export function DwellSpeedControls({
         label="Faster"
         appearance="neutral"
         disabled={!gaze}
-        onActivate={() => step('faster')}
+        {...(commands ? { command: commands.faster } : { onActivate: () => step('faster') })}
         className={`${BUTTON} flex-1`}
       >
         <Icon name="faster" size={26} />
@@ -177,7 +248,7 @@ export function DwellSpeedControls({
         <span className="text-xl font-bold tabular-nums">
           {letterMs === undefined ? '–' : formatSeconds(letterMs)}
         </span>
-        {local?.atLimit === true && <span className="text-xs text-ink-muted">limit reached</span>}
+        {atLimit && <span className="text-xs text-ink-muted">limit reached</span>}
       </output>
       <GazeTarget
         id={`${idPrefix}/slower`}
@@ -185,7 +256,7 @@ export function DwellSpeedControls({
         label="Slower"
         appearance="neutral"
         disabled={!gaze}
-        onActivate={() => step('slower')}
+        {...(commands ? { command: commands.slower } : { onActivate: () => step('slower') })}
         className={`${BUTTON} flex-1`}
       >
         <Icon name="slower" size={26} />

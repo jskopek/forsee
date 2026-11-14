@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { DEFAULT_DWELL_CONFIG } from '@forsee/gaze';
-import { getBuiltinLayout, isSpacer, targetId } from '@forsee/layouts';
+import { BUILTIN_LAYOUTS, getBuiltinLayout, isSpacer, targetId } from '@forsee/layouts';
 import type { Rect, TargetDescriptor } from '@forsee/plugin-api';
 import { act, cleanup, fireEvent, screen } from '@testing-library/react';
 import { Profiler } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { KeyboardView } from './keyboard-view';
+import { KeyboardView, fitFontPx, keyAppearance } from './keyboard-view';
 import { createTestHost, renderWithHost, rectsByName, type TestHost } from './testing';
 
 const BOX: Rect = { x: 0, y: 200, width: 1000, height: 600 };
@@ -236,5 +236,35 @@ describe('KeyboardView adaptive dwell', () => {
     const likelyQ = host.registry.get(q)?.likelihood ?? 0;
     expect(likelyE).toBeGreaterThan(likelyQ);
     expect(host.registry.get(space)?.likelihood).toBeUndefined();
+  });
+});
+
+describe('fitFontPx', () => {
+  it('leaves a margin for wide bold capitals in a narrow, tall key (portrait coarse layout)', () => {
+    // A 190 x 230 group key with "WXYZ": capitals are about 0.72 em wide.
+    const px = fitFontPx('WXYZ', 190, 230, 0.3);
+    expect(px * 4 * 0.72).toBeLessThanOrEqual(190 * 0.85);
+    // Height still limits single letters in wide keys.
+    expect(fitFontPx('a', 300, 100)).toBe(46);
+  });
+});
+
+describe('keyAppearance', () => {
+  it('colours the Speak key (composition.speak) as the primary speak action', () => {
+    for (const layout of BUILTIN_LAYOUTS) {
+      const speakKeys = layout.pages.flatMap((page) =>
+        page.rows.flatMap((row) =>
+          row.keys.filter((key) => 'action' in key && key.action.command === 'composition.speak'),
+        ),
+      );
+      expect(speakKeys.length, layout.id).toBeGreaterThan(0);
+      for (const key of speakKeys) expect(keyAppearance(key)).toBe('speak');
+    }
+    expect(keyAppearance({ id: 's', label: 'Say', action: { command: 'speech.speak' } })).toBe(
+      'speak',
+    );
+    expect(keyAppearance({ id: 'u', label: 'Undo', action: { command: 'composition.undo' } })).toBe(
+      'function',
+    );
   });
 });

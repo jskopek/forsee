@@ -12,26 +12,30 @@ Read `A ← B` as "B depends on A":
 plugin-api ← core ← gaze, prediction, speech, storage, layouts, inference, host
 gaze ← gaze-web
 host, layouts ← plugin-host
-gaze, layouts, prediction ← ui
-all packages ← apps/web, apps/desktop, apps/mobile
+gaze, gaze-web, layouts, prediction ← ui
+plugin-api ← plugins/quickfire
+core, prediction ← plugins/prediction-ngram
+packages and first-party plugins ← apps/web (later apps/desktop, apps/mobile)
 ```
 
 Every package depends on `plugin-api` and `core`. The extra edges are:
 
-| Package       | Depends on (besides `plugin-api`, `core`) | DOM allowed |
-| ------------- | ----------------------------------------- | ----------- |
-| `plugin-api`  | nothing                                   | no          |
-| `core`        | `plugin-api` only                         | no          |
-| `gaze`        | –                                         | no          |
-| `prediction`  | –                                         | no          |
-| `speech`      | –                                         | no          |
-| `storage`     | –                                         | no          |
-| `layouts`     | –                                         | no          |
-| `inference`   | –                                         | no          |
-| `host`        | –                                         | yes         |
-| `gaze-web`    | `gaze`                                    | yes         |
-| `plugin-host` | `host`, `layouts`                         | yes         |
-| `ui`          | `gaze`, `layouts`, `prediction`           | yes (React) |
+| Package       | Depends on (besides `plugin-api`, `core`)   | DOM allowed |
+| ------------- | ------------------------------------------- | ----------- |
+| `plugin-api`  | nothing                                     | no          |
+| `core`        | `plugin-api` only                           | no          |
+| `gaze`        | –                                           | no          |
+| `prediction`  | –                                           | no          |
+| `speech`      | –                                           | no          |
+| `storage`     | –                                           | no          |
+| `layouts`     | –                                           | no          |
+| `inference`   | –                                           | no          |
+| `host`        | –                                           | yes         |
+| `gaze-web`    | `gaze`                                      | yes         |
+| `plugin-host` | `host`, `layouts`                           | yes         |
+| `ui`          | `gaze`, `gaze-web`, `layouts`, `prediction` | yes (React) |
+
+First-party plugins live in `plugins/` as their own packages (`@forsee/plugin-<name>`) and use the public `ForseeApi`; `quickfire` needs only `plugin-api`, `prediction-ngram` also uses `core` and the `prediction` engine directly (first-party plugins may). `apps/web` is the shell: its application runtime (`apps/web/src/runtime`) composes every package and the first-party plugins, and its React entry (`apps/web/src`) mounts the `ui` components on that runtime.
 
 `packages/integration-tests` is a private, test-only package that depends on the other workspace packages to test them together (real kernel, speech engine, prediction engine, layouts and plugin host). Nothing depends on it, and it holds no production code.
 
@@ -116,7 +120,7 @@ await kernel.commands.execute('composition.insert', { text: 'h' });
 
 ## The application runtime (`apps/web/src/runtime`)
 
-`createForseeRuntime(options)` boots everything behind the screen and returns one `ForseeRuntime` (types in `apps/web/src/runtime/types.ts`): `hostUi` (the `HostUiServices` the UI root receives), `kernel`, `host`, `profile` (storage backend, `persistent`, `warning`), `speech` (engine, `available`, `locked`/`unlock()`, settings), `gaze` (pipeline, targets, input mode, dwell faster/slower, pause/resume through the kernel commands), `prediction`, `layout` (catalogue, active definition and runtime, change event, `select`, `setFamily`), `settings`, `pluginHost`, `errors` (every reported error), `startupIssues`, `flush()` and `dispose()`. Boot order: storage and profile (OPFS, IndexedDB, then memory with a warning), kernel with crash recovery, speech, prediction, plugin host with the first-party plugins, gaze, layout, lifecycle (`pagehide` and hiding flush). An optional part that fails is reported and skipped. Every browser dependency is an option with a real-browser default, so the runtime runs in Node tests (`apps/web/src/runtime/testing.ts`). The React layer's keyboard view still has to register the layout's targets and execute owner activations (the activation adapter).
+`createForseeRuntime(options)` boots everything behind the screen and returns one `ForseeRuntime` (types in `apps/web/src/runtime/types.ts`): `hostUi` (the `HostUiServices` the UI root receives), `kernel`, `host`, `profile` (storage backend, `persistent`, `warning`), `speech` (engine, `available`, `locked`/`unlock()`, settings), `gaze` (pipeline, targets, input mode, dwell faster/slower, pause/resume through the kernel commands), `prediction`, `layout` (catalogue, active definition and runtime, change event, `select`, `setFamily`), `settings`, `pluginHost`, `errors` (every reported error), `startupIssues`, `flush()` and `dispose()`. Boot order: storage and profile (OPFS, IndexedDB, then memory with a warning), kernel with crash recovery, speech, prediction, plugin host with the first-party plugins, gaze, layout, lifecycle (`pagehide` and hiding flush). An optional part that fails is reported and skipped. Every browser dependency is an option with a real-browser default, so the runtime runs in Node tests (`apps/web/src/runtime/testing.ts`). The React entry (`apps/web/src/main.tsx`, `App.tsx`, `MainScreen.tsx`) boots it once per page load, outside React, and mounts the `ui` components on it; see "Decisions: the assembled app".
 
 ## Contract table
 
@@ -215,6 +219,17 @@ Taken while wiring the engines into one app (`apps/web/src/runtime`). Each fix w
 - **Where the runtime keeps plugin state:** consent records in `state/plugin-consent.json`, install records in `state/plugins.json` (not under `plugins/`, where any name is a valid plugin id). The n-gram plugin keeps the learned user model in its private storage (`plugins/forsee.prediction-ngram/data.json`), because `ForseeApi` cannot reach `lm/user-counts.json` (see the gap below).
 - **App settings namespaces:** `app.speech` (`voiceId`, `rate`, `pitch`, `volume`, `speakMode`), `app.layout` (`layoutId`, `family`), `app.gaze` (`GAZE_SETTING_FIELDS`). The selection method follows the input: touch selects directly, mouse, pen and trackers use `app.gaze/selectionMethod`. `gaze.dwellFaster` and `gaze.dwellSlower` are app commands (not public) that step dwell, store it and say the new value with `log: false`, which is neither history nor learned.
 - **Known API gaps (not changed):** `ForseeApi` has no access to the profile's personal language data (`lm/user-counts.json`, scopes `lm.read`/`lm.write`), and a private storage value is capped at 1 MB, which a large user model can exceed; and `PluginHost.dispose` does not call `deactivate`, so plugins must not hold unsaved state (the n-gram plugin's `learn` resolves only once its save has finished).
+
+### Decisions: the assembled app
+
+Taken while assembling the first working version (`apps/web/src`). Status and known rough edges are in [MVP_STATUS.md](MVP_STATUS.md).
+
+- **The shell stays thin.** `apps/web/src` holds only wiring: boot and failure screens, the main screen, the settings sheet's choice of sections, notices, and hooks onto the runtime. Reusable pieces were added to `packages/ui` with tests (`Sheet`, `ChoiceGroup`, `ToggleTarget`, `StepperControl`, `PhraseBar`, `NoticeCard`, `StopSpeakingButton`, `useMediaQuery`, `AppFrame`'s banner row and `inert`).
+- **Speak exists once.** The layouts' own Speak key (`composition.speak`) is the way to speak; the side bar has Stop (only while speech plays, its place otherwise kept as a rest area so nothing moves), Faster/Slower with the letter dwell shown (the runtime's `gaze.dwellFaster` / `gaze.dwellSlower` commands, which store and announce the value), Pause and Settings. A layout without a Speak key gets the side-bar Speak button instead.
+- **Quick-fire replies are feature data.** The row reads the phrase set the `forsee.quickfire` plugin contributed (`kernel.extensions.list('phraseSets')`, owner `forsee.quickfire`) and binds each tile to the plugin's public command `forsee.quickfire.speak`; the app knows those two ids, not the phrases. Without the plugin the row is absent. It sits in a banner row above the text (the keyboard keeps at least 55 % of the height; about 60 % at 1024 x 768) and gives way to the "turn on speech" prompt while the browser holds speech.
+- **`app.ui` settings** (runtime): `clickSound` and `physicalKeyboard`, both on by default. Physical keys go through the kernel commands (`composition.insert`, `composition.deleteGrapheme`, `composition.speak`), never inside a dialog, never while paused.
+- **`runtime.reportError`** lets the UI put its own failures (a click whose command failed) in the same error stream as the runtime's; the Settings button shows their count and the sheet lists them.
+- **Notices sit beside the text, never over keys.** Storage that does not persist, and text that could not be spoken (`speech.unavailable`): the text is shown for the partner to read and can be put back into the message (undo of the commit, or typed again).
 
 ## Things that will trip you up
 

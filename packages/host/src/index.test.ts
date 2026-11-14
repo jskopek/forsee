@@ -173,6 +173,22 @@ describe('web clock and ids', () => {
     expect(host.clock.wallNow()).toBeGreaterThan(1_700_000_000_000);
     host.dispose();
   });
+
+  it('makes ids outside a secure context, where crypto has no randomUUID (plain HTTP on a LAN)', () => {
+    const real = globalThis.crypto;
+    vi.stubGlobal('crypto', {
+      getRandomValues: (array: Uint8Array<ArrayBuffer>) => real.getRandomValues(array),
+    });
+    try {
+      const host = createWebHost();
+      const a = host.ids.uuid();
+      expect(a).toMatch(UUID_V4);
+      expect(host.ids.uuid()).not.toBe(a);
+      host.dispose();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 describe('detectPlatform', () => {

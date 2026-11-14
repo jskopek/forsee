@@ -6,6 +6,22 @@ EyeSpeak is built for people who rely on eye control as their main form of inter
 
 By focusing purely on conversational speech, we can optimize for faster human dialog.
 
+## Try the new version
+
+A rewrite (working name Forsee) lives in the TypeScript workspace (`apps/`, `packages/`, `plugins/`). Its first working version runs entirely in the browser and works offline: nothing you type or say leaves the device.
+
+```sh
+corepack enable          # Node 22; picks the pinned pnpm
+pnpm install
+pnpm --filter @forsee/web dev     # then open http://localhost:5173
+```
+
+To try it on an iPad or other device on the same network, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#opening-the-app-on-other-devices).
+
+**What works:** typing by dwell with a mouse or anything that moves the pointer (most eye trackers' mouse emulation), direct taps on touch screens, word prediction that learns your words, Speak, Stop, quick-fire replies ("Yes", "No", "Help", ...), in-place Faster/Slower dwell, pause with a deliberate wake target, a large-key two-step layout for less precise pointing, voice, rate and speak-mode settings, and recovery of the half-written message after a reload.
+
+**Not yet:** webcam eye tracking, the desktop and iPad apps, phrase bank and history screens, the partner display, plugins from anyone other than the project. Status and the device tests still to do are in [docs/MVP_STATUS.md](docs/MVP_STATUS.md).
+
 ## Goals
 
 - Free, open-source keyboard

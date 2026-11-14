@@ -12,11 +12,32 @@ export {
   DwellSpeedControls,
   PauseButton,
   SpeakButton,
+  StopSpeakingButton,
   type DwellSpeedControlsProps,
   type PauseButtonProps,
   type SpeakButtonProps,
+  type StopSpeakingButtonProps,
 } from './action-bar';
-export { AppFrame, marginRestZones, type AppFrameProps } from './app-frame';
+export {
+  AppFrame,
+  appFrameGrid,
+  marginRestZones,
+  type AppFrameGridOptions,
+  type AppFrameProps,
+} from './app-frame';
+export {
+  ChoiceGroup,
+  StepperControl,
+  ToggleTarget,
+  type Choice,
+  type ChoiceGroupProps,
+  type StepperControlProps,
+  type ToggleTargetProps,
+} from './choices';
+export { useMediaQuery, type MatchMediaLike } from './media-query';
+export { NoticeCard, type NoticeAction, type NoticeCardProps } from './notice';
+export { PhraseBar, type PhraseBarProps, type PhraseTile } from './phrase-bar';
+export { Sheet, type SheetProps } from './sheet';
 export {
   browserAudioContextFactory,
   createClickSound,

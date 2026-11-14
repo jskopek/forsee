@@ -222,6 +222,8 @@ export interface RuntimeSettings {
     readonly speech: string;
     readonly gaze: string;
     readonly layout: string;
+    /** `app.ui`: click sound, physical keyboard typing. */
+    readonly ui: string;
     readonly plugins: string;
   };
   get(namespace: string, key: string): SettingValue;
@@ -242,6 +244,12 @@ export interface ForseeRuntime {
   readonly settings: RuntimeSettings;
   readonly pluginHost: PluginHostInstance;
   readonly errors: RuntimeErrors;
+  /**
+   * Reports an error into `errors` (and `onError`): for the UI layer, so a
+   * failed command from a click or a throwing UI listener is shown like any
+   * other problem.
+   */
+  readonly reportError: (error: unknown, context: string) => void;
   /** Optional parts that failed to start (the app runs without them). */
   readonly startupIssues: readonly StartupIssue[];
   /** Writes everything pending: composition, history, settings, consent, learned words. */

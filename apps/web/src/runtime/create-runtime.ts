@@ -60,6 +60,8 @@ import {
   SPEECH_SETTING_FIELDS,
   SPEECH_SETTINGS_NAMESPACE,
   speakModeOf,
+  UI_SETTING_FIELDS,
+  UI_SETTINGS_NAMESPACE,
 } from './settings';
 import type {
   ForseeRuntime,
@@ -180,6 +182,7 @@ export async function createForseeRuntime(
   kernel.settings.registerSchema(SPEECH_SETTINGS_NAMESPACE, SPEECH_SETTING_FIELDS);
   kernel.settings.registerSchema(LAYOUT_SETTINGS_NAMESPACE, LAYOUT_SETTING_FIELDS);
   kernel.settings.registerSchema(GAZE_SETTINGS_NAMESPACE, GAZE_SETTING_FIELDS);
+  kernel.settings.registerSchema(UI_SETTINGS_NAMESPACE, UI_SETTING_FIELDS);
   await kernel.start();
 
   // ---------------------------------------------------------------- 3. speech
@@ -561,6 +564,7 @@ export async function createForseeRuntime(
         speech: SPEECH_SETTINGS_NAMESPACE,
         gaze: GAZE_SETTINGS_NAMESPACE,
         layout: LAYOUT_SETTINGS_NAMESPACE,
+        ui: UI_SETTINGS_NAMESPACE,
         plugins: PLUGIN_SETTINGS_NAMESPACE,
       },
       get: (namespace, key) => kernel.settings.get(namespace, key),
@@ -568,6 +572,7 @@ export async function createForseeRuntime(
     },
     pluginHost,
     errors: collector.errors,
+    reportError,
     startupIssues: issues,
     flush,
     dispose() {

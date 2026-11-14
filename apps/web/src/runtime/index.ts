@@ -17,5 +17,7 @@ export {
   LAYOUT_SETTINGS_NAMESPACE,
   SPEECH_SETTING_FIELDS,
   SPEECH_SETTINGS_NAMESPACE,
+  UI_SETTING_FIELDS,
+  UI_SETTINGS_NAMESPACE,
 } from './settings';
 export type * from './types';
