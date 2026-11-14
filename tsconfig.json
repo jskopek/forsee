@@ -38,6 +38,9 @@
       "path": "./packages/ui"
     },
     {
+      "path": "./tools/lm-build"
+    },
+    {
       "path": "./apps/web"
     }
   ]

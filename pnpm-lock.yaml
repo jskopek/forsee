@@ -199,6 +199,22 @@ importers:
         specifier: ^19.3.1
         version: 19.3.1
 
+  tools/lm-build:
+    dependencies:
+      '@forsee/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@forsee/plugin-api':
+        specifier: workspace:*
+        version: link:../../packages/plugin-api
+      '@forsee/prediction':
+        specifier: workspace:*
+        version: link:../../packages/prediction
+    devDependencies:
+      vite:
+        specifier: ^8.3.8
+        version: 8.3.8(@types/node@26.6.6)(jiti@1.21.7)
+
 packages:
 
   '@alloc/quick-lru@5.3.0':
