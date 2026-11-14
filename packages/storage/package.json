@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@forsee/core": "workspace:*",
-    "@forsee/plugin-api": "workspace:*"
+    "@forsee/plugin-api": "workspace:*",
+    "fflate": "0.8.2"
   }
 }
