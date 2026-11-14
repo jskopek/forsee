@@ -85,6 +85,17 @@ for (const viewport of VIEWPORTS) {
       await page.screenshot({
         path: shotPath(`settings-${size}.png`, (n) => testInfo.outputPath(n)),
       });
+      await sheet.getByRole('button', { name: 'Plugins' }).click();
+      await expect(sheet.getByText('Core plugins', { exact: true })).toBeVisible();
+      await page.mouse.move(4, 4);
+      await page.screenshot({
+        path: shotPath(`plugins-${size}.png`, (n) => testInfo.outputPath(n)),
+      });
+      await sheet.getByRole('button', { name: 'Quick-fire replies options' }).click();
+      await expect(sheet.getByRole('button', { name: 'Back to plugins' })).toBeVisible();
+      await page.screenshot({
+        path: shotPath(`plugin-options-${size}.png`, (n) => testInfo.outputPath(n)),
+      });
       await sheet.getByRole('button', { name: 'Close' }).click();
 
       await chooseLayout(page, 'English large groups, en');

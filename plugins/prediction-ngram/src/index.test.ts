@@ -4,7 +4,14 @@ import { validateManifest } from '@forsee/plugin-host';
 import { createTestPluginApi } from '@forsee/plugin-host/testing';
 import { describe, expect, it } from 'vitest';
 import manifestJson from '../manifest.json';
-import { createNgramPredictionPlugin, manifest, NGRAM_PLUGIN_ID, USER_MODEL_KEY } from './index';
+import {
+  createNgramPredictionPlugin,
+  LEARN_WORDS_SETTING,
+  manifest,
+  NEXT_WORDS_SETTING,
+  NGRAM_PLUGIN_ID,
+  USER_MODEL_KEY,
+} from './index';
 
 const PROVIDER_ID = `${NGRAM_PLUGIN_ID}/ngram`;
 
@@ -121,5 +128,62 @@ describe('forsee.prediction-ngram', () => {
       if (scopes.length === 3) expect(phrases).toContain('could you open the window');
       else expect(phrases).toEqual([]);
     }
+  });
+
+  it('registers its settings, both on by default', async () => {
+    const { api, kernel, plugin } = await activate();
+    await plugin.module.activate(api);
+    expect(kernel.settings.getAll(NGRAM_PLUGIN_ID)).toEqual({
+      [LEARN_WORDS_SETTING]: true,
+      [NEXT_WORDS_SETTING]: true,
+    });
+    const section = kernel.extensions.list('settings').find((c) => c.owner === NGRAM_PLUGIN_ID);
+    expect(section?.contribution.fields.map((f) => f.key)).toEqual([
+      LEARN_WORDS_SETTING,
+      NEXT_WORDS_SETTING,
+    ]);
+  });
+
+  it('stops learning while "Learn my words" is off, and starts again when it is on', async () => {
+    const { api, kernel, plugin, storage, clock } = await activate();
+    await plugin.module.activate(api);
+    const p = provider(kernel)!;
+    const learn = async (): Promise<void> =>
+      await p.learn!({
+        text: 'my zorblat',
+        origin: 'composition',
+        locale: 'en',
+        createdAt: clock.wallNow(),
+      });
+
+    kernel.settings.set(NGRAM_PLUGIN_ID, LEARN_WORDS_SETTING, false);
+    await learn();
+    expect(await storage.get(USER_MODEL_KEY)).toBeUndefined();
+
+    kernel.settings.set(NGRAM_PLUGIN_ID, LEARN_WORDS_SETTING, true);
+    await learn();
+    expect(await storage.get(USER_MODEL_KEY)).toBeDefined();
+  });
+
+  it('leaves out next words while "Suggest the next word" is off', async () => {
+    const { api, kernel, plugin } = await activate();
+    await plugin.module.activate(api);
+    const p = provider(kernel)!;
+    expect((await p.predict(request('how are ', ''))).nextWords.length).toBeGreaterThan(0);
+
+    kernel.settings.set(NGRAM_PLUGIN_ID, NEXT_WORDS_SETTING, false);
+    const off = await p.predict(request('how are ', '', 2));
+    expect(off.nextWords).toEqual([]);
+    expect((await p.predict(request('he', 'he', 3))).completions.length).toBeGreaterThan(0);
+  });
+
+  it('reads stored settings at activation', async () => {
+    const { api, kernel, plugin } = await activate();
+    await plugin.module.activate(api);
+    kernel.settings.set(NGRAM_PLUGIN_ID, NEXT_WORDS_SETTING, false);
+    await plugin.module.deactivate?.();
+    kernel.extensions.disposeOwner(NGRAM_PLUGIN_ID);
+    await plugin.module.activate(api);
+    expect((await provider(kernel)!.predict(request('how are ', ''))).nextWords).toEqual([]);
   });
 });

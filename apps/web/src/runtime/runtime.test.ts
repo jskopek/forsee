@@ -8,7 +8,12 @@ import {
   manifest as ngramManifest,
   NGRAM_PLUGIN_ID,
 } from '@forsee/plugin-prediction-ngram';
-import { QUICKFIRE_PHRASE_SET_ID, QUICKFIRE_SPEAK_COMMAND } from '@forsee/plugin-quickfire';
+import {
+  QUICKFIRE_PHRASE_SET_ID,
+  QUICKFIRE_PLUGIN_ID,
+  QUICKFIRE_SPEAK_COMMAND,
+  showSettingKey,
+} from '@forsee/plugin-quickfire';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defaultFirstPartyPlugins } from './first-party';
 import { PLUGIN_INSTALL_PATH } from './profile-storage';
@@ -392,6 +397,35 @@ describe('plugins', () => {
 
     const again = await boot(createTestBrowser({ files: browser.files }));
     expect(again.pluginHost.get('forsee.quickfire')?.state).toBe('disabled');
+  });
+
+  it('keeps plugin options across a restart, and offers them only while the plugin is on', async () => {
+    const shownPhrases = (runtime: ForseeRuntime): string[] =>
+      runtime.kernel.extensions
+        .list('phraseSets')
+        .flatMap((s) => s.contribution.categories.flatMap((c) => c.phrases.map((p) => p.id)));
+    const optionsOf = (runtime: ForseeRuntime) =>
+      runtime.kernel.extensions.list('settings').find((c) => c.owner === QUICKFIRE_PLUGIN_ID);
+
+    const browser = createTestBrowser();
+    const runtime = await boot(browser);
+    expect(optionsOf(runtime)?.contribution.fields).toHaveLength(7);
+    runtime.settings.set(QUICKFIRE_PLUGIN_ID, showSettingKey('help'), false);
+    await vi.waitFor(() => expect(shownPhrases(runtime)).not.toContain('help'));
+    await runtime.flush();
+    await runtime.dispose();
+
+    const again = await boot(createTestBrowser({ files: browser.files }));
+    expect(again.settings.get(QUICKFIRE_PLUGIN_ID, showSettingKey('help'))).toBe(false);
+    expect(shownPhrases(again)).not.toContain('help');
+    expect(shownPhrases(again)).toContain('yes');
+
+    await again.pluginHost.disable(QUICKFIRE_PLUGIN_ID);
+    expect(optionsOf(again)).toBeUndefined();
+    expect(shownPhrases(again)).toEqual([]);
+    await again.pluginHost.enable(QUICKFIRE_PLUGIN_ID);
+    expect(optionsOf(again)).toBeDefined();
+    expect(shownPhrases(again)).not.toContain('help');
   });
 });
 

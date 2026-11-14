@@ -12,9 +12,10 @@ import {
 } from '@forsee/ui';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useActiveLayout, type Problems } from './hooks';
+import { PluginsSection } from './PluginsSection';
 import type { ForseeRuntime } from './runtime';
 
-type Tab = 'keyboard' | 'voice' | 'speech' | 'input' | 'problems';
+type Tab = 'keyboard' | 'voice' | 'speech' | 'input' | 'plugins' | 'problems';
 
 /** Range offered for the speaking rate (the engine accepts more). */
 const RATE = { min: 0.5, max: 2, step: 0.1 } as const;
@@ -37,8 +38,8 @@ const TAB_BUTTON = 'h-full min-h-[3.5rem] w-full px-3 text-[clamp(1rem,2.4vh,1.3
 
 /**
  * The settings sheet (minimal for the MVP): layout, voice, speech rate and
- * mode, click sound, physical keyboard and dwell reset, plus the list of
- * problems. Every change applies at once and is stored through the runtime.
+ * mode, click sound, physical keyboard and dwell reset, the core plugins
+ * (on/off and their options), plus the list of problems. Every change applies at once and is stored through the runtime.
  */
 export function SettingsSheet({
   runtime,
@@ -59,6 +60,7 @@ export function SettingsSheet({
     { value: 'voice', label: 'Voice' },
     { value: 'speech', label: 'Speaking' },
     { value: 'input', label: 'Input' },
+    { value: 'plugins', label: 'Plugins' },
     { value: 'problems', label: problemCount > 0 ? `Problems (${problemCount})` : 'Problems' },
   ];
   return (
@@ -66,7 +68,7 @@ export function SettingsSheet({
       <div
         className={`grid h-full min-h-0 gap-[clamp(1rem,3vw,2rem)] ${
           portrait
-            ? 'grid-rows-[clamp(3.5rem,7vh,5rem)_minmax(0,1fr)]'
+            ? 'grid-rows-[clamp(7.75rem,15vh,10.75rem)_minmax(0,1fr)]'
             : 'grid-cols-[clamp(9rem,20vw,15rem)_minmax(0,1fr)]'
         }`}
       >
@@ -78,7 +80,7 @@ export function SettingsSheet({
             choices={tabs}
             value={tab}
             onChoose={setTab}
-            columns={portrait ? tabs.length : 1}
+            columns={portrait ? Math.ceil(tabs.length / 2) : 1}
             checkMark={false}
             className={portrait ? 'h-full' : 'h-full max-h-[34rem]'}
           />
@@ -88,6 +90,7 @@ export function SettingsSheet({
           {tab === 'voice' && <VoiceSection runtime={runtime} />}
           {tab === 'speech' && <SpeakingSection runtime={runtime} />}
           {tab === 'input' && <InputSection runtime={runtime} />}
+          {tab === 'plugins' && <PluginsSection runtime={runtime} />}
           {tab === 'problems' && <ProblemsSection problems={problems} />}
         </section>
       </div>

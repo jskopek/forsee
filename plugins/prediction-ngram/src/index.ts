@@ -20,6 +20,11 @@
  * `lm/user-counts.json`. Saves are coalesced: a `learn` resolves once a save
  * that includes it has finished, and bursts of learning share one write.
  * Phrases are not persisted separately; history is their source of truth.
+ *
+ * Settings (namespace `forsee.prediction-ngram`, `NGRAM_SETTING_FIELDS`):
+ * - `learnWords`: learn the words the user speaks (default on). Off, `learn`
+ *   does nothing, so nothing new is stored; what was learned stays in use.
+ * - `nextWords`: suggest the next word before a word is started (default on).
  */
 import type { Clock } from '@forsee/core';
 import type {
@@ -30,6 +35,7 @@ import type {
   PluginManifest,
   PluginModule,
   PredictionProvider,
+  SettingField,
 } from '@forsee/plugin-api';
 import {
   createNgramProvider,
@@ -54,6 +60,30 @@ export const USER_MODEL_KEY = 'userModel';
 
 /** Recent utterances read back into phrase recall at activation. */
 export const PHRASE_HISTORY_LIMIT = 500;
+
+/** Setting: learn the words the user speaks. */
+export const LEARN_WORDS_SETTING = 'learnWords';
+/** Setting: suggest the next word before a word is started. */
+export const NEXT_WORDS_SETTING = 'nextWords';
+
+/** The plugin's settings. */
+export const NGRAM_SETTING_FIELDS: readonly SettingField[] = [
+  {
+    key: LEARN_WORDS_SETTING,
+    label: 'Learn my words',
+    description:
+      'Learn the words and phrases you speak so they are suggested sooner. Turning it off keeps what was already learned.',
+    type: 'boolean',
+    default: true,
+  },
+  {
+    key: NEXT_WORDS_SETTING,
+    label: 'Suggest the next word',
+    description: 'Offer likely next words before you start typing a word.',
+    type: 'boolean',
+    default: true,
+  },
+];
 
 /** Options of `createNgramPredictionPlugin`. */
 export interface NgramPredictionPluginOptions {
@@ -112,10 +142,21 @@ export function createNgramPredictionPlugin(
 
   const module: PluginModule = {
     async activate(api: ForseeApi) {
+      await api.settings.registerSchema(NGRAM_SETTING_FIELDS);
+      const stored = await api.settings.getAll();
+      const settings = {
+        learnWords: stored[LEARN_WORDS_SETTING] !== false,
+        nextWords: stored[NEXT_WORDS_SETTING] !== false,
+      };
+      await api.events.on('settings.changed', (change) => {
+        if (change.key === LEARN_WORDS_SETTING) settings.learnWords = change.value !== false;
+        if (change.key === NEXT_WORDS_SETTING) settings.nextWords = change.value !== false;
+      });
+
       base ??= options.baseModel ? options.baseModel() : loadSeedModel();
       const user = createUserModel({ clock, locale });
-      const stored = await api.storage.get(USER_MODEL_KEY);
-      if (stored !== undefined && !user.load(stored)) {
+      const model = await api.storage.get(USER_MODEL_KEY);
+      if (model !== undefined && !user.load(model)) {
         // Unreadable data is left in place (not overwritten until the user learns something new).
         throw new Error('The stored user language model could not be read');
       }
@@ -136,8 +177,12 @@ export function createNgramPredictionPlugin(
       const provider: PredictionProvider = {
         id: NGRAM_LOCAL_PROVIDER_ID,
         capabilities: ngram.capabilities,
-        predict: (request) => ngram.predict(request),
+        predict: (request) => {
+          const result = ngram.predict(request);
+          return settings.nextWords ? result : { ...result, nextWords: [] };
+        },
         async learn(event: LearnEvent) {
+          if (!settings.learnWords) return;
           ngram.learn(event);
           await saver.save();
         },
