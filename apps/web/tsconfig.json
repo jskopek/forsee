@@ -7,5 +7,19 @@
     "outDir": "../../node_modules/.tmp/web"
   },
   "include": ["src", "e2e", "vite.config.ts", "playwright.config.ts"],
-  "references": [{ "path": "../../packages/core" }]
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../packages/gaze" },
+    { "path": "../../packages/gaze-web" },
+    { "path": "../../packages/host" },
+    { "path": "../../packages/layouts" },
+    { "path": "../../packages/plugin-api" },
+    { "path": "../../packages/plugin-host" },
+    { "path": "../../packages/prediction" },
+    { "path": "../../packages/speech" },
+    { "path": "../../packages/storage" },
+    { "path": "../../packages/ui" },
+    { "path": "../../plugins/prediction-ngram" },
+    { "path": "../../plugins/quickfire" }
+  ]
 }

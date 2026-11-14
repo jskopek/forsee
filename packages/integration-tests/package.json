@@ -11,6 +11,7 @@
     "@forsee/layouts": "workspace:*",
     "@forsee/plugin-api": "workspace:*",
     "@forsee/plugin-host": "workspace:*",
+    "@forsee/plugin-prediction-ngram": "workspace:*",
     "@forsee/prediction": "workspace:*",
     "@forsee/speech": "workspace:*"
   }

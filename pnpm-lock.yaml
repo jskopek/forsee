@@ -41,6 +41,42 @@ importers:
       '@forsee/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@forsee/gaze':
+        specifier: workspace:*
+        version: link:../../packages/gaze
+      '@forsee/gaze-web':
+        specifier: workspace:*
+        version: link:../../packages/gaze-web
+      '@forsee/host':
+        specifier: workspace:*
+        version: link:../../packages/host
+      '@forsee/layouts':
+        specifier: workspace:*
+        version: link:../../packages/layouts
+      '@forsee/plugin-api':
+        specifier: workspace:*
+        version: link:../../packages/plugin-api
+      '@forsee/plugin-host':
+        specifier: workspace:*
+        version: link:../../packages/plugin-host
+      '@forsee/plugin-prediction-ngram':
+        specifier: workspace:*
+        version: link:../../plugins/prediction-ngram
+      '@forsee/plugin-quickfire':
+        specifier: workspace:*
+        version: link:../../plugins/quickfire
+      '@forsee/prediction':
+        specifier: workspace:*
+        version: link:../../packages/prediction
+      '@forsee/speech':
+        specifier: workspace:*
+        version: link:../../packages/speech
+      '@forsee/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
+      '@forsee/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       react:
         specifier: ^19.3.1
         version: 19.3.1
@@ -135,6 +171,9 @@ importers:
       '@forsee/plugin-host':
         specifier: workspace:*
         version: link:../plugin-host
+      '@forsee/plugin-prediction-ngram':
+        specifier: workspace:*
+        version: link:../../plugins/prediction-ngram
       '@forsee/prediction':
         specifier: workspace:*
         version: link:../prediction
@@ -222,6 +261,35 @@ importers:
       react:
         specifier: ^19.3.1
         version: 19.3.1
+
+  plugins/prediction-ngram:
+    dependencies:
+      '@forsee/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@forsee/plugin-api':
+        specifier: workspace:*
+        version: link:../../packages/plugin-api
+      '@forsee/prediction':
+        specifier: workspace:*
+        version: link:../../packages/prediction
+    devDependencies:
+      '@forsee/plugin-host':
+        specifier: workspace:*
+        version: link:../../packages/plugin-host
+
+  plugins/quickfire:
+    dependencies:
+      '@forsee/plugin-api':
+        specifier: workspace:*
+        version: link:../../packages/plugin-api
+    devDependencies:
+      '@forsee/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@forsee/plugin-host':
+        specifier: workspace:*
+        version: link:../../packages/plugin-host
 
   tools/lm-build:
     dependencies:
