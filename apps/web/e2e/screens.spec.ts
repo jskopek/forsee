@@ -44,6 +44,8 @@ async function openSettings(page: Page): Promise<Locator> {
 
 async function chooseLayout(page: Page, name: string): Promise<void> {
   const sheet = await openSettings(page);
+  // Settings reopens where it was left; the keyboards are under Keyboard.
+  await sheet.getByRole('button', { name: 'Keyboard', exact: true }).click();
   await sheet.getByRole('button', { name }).click();
   await sheet.getByRole('button', { name: 'Close' }).click();
   await expect(sheet).toHaveCount(0);

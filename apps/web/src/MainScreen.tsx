@@ -29,13 +29,16 @@ import { usePhysicalKeyboard, useUnlockSpeechOnGesture } from './input';
 import { useNotices, type Notice } from './notices';
 import type { ForseeRuntime } from './runtime';
 import { controlBarSettingOf, type ControlBarSetting } from './runtime/settings';
+import { SettingsPositionProvider } from './settings-position';
 import { SettingsSheet } from './SettingsSheet';
 
 /** The app once the runtime is up: the provider of the host UI around the screen. */
 export function MainScreen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
   return (
     <HostUiProvider services={runtime.hostUi} reportError={runtime.reportError}>
-      <Screen runtime={runtime} />
+      <SettingsPositionProvider>
+        <Screen runtime={runtime} />
+      </SettingsPositionProvider>
     </HostUiProvider>
   );
 }

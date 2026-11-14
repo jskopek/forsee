@@ -138,6 +138,8 @@ test.describe('with speech', () => {
       '',
     );
 
+    // Settings reopens where it was left (Input, after Faster), so pick Keyboard.
+    await sheet.getByRole('button', { name: 'Keyboard', exact: true }).click();
     await sheet.getByRole('button', { name: 'English large groups, en' }).click();
     await expect(sheet.getByRole('button', { name: 'English large groups, en' })).toHaveAttribute(
       'aria-pressed',
@@ -260,6 +262,31 @@ test.describe('offline promise', () => {
     await page.waitForTimeout(300);
     expect(requests).toEqual([]);
   });
+});
+
+test('settings reopen where they were closed, so a change can be tried and tuned', async ({
+  page,
+}) => {
+  await openApp(page);
+  const sheet = page.getByRole('dialog', { name: 'Settings' });
+  const open = () => page.getByRole('button', { name: /^Settings/ }).click();
+
+  await open();
+  await sheet.getByRole('button', { name: 'Input', exact: true }).click();
+  await sheet.getByRole('button', { name: 'Faster', exact: true }).click();
+  await sheet.getByRole('button', { name: 'Close' }).click();
+  await expect(sheet).toHaveCount(0);
+
+  await open();
+  await expect(sheet.getByRole('region', { name: 'Input' })).toBeVisible();
+  await sheet.getByRole('button', { name: 'Plugins', exact: true }).click();
+  await sheet.getByRole('button', { name: 'Quick-fire replies options' }).click();
+  await sheet.getByRole('button', { name: 'Close' }).click();
+
+  // Inside a plugin's options too.
+  await open();
+  await expect(sheet.getByRole('button', { name: 'Back to plugins' })).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Help', exact: true })).toBeVisible();
 });
 
 test.describe('speech before any click or tap', () => {

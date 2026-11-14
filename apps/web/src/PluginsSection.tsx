@@ -10,6 +10,7 @@ import {
   type Choice,
 } from '@forsee/ui';
 import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useSettingsPosition } from './settings-position';
 import type { ForseeRuntime } from './runtime';
 
 /** Plugins per page of the list. */
@@ -76,7 +77,7 @@ function statusLine(plugin: PluginStatus): string | null {
  * Like the rest of the sheet, every control is a gaze target.
  */
 export function PluginsSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useSettingsPosition<string | null>('plugins/open', null);
   const plugins = usePlugins(runtime);
   const plugin = open === null ? undefined : plugins.find((p) => p.manifest.id === open);
   if (plugin) {
@@ -95,9 +96,11 @@ function PluginList({
   readonly onOpen: (pluginId: string) => void;
 }): ReactNode {
   const core = plugins.filter((p) => p.origin === 'first-party');
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useSettingsPosition('plugins/page', 0);
   const pages = Math.max(1, Math.ceil(core.length / PLUGINS_PER_PAGE));
-  const shown = core.slice(page * PLUGINS_PER_PAGE, (page + 1) * PLUGINS_PER_PAGE);
+  // A remembered page can be past the end if plugins went away since.
+  const current = Math.min(page, pages - 1);
+  const shown = core.slice(current * PLUGINS_PER_PAGE, (current + 1) * PLUGINS_PER_PAGE);
 
   const setEnabled = (pluginId: string, enabled: boolean): void => {
     const change = enabled
@@ -112,7 +115,7 @@ function PluginList({
     <div className={SECTION}>
       <div className="flex flex-col gap-1">
         <h3 className="text-[clamp(0.95rem,2.2vh,1.2rem)] font-semibold text-ink-muted">
-          {pages > 1 ? `Core plugins (page ${page + 1} of ${pages})` : 'Core plugins'}
+          {pages > 1 ? `Core plugins (page ${current + 1} of ${pages})` : 'Core plugins'}
         </h3>
         <p className={NOTE}>
           Core plugins come with Forsee. Turn off what you do not use. Community plugins are not
@@ -137,8 +140,8 @@ function PluginList({
             dwellClass="function"
             label="Previous plugins"
             appearance="neutral"
-            disabled={page === 0}
-            onActivate={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={current === 0}
+            onActivate={() => setPage(Math.max(0, current - 1))}
             className={BUTTON}
           >
             <Icon name="previous" size={26} />
@@ -149,8 +152,8 @@ function PluginList({
             dwellClass="function"
             label="More plugins"
             appearance="neutral"
-            disabled={page >= pages - 1}
-            onActivate={() => setPage((p) => Math.min(pages - 1, p + 1))}
+            disabled={current >= pages - 1}
+            onActivate={() => setPage(Math.min(pages - 1, current + 1))}
             className={BUTTON}
           >
             <Icon name="next" size={26} />
@@ -239,7 +242,7 @@ function PluginOptions({
   const { id, name } = plugin.manifest;
   const settings = usePluginSettings(runtime, id);
   const fields = settings?.fields ?? [];
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useSettingsPosition(`plugins/${id}/page`, 0);
   const pages = Math.max(1, Math.ceil(fields.length / FIELDS_PER_PAGE));
   const current = Math.min(page, pages - 1);
   const shown = fields.slice(current * FIELDS_PER_PAGE, (current + 1) * FIELDS_PER_PAGE);

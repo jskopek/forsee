@@ -14,6 +14,7 @@ import {
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useActiveLayout, useKeyboardCatalogue, type Problems } from './hooks';
 import { PluginsSection } from './PluginsSection';
+import { useSettingsPosition } from './settings-position';
 import { DWELL_FASTER_COMMAND, DWELL_SLOWER_COMMAND, type ForseeRuntime } from './runtime';
 import { controlBarSettingOf, type ControlBarSetting } from './runtime/settings';
 
@@ -50,7 +51,7 @@ export function SettingsSheet({
   readonly portrait: boolean;
   readonly onClose: () => void;
 }): ReactNode {
-  const [tab, setTab] = useState<Tab>('keyboard');
+  const [tab, setTab] = useSettingsPosition<Tab>('tab', 'keyboard');
   const problemCount = problems.issues.length + problems.errors.length;
   const tabs: Choice<Tab>[] = [
     { value: 'keyboard', label: 'Keyboard' },
@@ -114,7 +115,7 @@ function KeyboardSection({ runtime }: { readonly runtime: ForseeRuntime }): Reac
   const catalogue = useKeyboardCatalogue(runtime);
   const ui = runtime.settings.namespaces.ui;
   const controlBar = controlBarSettingOf(useSetting(ui, 'controlBar'));
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useSettingsPosition('keyboard/page', 0);
   const pages = Math.max(1, Math.ceil(catalogue.length / KEYBOARDS_PER_PAGE));
   const current = Math.min(page, pages - 1);
   const choices = catalogue
@@ -228,7 +229,7 @@ function useVoices(runtime: ForseeRuntime): readonly Voice[] | null {
 function VoiceSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
   const voices = useVoices(runtime);
   const voiceId = String(useSetting(runtime.settings.namespaces.speech, 'voiceId') ?? '');
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useSettingsPosition('voice/page', 0);
   const choices = useMemo<Choice<string>[]>(() => {
     const list = sortVoices(voices ?? [], runtime.kernel.locale);
     return [
@@ -241,7 +242,9 @@ function VoiceSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNo
     ];
   }, [voices, runtime]);
   const pages = Math.max(1, Math.ceil(choices.length / VOICES_PER_PAGE));
-  const shown = choices.slice(page * VOICES_PER_PAGE, (page + 1) * VOICES_PER_PAGE);
+  // A remembered page can be past the end while voices load or after they change.
+  const current = Math.min(page, pages - 1);
+  const shown = choices.slice(current * VOICES_PER_PAGE, (current + 1) * VOICES_PER_PAGE);
 
   const testVoice = (): void => {
     runtime.speech.unlock();
@@ -259,7 +262,7 @@ function VoiceSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNo
         </p>
       )}
       <ChoiceGroup
-        label={pages > 1 ? `Offline voices (page ${page + 1} of ${pages})` : 'Offline voices'}
+        label={pages > 1 ? `Offline voices (page ${current + 1} of ${pages})` : 'Offline voices'}
         idPrefix="settings/voice"
         choices={shown}
         value={voiceId}
@@ -273,8 +276,8 @@ function VoiceSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNo
           dwellClass="function"
           label="Previous voices"
           appearance="neutral"
-          disabled={page === 0}
-          onActivate={() => setPage((p) => Math.max(0, p - 1))}
+          disabled={current === 0}
+          onActivate={() => setPage(Math.max(0, current - 1))}
           className={TAB_BUTTON}
         >
           <Icon name="previous" size={26} />
@@ -285,8 +288,8 @@ function VoiceSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNo
           dwellClass="function"
           label="More voices"
           appearance="neutral"
-          disabled={page >= pages - 1}
-          onActivate={() => setPage((p) => Math.min(pages - 1, p + 1))}
+          disabled={current >= pages - 1}
+          onActivate={() => setPage(Math.min(pages - 1, current + 1))}
           className={TAB_BUTTON}
         >
           <Icon name="next" size={26} />
