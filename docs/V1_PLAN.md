@@ -4,7 +4,7 @@ Written 2026-11-13. This plan covers v1 only: a free, open-source, fully offline
 
 Revised the same day after a deep dive into on-device AI. The full findings, with evidence tags, are in [`reports/On device AI for speech keyboard.md`](../reports/On%20device%20AI%20for%20speech%20keyboard.md).
 
-The app is called **Forsee** (package scope `@forsee/*`). The README still uses the older names EyeSpeak and EyeSight in places and will be corrected when it is rewritten for release.
+The app is called **Forsee** (package scope `@forsee/*`).
 
 ## Contents
 

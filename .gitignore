@@ -267,3 +267,8 @@ playwright-report/
 test-results/
 blob-report/
 coverage/
+
+# Forsee desktop build output
+apps/desktop/out/
+apps/desktop/release/
+!apps/desktop/build/

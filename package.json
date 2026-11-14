@@ -17,7 +17,9 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "e2e": "pnpm --filter @forsee/web run e2e",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "release:version": "node apps/desktop/scripts/set-version.mjs",
+    "desktop": "pnpm --filter @forsee/desktop start"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
