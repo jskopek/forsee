@@ -23,6 +23,9 @@
     },
     {
       "path": "../prediction"
+    },
+    {
+      "path": "../gaze-web"
     }
   ]
 }
