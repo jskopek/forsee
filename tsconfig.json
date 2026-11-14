@@ -1,0 +1,44 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/plugin-api"
+    },
+    {
+      "path": "./packages/core"
+    },
+    {
+      "path": "./packages/gaze"
+    },
+    {
+      "path": "./packages/prediction"
+    },
+    {
+      "path": "./packages/speech"
+    },
+    {
+      "path": "./packages/storage"
+    },
+    {
+      "path": "./packages/layouts"
+    },
+    {
+      "path": "./packages/inference"
+    },
+    {
+      "path": "./packages/host"
+    },
+    {
+      "path": "./packages/gaze-web"
+    },
+    {
+      "path": "./packages/plugin-host"
+    },
+    {
+      "path": "./packages/ui"
+    },
+    {
+      "path": "./apps/web"
+    }
+  ]
+}

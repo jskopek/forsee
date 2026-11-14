@@ -1,14 +1,33 @@
 {
-  "name": "forsee",
-  "version": "1.0.0",
-  "description": "Eye tracking keyboard for ALS patients",
-  "scripts": {
-    "build": "echo \"No frontend build step required\"",
-    "dev": "npm run build"
+  "name": "forsee-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Forsee: an offline, cross-platform speech keyboard for eye-gaze users",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "dependencies": {},
-  "devDependencies": {}
+  "scripts": {
+    "build": "tsc -b && pnpm -r --if-present run build",
+    "typecheck": "tsc -b",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "e2e": "pnpm --filter @forsee/web run e2e",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.6",
+    "eslint": "^10.15.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "prettier": "^3.10.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.2",
+    "vitest": "^5.1.0"
+  }
 }

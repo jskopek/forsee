@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0; /* remove default body margin to allow edge-to-edge UI */
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+}
+
+/* Dwell fill animation - outside Tailwind layers to ensure it works */
+.animate-dwell-fill {
+  transform: scaleX(0);
+  opacity: 1;
+  will-change: transform;
+  background-color: rgba(255, 255, 255, 0.4) !important;
+}
+
+.animate-dwell-fill-repeat {
+  transform: scaleX(0);
+  opacity: 1;
+  will-change: transform;
+  background-color: rgba(255, 255, 255, 0.4) !important;
+}
+
+/* Use button:hover instead of .group:hover for more specificity */
+button.group:hover .animate-dwell-fill,
+.group:hover .animate-dwell-fill {
+  animation: dwell-fill var(--dwell-time, 1000ms) linear 0s forwards !important;
+}
+
+button.group:hover .animate-dwell-fill-repeat,
+.group:hover .animate-dwell-fill-repeat {
+  animation: dwell-fill var(--dwell-time, 1000ms) linear 0s infinite !important;
+}
+
+button.group:not(:hover) .animate-dwell-fill,
+.group:not(:hover) .animate-dwell-fill {
+  animation: none !important;
+  transform: scaleX(0) !important;
+}
+
+button.group:not(:hover) .animate-dwell-fill-repeat,
+.group:not(:hover) .animate-dwell-fill-repeat {
+  animation: none !important;
+  transform: scaleX(0) !important;
+}
+
+@keyframes dwell-fill {
+  0% {
+    transform: scaleX(0);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes fade-in {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
