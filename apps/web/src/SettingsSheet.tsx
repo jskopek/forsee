@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useActiveLayout, useKeyboardCatalogue, type Problems } from './hooks';
 import { PluginsSection } from './PluginsSection';
 import type { ForseeRuntime } from './runtime';
+import { screenLayoutOf, type ScreenLayout } from './runtime/settings';
 
 type Tab = 'keyboard' | 'voice' | 'speech' | 'input' | 'plugins' | 'problems';
 
@@ -95,12 +96,21 @@ export function SettingsSheet({
 
 const SECTION = 'flex h-full min-h-0 flex-col gap-[clamp(1rem,3vh,2rem)]';
 
+/** Prototype screen layouts, for trying option A against option B. */
+const SCREEN_LAYOUTS: Choice<ScreenLayout>[] = [
+  { value: 'current', label: 'Current' },
+  { value: 'rail', label: 'Side rail (B)' },
+  { value: 'top', label: 'Top bar (A)' },
+];
+
 /** Keyboards per page (the active one is marked). */
 const KEYBOARDS_PER_PAGE = 6;
 
 function KeyboardSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
   const active = useActiveLayout(runtime).definition;
   const catalogue = useKeyboardCatalogue(runtime);
+  const layoutNs = runtime.settings.namespaces.layout;
+  const screen = screenLayoutOf(useSetting(layoutNs, 'screenLayout'));
   const [page, setPage] = useState(0);
   const pages = Math.max(1, Math.ceil(catalogue.length / KEYBOARDS_PER_PAGE));
   const current = Math.min(page, pages - 1);
@@ -131,6 +141,15 @@ function KeyboardSection({ runtime }: { readonly runtime: ForseeRuntime }): Reac
           className="max-h-[24rem] flex-[3]"
         />
       )}
+      <ChoiceGroup
+        label="Screen layout (prototype)"
+        idPrefix="settings/screen-layout"
+        choices={SCREEN_LAYOUTS}
+        value={screen}
+        onChoose={(value) => runtime.settings.set(layoutNs, 'screenLayout', value)}
+        columns={3}
+        className="max-h-[8rem] flex-1"
+      />
       <p className="text-[clamp(0.9rem,2.2vh,1.15rem)] text-ink-muted">
         Keyboards come from plugins. Choose which standard keyboards are listed in Settings →
         Plugins → Standard keyboards.

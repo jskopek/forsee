@@ -99,4 +99,29 @@ export const LAYOUT_SETTING_FIELDS: readonly SettingField[] = [
     type: 'string',
     default: '',
   },
+  {
+    key: 'screenLayout',
+    label: 'Screen layout',
+    description:
+      'Where Speak, Settings and the other fixed controls sit around the keyboard. Prototype: "current" is the original screen, "rail" puts Speak at the top of the side rail (option B), "top" puts every fixed control in the message row (option A).',
+    type: 'select',
+    default: 'current',
+    options: [
+      { label: 'Current', value: 'current' },
+      { label: 'Side rail (B)', value: 'rail' },
+      { label: 'Top bar (A)', value: 'top' },
+    ],
+  },
 ];
+
+/**
+ * Prototype screen layouts (see `screenLayout`). Delete `top` (and
+ * `TopBarScreen.tsx`) once option A is ruled out; delete `current` once B
+ * becomes the only screen.
+ */
+export type ScreenLayout = 'current' | 'rail' | 'top';
+
+/** Narrows a stored value to a screen layout. */
+export function screenLayoutOf(value: unknown): ScreenLayout {
+  return value === 'rail' || value === 'top' ? value : 'current';
+}

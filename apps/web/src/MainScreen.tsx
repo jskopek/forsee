@@ -30,7 +30,9 @@ import {
 import { usePhysicalKeyboard, useUnlockSpeechOnGesture } from './input';
 import { useNotices, type Notice } from './notices';
 import { DWELL_FASTER_COMMAND, DWELL_SLOWER_COMMAND, type ForseeRuntime } from './runtime';
+import { screenLayoutOf } from './runtime/settings';
 import { SettingsSheet } from './SettingsSheet';
+import { TopBarScreen } from './TopBarScreen';
 
 /** The app once the runtime is up: the provider of the host UI around the screen. */
 export function MainScreen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
@@ -61,13 +63,47 @@ function Screen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
   usePhysicalKeyboard(runtime, physicalKeyboard && !settingsOpen);
 
   const problemCount = problems.issues.length + problems.errors.length;
+  const screen = screenLayoutOf(useSetting(runtime.settings.namespaces.layout, 'screenLayout'));
   const ownSpeakKey = layoutHasSpeakKey(layout.definition);
+  // Option B in portrait: Speak sits at the end of the message, not in the bottom bar.
+  const speakInMessageRow = screen === 'rail' && portrait;
 
   const banner = locked ? (
     <UnlockPrompt onUnlock={() => runtime.speech.unlock()} />
   ) : tiles.length > 0 ? (
     <PhraseBar label="Quick replies" idPrefix="quickfire" tiles={tiles} />
   ) : null;
+
+  const speak = ownSpeakKey ? (
+    <StopSpeakingButton speaking={speaking} />
+  ) : (
+    <SpeakButton
+      command={{ command: 'composition.speak' }}
+      speaking={speaking}
+      stopCommand={{ command: 'speech.stop' }}
+    />
+  );
+  const settingsButton = (
+    <GazeTarget
+      id="actions/settings"
+      dwellClass="function"
+      label={problemCount > 0 ? `Settings, ${problemCount} problems` : 'Settings'}
+      appearance="neutral"
+      onActivate={() => setSettingsOpen(true)}
+      className="h-full min-h-[3.5rem] w-full px-2"
+    >
+      <Icon name="settings" size={28} />
+      <span className="text-[clamp(0.95rem,2.2vh,1.35rem)]">Settings</span>
+      {problemCount > 0 && (
+        <span
+          data-part="problem-badge"
+          className="absolute right-1.5 top-1.5 rounded-full bg-accent px-2 py-0.5 text-sm font-bold text-surface"
+        >
+          {problemCount}
+        </span>
+      )}
+    </GazeTarget>
+  );
 
   const notice = notices[0];
   const composition = (
@@ -82,22 +118,15 @@ function Screen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
           portrait={portrait}
         />
       )}
+      {speakInMessageRow && <div className="flex w-[clamp(6.5rem,18vw,10.5rem)]">{speak}</div>}
     </div>
   );
 
   const actions = (
     <>
-      <div className={`${SIDE_ITEM} ${portrait ? 'flex-1' : 'flex-[1.1]'}`}>
-        {ownSpeakKey ? (
-          <StopSpeakingButton speaking={speaking} />
-        ) : (
-          <SpeakButton
-            command={{ command: 'composition.speak' }}
-            speaking={speaking}
-            stopCommand={{ command: 'speech.stop' }}
-          />
-        )}
-      </div>
+      {!speakInMessageRow && (
+        <div className={`${SIDE_ITEM} ${portrait ? 'flex-1' : 'flex-[1.1]'}`}>{speak}</div>
+      )}
       <div className={`${SIDE_ITEM} ${portrait ? 'flex-[3]' : 'flex-[2.6]'}`}>
         <DwellSpeedControls
           horizontal={portrait}
@@ -110,64 +139,63 @@ function Screen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
       <div className={`${SIDE_ITEM} flex-1`}>
         <PauseButton />
       </div>
-      <div className={`${SIDE_ITEM} flex-1`}>
-        <GazeTarget
-          id="actions/settings"
-          dwellClass="function"
-          label={problemCount > 0 ? `Settings, ${problemCount} problems` : 'Settings'}
-          appearance="neutral"
-          onActivate={() => setSettingsOpen(true)}
-          className="h-full min-h-[3.5rem] w-full px-2"
-        >
-          <Icon name="settings" size={28} />
-          <span className="text-[clamp(0.95rem,2.2vh,1.35rem)]">Settings</span>
-          {problemCount > 0 && (
-            <span
-              data-part="problem-badge"
-              className="absolute right-1.5 top-1.5 rounded-full bg-accent px-2 py-0.5 text-sm font-bold text-surface"
-            >
-              {problemCount}
-            </span>
-          )}
-        </GazeTarget>
-      </div>
+      <div className={`${SIDE_ITEM} flex-1`}>{settingsButton}</div>
     </>
   );
+
+  const keyboard = (
+    <KeyboardView
+      key={layout.definition.id}
+      runtime={layout.runtime}
+      targets={runtime.gaze.targets}
+      // Only sides that touch the screen's edge get the larger edge keys.
+      edges={
+        screen === 'top'
+          ? { top: false, right: true, bottom: true, left: true }
+          : portrait
+            ? { top: false, right: true, bottom: false, left: true }
+            : { top: false, right: false, bottom: true, left: true }
+      }
+    />
+  );
+  const overlay = (
+    <>
+      <PauseOverlay />
+      {settingsOpen && (
+        <SettingsSheet
+          runtime={runtime}
+          problems={problems}
+          portrait={portrait}
+          onClose={closeSettings}
+        />
+      )}
+    </>
+  );
+
+  if (screen === 'top') {
+    return (
+      <TopBarScreen
+        banner={banner}
+        message={composition}
+        speak={speak}
+        settings={settingsButton}
+        keyboard={keyboard}
+        inert={settingsOpen}
+        overlay={overlay}
+      />
+    );
+  }
 
   return (
     <AppFrame
       banner={banner}
       composition={composition}
       predictions={<PredictionStrip />}
-      keyboard={
-        <KeyboardView
-          key={layout.definition.id}
-          runtime={layout.runtime}
-          targets={runtime.gaze.targets}
-          // Only sides that touch the screen's edge get the larger edge keys.
-          edges={
-            portrait
-              ? { top: false, right: true, bottom: false, left: true }
-              : { top: false, right: false, bottom: true, left: true }
-          }
-        />
-      }
+      keyboard={keyboard}
       actions={actions}
       actionsPosition={portrait ? 'bottom' : 'side'}
       inert={settingsOpen}
-      overlay={
-        <>
-          <PauseOverlay />
-          {settingsOpen && (
-            <SettingsSheet
-              runtime={runtime}
-              problems={problems}
-              portrait={portrait}
-              onClose={closeSettings}
-            />
-          )}
-        </>
-      }
+      overlay={overlay}
     />
   );
 }
