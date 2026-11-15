@@ -4,15 +4,15 @@ import {
   createNgramProvider,
   createUserModel,
   loadLanguageModel,
-  loadSeedModel,
   ModelBuilder,
   type LanguageModel,
 } from '@forsee/prediction';
+import { loadEnglishModel } from '@forsee/prediction/english';
 import { describe, expect, it } from 'vitest';
 import { summariseLatency, type LatencySummary } from './evaluate';
 
 /**
- * Micro-benchmark of `predict` latency: the seed model, and a synthetic
+ * Micro-benchmark of `predict` latency: the shipped English model, and a synthetic
  * model with a 50 000-word vocabulary (pseudo-words with Zipf frequencies,
  * ~300 000 training tokens) standing in for a real corpus. Prints the
  * figures; the assertions are loose so slow CI machines pass.
@@ -90,10 +90,10 @@ const fmt = (l: LatencySummary): string =>
   `mean ${l.mean.toFixed(3)} ms, p50 ${l.p50.toFixed(3)} ms, p95 ${l.p95.toFixed(3)} ms, max ${l.max.toFixed(2)} ms over ${l.count} calls`;
 
 describe('predict latency', () => {
-  it('seed model', () => {
+  it('English model', () => {
     const sentences = ['could you help me sit up please', 'I would like a cup of tea with milk'];
-    const l = measure(loadSeedModel(), [...sentences, ...sentences, ...sentences]);
-    console.log(`[bench] seed model: ${fmt(l)}`);
+    const l = measure(loadEnglishModel(), [...sentences, ...sentences, ...sentences]);
+    console.log(`[bench] English model: ${fmt(l)}`);
     expect(l.p50).toBeLessThan(5);
   });
 

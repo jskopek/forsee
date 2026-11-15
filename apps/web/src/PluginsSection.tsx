@@ -232,7 +232,7 @@ function PluginOptions({
   readonly plugin: PluginStatus;
   readonly onBack: () => void;
 }): ReactNode {
-  const { id, name } = plugin.manifest;
+  const { id, name, description } = plugin.manifest;
   const settings = usePluginSettings(runtime, id);
   const fields = settings?.fields ?? [];
   const [page, setPage] = useSettingsPosition(`plugins/${id}/page`, 0);
@@ -277,6 +277,8 @@ function PluginOptions({
           <span>Reset</span>
         </GazeTarget>
       </div>
+      {/* In full here: the list clamps it to two lines, and it can carry a required credit. */}
+      {description && <p className={NOTE}>{description}</p>}
       {fields.length === 0 ? (
         <p className={NOTE}>
           {plugin.enabled

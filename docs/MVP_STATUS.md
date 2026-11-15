@@ -7,7 +7,7 @@ The first working version of the new app (`apps/web`): a browser app that runs o
 1. Open the app (`pnpm --filter @forsee/web dev`, or a build served with `preview`). It starts in well under a second on the QWERTY layout.
 2. **Type by dwell**: rest the mouse (or anything that moves the pointer, such as an eye tracker's mouse emulation) on a key; the key fills left to right and types when full (0.8 s by default; likely next letters a little faster, unlikely ones a little slower). Moving away early types nothing. Looking at the text bar or the screen margin rests.
 3. **Type by touch**: on a touch screen, taps select at once (no dwell).
-4. **Predictions**: four word candidates above the keyboard; dwell on one to accept it. Words you speak are learned and offered later.
+4. **Predictions**: four word candidates above the keyboard; dwell on one to accept it. They come from an English model built from Tatoeba sentences, built into the app. Words you speak are learned and offered later.
 5. **Speak** with the Speak button in the control bar (Speak, Pause and Settings; right, left, top or bottom, set in Settings → Keyboard). It turns into **Stop** while speech plays. Delete (letter, then word, then all while you keep looking) and Undo are on the keyboard; there is no separate Clear key.
 6. **Quick replies** (Yes, No, Thank you, Please wait, Not finished, Repeat that?, Help) in the top row: one dwell speaks at once and leaves the message alone.
 7. **Faster / Slower** in Settings → Input change every dwell time by 0.1 s, show the letter time and say it.

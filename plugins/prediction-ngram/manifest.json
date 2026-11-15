@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "apiVersion": 1,
   "minAppVersion": "0.0.0",
-  "description": "Offline word completion, next-word and letter prediction from an n-gram model, adapted to the words you use.",
+  "description": "Offline word prediction that learns the words you use. English model built from Tatoeba sentences (tatoeba.org), CC BY 2.0 FR.",
   "author": "Forsee",
   "permissions": ["composition.read", "lm.write", "history.read"]
 }

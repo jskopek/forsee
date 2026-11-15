@@ -4,13 +4,13 @@ import { describe, expect, it } from 'vitest';
 import { buildModel } from './builder';
 import { loadLanguageModel } from './ngram-model';
 import { decodePrefixes } from './noisy';
+import { loadEnglishModel } from './english';
 import { createPhraseRecall } from './phrases';
 import { createNgramProvider } from './provider';
-import { loadSeedModel } from './seed';
 import { createUserModel } from './user-model';
 
 const ALL: PredictionKind[] = ['completions', 'nextWords', 'letters', 'phrases'];
-const base = loadSeedModel();
+const base = loadEnglishModel();
 
 function setup(model = base) {
   const clock = new FakeClock();
@@ -38,7 +38,7 @@ function setup(model = base) {
 const texts = (list: readonly { text: string }[]) => list.map((c) => c.text);
 const sum = (r: Readonly<Record<string, number>>) => Object.values(r).reduce((a, b) => a + b, 0);
 
-describe('n-gram provider on the seed model', () => {
+describe('n-gram provider on the English model', () => {
   it('has the expected identity and capabilities', () => {
     const { provider } = setup();
     expect(provider.id).toBe('forsee.ngram');
@@ -65,12 +65,9 @@ describe('n-gram provider on the seed model', () => {
   it('uses the context for completions and next words', () => {
     const { ask } = setup();
     expect(texts(ask('Thank ').nextWords)[0]).toBe('you');
-    expect(texts(ask('I would like a cup of ').nextWords)[0]).toBe('tea');
-    expect(texts(ask('Could you turn the light ').nextWords).slice(0, 2).sort()).toEqual([
-      'off',
-      'on',
-    ]);
-    expect(texts(ask('Can you call my d').completions)[0]).toBe('daughter');
+    expect(texts(ask('I would like a glass of ').nextWords)[0]).toBe('water');
+    expect(texts(ask('Could you turn the light ').nextWords).slice(0, 2)).toContain('on');
+    expect(texts(ask('Trevor ate a ba').completions)[0]).toBe('banana');
     expect(ask('Thank ').completions).toEqual([]);
   });
 
@@ -160,14 +157,14 @@ describe('uncertain input (noisy prefix)', () => {
 describe('user layer in the provider', () => {
   it('learns new words and phrases, and forgets them', () => {
     const { ask, learn, provider } = setup();
-    expect(texts(ask('Can you call Za').completions)).toEqual([]);
-    learn('Can you call Zarah please?');
-    expect(texts(ask('Can you call Za').completions)[0]).toBe('Zarah');
-    expect(texts(ask('Can you call ').nextWords)).toContain('Zarah');
-    expect(texts(ask('Can you c').phrases)).toEqual(['Can you call Zarah please?']);
-    expect(provider.user.entries().map((e) => e.word)).toContain('Zarah');
-    provider.forget({ kind: 'words', words: ['zarah'] });
-    expect(texts(ask('Can you call Za').completions)).toEqual([]);
+    expect(texts(ask('Can you call Zub').completions)).toEqual([]);
+    learn('Can you call Zubeida please?');
+    expect(texts(ask('Can you call Zub').completions)[0]).toBe('Zubeida');
+    expect(texts(ask('Can you call ').nextWords)).toContain('Zubeida');
+    expect(texts(ask('Can you c').phrases)).toEqual(['Can you call Zubeida please?']);
+    expect(provider.user.entries().map((e) => e.word)).toContain('Zubeida');
+    provider.forget({ kind: 'words', words: ['zubeida'] });
+    expect(texts(ask('Can you call Zub').completions)).toEqual([]);
     expect(ask('Can you c').phrases).toEqual([]);
     learn('Good morning sunshine');
     provider.forget({ kind: 'all' });

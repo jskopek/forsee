@@ -177,6 +177,13 @@ describe('forsee.prediction-ngram', () => {
     expect((await p.predict(request('he', 'he', 3))).completions.length).toBeGreaterThan(0);
   });
 
+  it('predicts from the English model by default, using the sentence so far', async () => {
+    const { api, kernel, plugin } = await activate();
+    await plugin.module.activate(api);
+    const result = await provider(kernel)!.predict(request('Trevor ate a ba', 'ba'));
+    expect(result.completions.map((c) => c.text)).toContain('banana');
+  });
+
   it('reads stored settings at activation', async () => {
     const { api, kernel, plugin } = await activate();
     await plugin.module.activate(api);
