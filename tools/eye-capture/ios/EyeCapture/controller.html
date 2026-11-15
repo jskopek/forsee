@@ -1,0 +1,1306 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Eye Capture</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f6f6f4;
+        --panel: #ffffff;
+        --text: #1b1b1a;
+        --muted: #666660;
+        --line: #d9d9d4;
+        --accent: #1d5fd1;
+        --danger: #b3261e;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #161615;
+          --panel: #1f1f1e;
+          --text: #ecece8;
+          --muted: #a0a09a;
+          --line: #3a3a37;
+          --accent: #7aa7ff;
+          --danger: #ff8a80;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          15px/1.45 system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+      }
+      main {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 20px 16px 60px;
+      }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 6px 16px;
+        margin-bottom: 12px;
+      }
+      h1 {
+        font-size: 22px;
+        margin: 0;
+      }
+      h2 {
+        font-size: 16px;
+        margin: 0 0 8px;
+      }
+      section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 14px 16px;
+        margin-bottom: 14px;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .hint {
+        color: var(--muted);
+        margin: 0 0 10px;
+      }
+      #error {
+        color: var(--danger);
+        font-weight: 600;
+        margin: 0 0 12px;
+        white-space: pre-wrap;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 6px 8px;
+        border-top: 1px solid var(--line);
+        vertical-align: middle;
+      }
+      th {
+        border-top: none;
+        color: var(--muted);
+        font-weight: 600;
+        font-size: 13px;
+      }
+      tr.live td {
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+      }
+      button,
+      select,
+      input,
+      textarea {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 5px 12px;
+        cursor: pointer;
+      }
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+        font-weight: 600;
+        padding: 9px 20px;
+      }
+      @media (prefers-color-scheme: dark) {
+        button.primary {
+          color: #10100f;
+        }
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      select,
+      input,
+      textarea {
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 5px 8px;
+      }
+      textarea {
+        width: 100%;
+        min-height: 54px;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 18px;
+        align-items: center;
+      }
+      .fields {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 10px 18px;
+      }
+      .fields label,
+      .row label {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .row label.inline {
+        flex-direction: row;
+        align-items: center;
+        gap: 6px;
+        font-size: 15px;
+        color: var(--text);
+      }
+      .fields label.wide {
+        grid-column: 1 / -1;
+      }
+      .previews {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 14px;
+      }
+      .frame {
+        position: relative;
+        background: #000;
+        border-radius: 8px;
+        overflow: hidden;
+        min-height: 120px;
+      }
+      .frame img {
+        display: block;
+        width: 100%;
+      }
+      #overview {
+        cursor: crosshair;
+      }
+      .guide {
+        position: absolute;
+        border: 1.5px dashed #ffd84a;
+        color: #ffd84a;
+        font-size: 11px;
+        padding: 1px 4px;
+        pointer-events: none;
+      }
+      #marker {
+        position: absolute;
+        width: 14px;
+        height: 14px;
+        margin: -7px 0 0 -7px;
+        border: 2px solid #4affc3;
+        border-radius: 50%;
+        pointer-events: none;
+      }
+      .caption {
+        font-size: 13px;
+        color: var(--muted);
+        margin: 6px 0 0;
+      }
+      code {
+        font:
+          13px ui-monospace,
+          Menlo,
+          monospace;
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 1px 5px;
+        overflow-wrap: anywhere;
+      }
+
+      #stage {
+        position: fixed;
+        inset: 0;
+        background: #808080;
+        cursor: none;
+        overflow: hidden;
+        --ring: #ffffff;
+        --dot: #000000;
+      }
+      #stage[hidden] {
+        display: none;
+      }
+      #stage[data-background='black'] {
+        background: #000000;
+        --dot: #ff4040;
+      }
+      #stage[data-background='white'] {
+        background: #ffffff;
+        --ring: #000000;
+      }
+      #target {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 0;
+        height: 0;
+      }
+      #target[hidden] {
+        display: none;
+      }
+      #target .ring {
+        position: absolute;
+        left: -30px;
+        top: -30px;
+        width: 60px;
+        height: 60px;
+        border: 4px solid var(--ring);
+        border-radius: 50%;
+      }
+      #target.pulse .ring {
+        animation: shrink 0.8s ease-out forwards;
+      }
+      @keyframes shrink {
+        from {
+          transform: scale(1);
+        }
+        to {
+          transform: scale(0.3);
+        }
+      }
+      #target .dot {
+        position: absolute;
+        left: -5px;
+        top: -5px;
+        width: 10px;
+        height: 10px;
+        background: var(--dot);
+        border: 2px solid var(--ring);
+        border-radius: 50%;
+      }
+      #stage-message {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        white-space: pre-line;
+        font-size: 28px;
+        color: var(--ring);
+        text-shadow: 0 0 6px rgb(0 0 0 / 40%);
+        padding: 40px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Eye Capture</h1>
+        <span id="device" class="muted">Connecting to the phone…</span>
+      </header>
+      <p id="error" hidden></p>
+
+      <section>
+        <h2>1. Choose cameras</h2>
+        <p class="hint">
+          Mount the phone in landscape, pointing at your face. Tick every camera to record in this
+          run. Each one records the same sequence of dots, one after another. Front and back need
+          separate runs, because the phone has to be turned round.
+        </p>
+        <div class="row" style="margin-bottom: 10px">
+          <label class="inline"
+            ><input type="radio" name="side" value="back" checked /> Back cameras</label
+          >
+          <label class="inline"
+            ><input type="radio" name="side" value="front" /> Front cameras</label
+          >
+          <label
+            >Largest video size
+            <select id="max-width">
+              <option value="3840">4K</option>
+              <option value="1920">1080p</option>
+              <option value="100000">Largest the camera offers</option>
+            </select>
+          </label>
+          <label
+            >Frames per second
+            <select id="fps">
+              <option value="30">30</option>
+              <option value="60">60</option>
+            </select>
+          </label>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Record</th>
+              <th>Camera</th>
+              <th>Closest focus</th>
+              <th>Video</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="cameras">
+            <tr>
+              <td colspan="5" class="muted">Waiting for the phone…</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>2. Aim and check focus</h2>
+        <p class="hint">
+          Press Preview on a camera, then turn the phone until both eyes sit inside the smallest
+          dashed box. Click an eye in the left picture to focus there and to see it at full
+          resolution on the right.
+        </p>
+        <div class="previews">
+          <div>
+            <div class="frame" id="overview-frame">
+              <img id="overview" alt="Camera view" hidden />
+              <div id="guides"></div>
+              <div id="marker" hidden></div>
+            </div>
+            <p class="caption">Whole frame, scaled down.</p>
+          </div>
+          <div>
+            <div class="frame">
+              <img id="detail" alt="Full-resolution detail" hidden />
+            </div>
+            <p class="caption">
+              Detail at full resolution (one picture pixel per sensor pixel). This is what a model
+              would see.
+            </p>
+          </div>
+        </div>
+        <p id="live" class="caption">No camera running.</p>
+        <div class="row" style="margin-top: 8px">
+          <button id="focus-lock" disabled>Lock focus</button>
+          <button id="stop-camera" disabled>Stop camera</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>3. About this run</h2>
+        <div class="fields">
+          <label>Participant <input id="participant" placeholder="initials or a code" /></label>
+          <label
+            >Eyewear
+            <select id="eyewear">
+              <option value="none">None</option>
+              <option value="glasses">Glasses</option>
+              <option value="contacts">Contact lenses</option>
+            </select>
+          </label>
+          <label
+            >This screen's diagonal (inches)
+            <input id="diagonal" type="number" min="5" max="100" step="0.1" />
+          </label>
+          <label
+            >Eyes to this screen (cm) <input id="eye-screen" type="number" min="10" max="300"
+          /></label>
+          <label
+            >Eyes to the phone (cm) <input id="eye-phone" type="number" min="5" max="300"
+          /></label>
+          <label
+            >Where the phone is
+            <select id="placement">
+              <option value="below">Below the screen</option>
+              <option value="above">Above the screen</option>
+              <option value="left">Left of the screen</option>
+              <option value="right">Right of the screen</option>
+              <option value="other">Somewhere else (say in notes)</option>
+            </select>
+          </label>
+          <label>Lighting <input id="lighting" placeholder="daylight, desk lamp, dim…" /></label>
+          <label class="wide">Notes <textarea id="notes"></textarea></label>
+        </div>
+      </section>
+
+      <section>
+        <h2>4. Run</h2>
+        <div class="row" style="margin-bottom: 12px">
+          <label
+            >Dots
+            <select id="grid">
+              <option value="3x3">9 (3 × 3)</option>
+              <option value="4x4">16 (4 × 4)</option>
+              <option value="5x5" selected>25 (5 × 5)</option>
+              <option value="7x5">35 (7 × 5)</option>
+            </select>
+          </label>
+          <label
+            >Time on each dot (ms)
+            <input id="dwell" type="number" min="600" max="5000" step="100" value="1800" />
+          </label>
+          <label
+            >Moving dot afterwards
+            <select id="pursuit">
+              <option value="0">None</option>
+              <option value="20" selected>20 seconds</option>
+              <option value="40">40 seconds</option>
+            </select>
+          </label>
+          <label
+            >Background
+            <select id="background">
+              <option value="grey">Grey</option>
+              <option value="black">Black</option>
+              <option value="white">White</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <button id="start" class="primary" disabled>Start run</button>
+          <span id="run-summary" class="muted"></span>
+        </div>
+        <p class="caption">
+          The page goes full screen. Keep your head still and look at the centre of each dot. Press
+          Esc to stop early.
+        </p>
+        <div id="results"></div>
+      </section>
+
+      <section>
+        <h2>Recordings on the phone</h2>
+        <div id="sessions" class="muted">Loading…</div>
+      </section>
+    </main>
+
+    <div id="stage" hidden>
+      <div id="target" hidden>
+        <div class="ring"></div>
+        <div class="dot"></div>
+      </div>
+      <div id="stage-message"></div>
+    </div>
+
+    <script>
+      'use strict';
+
+      const $ = (id) => document.getElementById(id);
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+      const MARGIN = 0.06; // Dots stay this fraction of the screen away from each edge.
+      const SETTLE_MS = 3000; // Time for focus and exposure to settle after a camera switch.
+
+      async function api(path, body) {
+        const options =
+          body === undefined
+            ? {}
+            : {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+              };
+        const response = await fetch(path, options);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || `${path} failed (${response.status})`);
+        }
+        return data;
+      }
+
+      function showError(message) {
+        const element = $('error');
+        element.textContent = message || '';
+        element.hidden = !message;
+      }
+
+      // ---- Clock ---------------------------------------------------------
+      // The phone stamps every video frame with its own clock. The page keeps
+      // an offset to that clock, so each dot can be matched to video frames.
+
+      const clock = { offset: 0, rtt: null };
+
+      async function syncClock(samples = 10) {
+        let best = null;
+        for (let i = 0; i < samples; i++) {
+          const sent = performance.now();
+          const { t } = await api('/api/time');
+          const received = performance.now();
+          const rtt = received - sent;
+          if (!best || rtt < best.rtt) {
+            best = { rtt, offset: t - (sent + received) / 2000 };
+          }
+        }
+        clock.offset = best.offset;
+        clock.rtt = best.rtt;
+        return { offset: best.offset, rttMs: best.rtt };
+      }
+
+      const phoneTime = (pageMs) => pageMs / 1000 + clock.offset;
+
+      // ---- Settings that persist between visits -----------------------------
+
+      const SAVED_FIELDS = [
+        'participant',
+        'eyewear',
+        'diagonal',
+        'eye-screen',
+        'eye-phone',
+        'placement',
+        'lighting',
+        'notes',
+        'grid',
+        'dwell',
+        'pursuit',
+        'background',
+        'max-width',
+        'fps',
+      ];
+
+      function loadSaved() {
+        let saved = {};
+        try {
+          saved = JSON.parse(localStorage.getItem('eye-capture') || '{}');
+        } catch {
+          saved = {};
+        }
+        for (const id of SAVED_FIELDS) {
+          if (saved[id] !== undefined) $(id).value = saved[id];
+        }
+      }
+
+      function saveFields() {
+        const saved = {};
+        for (const id of SAVED_FIELDS) saved[id] = $(id).value;
+        try {
+          localStorage.setItem('eye-capture', JSON.stringify(saved));
+        } catch {
+          // Storage can be unavailable; the form still works.
+        }
+      }
+
+      // ---- Cameras -----------------------------------------------------------
+
+      let status = null;
+      let configs = [];
+      let camerasSignature = '';
+      const selected = new Set();
+      let selectionInitialised = false;
+      let running = false;
+
+      const side = () => document.querySelector('input[name="side"]:checked').value;
+      const sideConfigs = () => configs.filter((config) => config.camera.position === side());
+      const chosenConfigs = () => sideConfigs().filter((config) => selected.has(config.key));
+
+      function buildConfigs(cameras) {
+        const rows = [];
+        for (const camera of cameras) {
+          const zooms = [1, ...(camera.zoomPresets || []).filter((zoom) => zoom > 1)];
+          for (const zoom of zooms) {
+            const suffix = zoom > 1 ? `-${zoom}x` : '';
+            rows.push({
+              key: `${camera.id}@${zoom}`,
+              camera,
+              zoom,
+              slug: `${camera.position}-${camera.type}${suffix}`,
+              label: zoom > 1 ? `${camera.name} at ${zoom}× (sensor crop)` : camera.name,
+            });
+          }
+        }
+        return rows;
+      }
+
+      function describeVideo(camera) {
+        const cap = Number($('max-width').value);
+        const fps = Number($('fps').value);
+        const formats = camera.formats || [];
+        const fits = formats.filter((format) => format.width <= cap);
+        const format = fits.find((item) => item.maxFps >= fps) || fits[0] || formats[0];
+        if (!format) return 'unknown';
+        const rate = Math.min(fps, format.maxFps);
+        return `${format.width} × ${format.height} at ${Math.round(rate)} fps`;
+      }
+
+      function describeFocus(camera) {
+        if (camera.type === 'arkit') return 'set by iOS';
+        if (!camera.canFocus) return 'fixed focus';
+        if (!(camera.minFocusDistanceMM > 0)) return 'not reported';
+        const closest = Math.round(camera.minFocusDistanceMM / 10);
+        const eyes = Number($('eye-phone').value);
+        if (eyes > 0 && eyes < closest) return `${closest} cm (your eyes are closer: expect blur)`;
+        return `${closest} cm`;
+      }
+
+      function renderCameras() {
+        const body = $('cameras');
+        body.textContent = '';
+        const rows = sideConfigs();
+        if (!rows.length) {
+          const row = body.insertRow();
+          const cell = row.insertCell();
+          cell.colSpan = 5;
+          cell.className = 'muted';
+          cell.textContent = status ? 'No cameras on this side.' : 'Waiting for the phone…';
+        }
+        const liveKey = status ? `${status.state.cameraId}@${status.state.zoom}` : '';
+        for (const config of rows) {
+          const row = body.insertRow();
+          if (config.key === liveKey) row.className = 'live';
+
+          const box = document.createElement('input');
+          box.type = 'checkbox';
+          box.checked = selected.has(config.key);
+          box.setAttribute('aria-label', `Record ${config.label}`);
+          box.addEventListener('change', () => {
+            if (box.checked) selected.add(config.key);
+            else selected.delete(config.key);
+            updateRunSummary();
+            drawGuides();
+          });
+          row.insertCell().append(box);
+          row.insertCell().textContent = config.label;
+          row.insertCell().textContent = describeFocus(config.camera);
+          row.insertCell().textContent = describeVideo(config.camera);
+
+          const button = document.createElement('button');
+          button.textContent = config.key === liveKey ? 'Previewing' : 'Preview';
+          button.disabled = running || config.key === liveKey;
+          button.addEventListener('click', () => preview(config));
+          row.insertCell().append(button);
+        }
+        updateRunSummary();
+      }
+
+      function configureBody(config) {
+        return {
+          cameraId: config.camera.id,
+          zoom: config.zoom,
+          maxWidth: Number($('max-width').value),
+          fps: Number($('fps').value),
+        };
+      }
+
+      async function preview(config) {
+        showError('');
+        try {
+          status = await api('/api/configure', configureBody(config));
+          renderStatus();
+          renderCameras();
+        } catch (error) {
+          showError(`Could not start ${config.label}: ${error.message}`);
+        }
+      }
+
+      // ---- Status ---------------------------------------------------------
+
+      function renderStatus() {
+        if (!status) return;
+        const system = status.system || {};
+        const parts = [system.model, system.system];
+        if (typeof system.battery === 'number') {
+          parts.push(`battery ${Math.round(system.battery * 100)}%`);
+        }
+        if (system.thermalState) parts.push(`temperature ${system.thermalState}`);
+        if (typeof system.freeBytes === 'number') {
+          parts.push(`${(system.freeBytes / 1e9).toFixed(1)} GB free`);
+        }
+        $('device').textContent = parts.filter(Boolean).join(' · ');
+
+        const state = status.state;
+        const idle = state.mode === 'idle';
+        $('focus-lock').disabled = idle || state.mode === 'arkit' || running;
+        $('focus-lock').textContent = state.focusLocked ? 'Release focus' : 'Lock focus';
+        $('stop-camera').disabled = idle || running;
+
+        if (idle) {
+          $('live').textContent = state.lastError || 'No camera running.';
+          return;
+        }
+        const live = [
+          state.cameraName,
+          `${state.width} × ${state.height}`,
+          `${state.measuredFps.toFixed(1)} fps`,
+        ];
+        if (state.zoom > 1) live.push(`${state.zoom}× crop`);
+        if (typeof state.lensPosition === 'number') {
+          const focus = state.focusLocked
+            ? 'locked'
+            : state.adjustingFocus
+              ? 'adjusting'
+              : 'settled';
+          live.push(`focus ${state.lensPosition.toFixed(2)} (${focus})`);
+        }
+        if (typeof state.exposureSeconds === 'number' && state.exposureSeconds > 0) {
+          live.push(`shutter 1/${Math.round(1 / state.exposureSeconds)} s`);
+        }
+        if (typeof state.iso === 'number') live.push(`ISO ${Math.round(state.iso)}`);
+        if (state.mode === 'arkit') live.push(state.faceTracked ? 'face found' : 'no face found');
+        if (state.framesDropped > 0) live.push(`${state.framesDropped} frames dropped`);
+        if (state.lastError) live.push(state.lastError);
+        $('live').textContent = live.join(' · ');
+      }
+
+      async function pollStatus() {
+        if (!running) {
+          try {
+            status = await api('/api/status');
+            const signature = JSON.stringify(status.cameras);
+            if (signature !== camerasSignature) {
+              camerasSignature = signature;
+              configs = buildConfigs(status.cameras);
+            }
+            if (!selectionInitialised && configs.length) {
+              selectionInitialised = true;
+              for (const config of configs) selected.add(config.key);
+            }
+            if ($('error').dataset.kind === 'connection') {
+              $('error').dataset.kind = '';
+              showError('');
+            }
+            renderStatus();
+            renderCameras();
+            drawGuides();
+          } catch {
+            $('error').dataset.kind = 'connection';
+            showError('Lost contact with the phone. Is the app open and on the same Wi-Fi?');
+          }
+        }
+        setTimeout(pollStatus, 1000);
+      }
+
+      // ---- Preview ---------------------------------------------------------
+
+      const crop = { cx: 0.5, cy: 0.5, width: 640 };
+
+      async function refreshImage(image, url) {
+        const response = await fetch(url);
+        if (!response.ok) return;
+        const blob = await response.blob();
+        const previous = image.src;
+        image.src = URL.createObjectURL(blob);
+        image.hidden = false;
+        if (previous.startsWith('blob:')) URL.revokeObjectURL(previous);
+      }
+
+      async function previewLoop() {
+        const active = !running && !document.hidden && status && status.state.mode !== 'idle';
+        if (active) {
+          try {
+            await refreshImage($('overview'), '/preview.jpg?kind=full');
+            await refreshImage(
+              $('detail'),
+              `/preview.jpg?kind=crop&cx=${crop.cx.toFixed(4)}&cy=${crop.cy.toFixed(4)}&w=${crop.width}`,
+            );
+          } catch {
+            // The status poll reports connection problems.
+          }
+        }
+        setTimeout(previewLoop, active ? 200 : 600);
+      }
+
+      /** Width of a camera's view, as tan(half the angle), after its zoom. */
+      function viewExtent(fieldOfView, zoom) {
+        if (typeof fieldOfView !== 'number' || !(fieldOfView > 0)) return null;
+        return Math.tan((fieldOfView * Math.PI) / 360) / (zoom || 1);
+      }
+
+      /** Dashed boxes showing what the narrower ticked cameras will see. */
+      function drawGuides() {
+        const container = $('guides');
+        container.textContent = '';
+        $('marker').hidden = true;
+        if (!status || status.state.mode === 'idle' || $('overview').hidden) return;
+
+        $('marker').hidden = false;
+        $('marker').style.left = `${crop.cx * 100}%`;
+        $('marker').style.top = `${crop.cy * 100}%`;
+
+        const current = viewExtent(status.state.fieldOfView, status.state.zoom);
+        if (!current) return;
+        for (const config of chosenConfigs()) {
+          const extent = viewExtent(config.camera.fieldOfView, config.zoom);
+          if (!extent) continue;
+          const fraction = extent / current;
+          if (fraction >= 0.98) continue;
+          const guide = document.createElement('div');
+          guide.className = 'guide';
+          guide.style.width = `${fraction * 100}%`;
+          guide.style.height = `${fraction * 100}%`;
+          guide.style.left = `${(1 - fraction) * 50}%`;
+          guide.style.top = `${(1 - fraction) * 50}%`;
+          guide.textContent = config.zoom > 1 ? `${config.zoom}×` : config.camera.type;
+          container.append(guide);
+        }
+      }
+
+      $('overview').addEventListener('click', (event) => {
+        const box = $('overview').getBoundingClientRect();
+        crop.cx = Math.min(Math.max((event.clientX - box.left) / box.width, 0), 1);
+        crop.cy = Math.min(Math.max((event.clientY - box.top) / box.height, 0), 1);
+        drawGuides();
+        api('/api/focus', { x: crop.cx, y: crop.cy }).catch((error) => showError(error.message));
+      });
+
+      $('focus-lock').addEventListener('click', async () => {
+        try {
+          status = await api('/api/focus', { locked: !status.state.focusLocked });
+          renderStatus();
+        } catch (error) {
+          showError(error.message);
+        }
+      });
+
+      $('stop-camera').addEventListener('click', async () => {
+        try {
+          status = await api('/api/stop', {});
+          $('overview').hidden = true;
+          $('detail').hidden = true;
+          renderStatus();
+          renderCameras();
+          drawGuides();
+        } catch (error) {
+          showError(error.message);
+        }
+      });
+
+      // ---- Run -------------------------------------------------------------
+
+      let aborted = false;
+      let sessionId = null;
+      let currentSegment = null;
+      let pendingEvents = [];
+      let flushing = Promise.resolve();
+
+      function logEventAt(type, pageMs, data = {}) {
+        pendingEvents.push({
+          type,
+          seg: currentSegment,
+          t_page: Math.round(pageMs * 1000) / 1000,
+          t_phone: phoneTime(pageMs),
+          ...data,
+        });
+      }
+
+      const logEvent = (type, data) => logEventAt(type, performance.now(), data);
+
+      function flushEvents() {
+        flushing = flushing.then(async () => {
+          if (!pendingEvents.length || !sessionId) return;
+          const batch = pendingEvents;
+          pendingEvents = [];
+          try {
+            await api('/api/events', { sessionId, events: batch });
+          } catch {
+            pendingEvents = batch.concat(pendingEvents); // Try again with the next flush.
+          }
+        });
+        return flushing;
+      }
+
+      /** Waits, but returns early if the run is stopped. */
+      async function pause(ms) {
+        const end = performance.now() + ms;
+        while (!aborted && performance.now() < end) {
+          await sleep(Math.min(40, Math.max(0, end - performance.now())));
+        }
+      }
+
+      function say(text) {
+        $('stage-message').textContent = text;
+      }
+
+      function placeTarget(x, y, pulse) {
+        const target = $('target');
+        target.hidden = false;
+        target.style.transform = `translate(${x}px, ${y}px)`;
+        if (pulse) {
+          target.classList.remove('pulse');
+          void target.offsetWidth; // Restart the shrinking-ring animation.
+          target.classList.add('pulse');
+        }
+      }
+
+      /** Small seeded generator, so a dot order can be reproduced from its seed. */
+      function seededRandom(seed) {
+        let value = seed >>> 0;
+        return () => {
+          value = (value + 0x6d2b79f5) >>> 0;
+          let mixed = value;
+          mixed = Math.imul(mixed ^ (mixed >>> 15), mixed | 1);
+          mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), mixed | 61);
+          return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+        };
+      }
+
+      function gridPoints(columns, rows, seed) {
+        const points = [];
+        for (let row = 0; row < rows; row++) {
+          for (let column = 0; column < columns; column++) {
+            points.push({
+              index: row * columns + column,
+              nx: MARGIN + ((1 - 2 * MARGIN) * column) / (columns - 1),
+              ny: MARGIN + ((1 - 2 * MARGIN) * row) / (rows - 1),
+            });
+          }
+        }
+        const random = seededRandom(seed);
+        for (let i = points.length - 1; i > 0; i--) {
+          const j = Math.floor(random() * (i + 1));
+          [points[i], points[j]] = [points[j], points[i]];
+        }
+        return points;
+      }
+
+      async function runFixations(protocol) {
+        const seed = Math.floor(Math.random() * 4294967296);
+        const points = gridPoints(protocol.columns, protocol.rows, seed);
+        logEvent('fixation_block', {
+          seed,
+          columns: protocol.columns,
+          rows: protocol.rows,
+          dwellMs: protocol.dwellMs,
+          margin: MARGIN,
+        });
+        for (const [order, point] of points.entries()) {
+          if (aborted) return;
+          const x = point.nx * window.innerWidth;
+          const y = point.ny * window.innerHeight;
+          placeTarget(x, y, true);
+          await nextFrame();
+          const shownAt = await nextFrame(); // The dot is on screen by now.
+          logEventAt('target_on', shownAt, {
+            order,
+            index: point.index,
+            x: Math.round(x * 10) / 10,
+            y: Math.round(y * 10) / 10,
+            nx: point.nx,
+            ny: point.ny,
+          });
+          await pause(protocol.dwellMs);
+          logEvent('target_off', { order, index: point.index });
+        }
+      }
+
+      async function runPursuit(protocol) {
+        const durationMs = protocol.pursuitSeconds * 1000;
+        const amplitude = 0.5 - MARGIN;
+        // Slow enough for the eyes to follow smoothly: one horizontal sweep
+        // cycle every 12 s, one vertical every 7.5 s.
+        const periodX = 12000;
+        const periodY = 7500;
+        logEvent('pursuit_start', { durationMs, periodX, periodY, amplitude });
+        let samples = [];
+        const start = await nextFrame();
+        while (!aborted) {
+          const now = await nextFrame();
+          const elapsed = now - start;
+          if (elapsed >= durationMs) break;
+          const x =
+            (0.5 + amplitude * Math.sin((2 * Math.PI * elapsed) / periodX)) * window.innerWidth;
+          const y =
+            (0.5 + amplitude * Math.sin((2 * Math.PI * elapsed) / periodY)) * window.innerHeight;
+          placeTarget(x, y, false);
+          samples.push([
+            Math.round(now * 10) / 10,
+            Math.round(x * 10) / 10,
+            Math.round(y * 10) / 10,
+          ]);
+          if (samples.length >= 30) {
+            logEvent('pursuit', { columns: ['t_page', 'x', 'y'], samples });
+            samples = [];
+          }
+        }
+        if (samples.length) logEvent('pursuit', { columns: ['t_page', 'x', 'y'], samples });
+        logEvent('pursuit_end');
+      }
+
+      async function runSegment(config, protocol, position, total, results) {
+        currentSegment = null;
+        $('target').hidden = true;
+        say(`Camera ${position} of ${total}\n${config.label}\n\nGetting ready…`);
+        try {
+          await api('/api/configure', configureBody(config));
+        } catch (error) {
+          logEvent('segment_skipped', { config: config.slug, error: error.message });
+          results.push({ config, error: error.message });
+          return;
+        }
+        await pause(SETTLE_MS);
+        if (aborted) return;
+
+        const syncBefore = await syncClock();
+        const cameraState = (await api('/api/status')).state;
+        const { segment } = await api('/api/record/start', { sessionId, segment: config.slug });
+        currentSegment = segment;
+        try {
+          logEvent('segment_start', {
+            config: { slug: config.slug, cameraId: config.camera.id, zoom: config.zoom },
+            camera: {
+              width: cameraState.width,
+              height: cameraState.height,
+              fps: cameraState.requestedFps,
+              fieldOfView: cameraState.fieldOfView ?? null,
+            },
+            viewport: { width: window.innerWidth, height: window.innerHeight },
+            sync: syncBefore,
+          });
+          say('Look at the centre of each dot.\nKeep your head still.');
+          await pause(2500);
+          say('');
+          await runFixations(protocol);
+          if (protocol.pursuitSeconds > 0 && !aborted) {
+            $('target').hidden = true;
+            say('Now follow the moving dot.');
+            await pause(2000);
+            say('');
+            await runPursuit(protocol);
+          }
+          $('target').hidden = true;
+          const syncAfter = await syncClock(6);
+          logEvent('segment_end', { sync: syncAfter, aborted });
+        } finally {
+          await flushEvents();
+          const summary = await api('/api/record/stop', {});
+          results.push({ config, summary });
+          currentSegment = null;
+        }
+      }
+
+      function readProtocol() {
+        const [columns, rows] = $('grid').value.split('x').map(Number);
+        return {
+          columns,
+          rows,
+          dwellMs: Math.min(Math.max(Number($('dwell').value) || 1800, 600), 5000),
+          pursuitSeconds: Number($('pursuit').value),
+          background: $('background').value,
+        };
+      }
+
+      function readAbout() {
+        const number = (id) => ($(id).value === '' ? null : Number($(id).value));
+        return {
+          participant: $('participant').value.trim(),
+          eyewear: $('eyewear').value,
+          screenDiagonalInches: number('diagonal'),
+          eyesToScreenCm: number('eye-screen'),
+          eyesToPhoneCm: number('eye-phone'),
+          phonePlacement: $('placement').value,
+          lighting: $('lighting').value.trim(),
+          notes: $('notes').value.trim(),
+        };
+      }
+
+      function estimateSeconds(protocol, count) {
+        const perCamera =
+          (SETTLE_MS + 2500 + protocol.columns * protocol.rows * protocol.dwellMs) / 1000 +
+          (protocol.pursuitSeconds > 0 ? protocol.pursuitSeconds + 2 : 0) +
+          2;
+        return Math.round(perCamera * count);
+      }
+
+      function updateRunSummary() {
+        const count = chosenConfigs().length;
+        $('start').disabled = running || count === 0;
+        if (count === 0) {
+          $('run-summary').textContent = 'Tick at least one camera above.';
+          return;
+        }
+        const seconds = estimateSeconds(readProtocol(), count);
+        const minutes = Math.floor(seconds / 60);
+        const time = minutes ? `${minutes} min ${seconds % 60} s` : `${seconds} s`;
+        $('run-summary').textContent =
+          `${count} ${count === 1 ? 'camera' : 'cameras'} on the ${side()}, about ${time}.`;
+      }
+
+      async function startRun() {
+        const chosen = chosenConfigs();
+        const protocol = readProtocol();
+        const about = readAbout();
+        showError('');
+        if (!chosen.length) return;
+        if (!about.screenDiagonalInches || !about.eyesToScreenCm) {
+          showError(
+            'Enter this screen’s diagonal and your distance from it first. They are needed to turn pixels into degrees.',
+          );
+          return;
+        }
+        saveFields();
+
+        const stage = $('stage');
+        const results = [];
+        running = true;
+        aborted = false;
+        sessionId = null;
+        pendingEvents = [];
+        $('results').textContent = '';
+        renderCameras();
+        stage.dataset.background = protocol.background;
+        stage.hidden = false;
+        say('Starting…');
+
+        const flushTimer = setInterval(flushEvents, 400);
+        let failure = null;
+        try {
+          try {
+            await stage.requestFullscreen();
+          } catch {
+            // Continue windowed; the viewport size is recorded either way.
+          }
+          await sleep(500); // Let the window finish resizing.
+          const sync = await syncClock();
+          const cssDiagonal = Math.hypot(window.screen.width, window.screen.height);
+          const meta = {
+            ...about,
+            side: side(),
+            protocol,
+            cameras: chosen.map((config) => config.slug),
+            screen: {
+              width: window.screen.width,
+              height: window.screen.height,
+              devicePixelRatio: window.devicePixelRatio,
+              viewportWidth: window.innerWidth,
+              viewportHeight: window.innerHeight,
+              fullscreen: Boolean(document.fullscreenElement),
+              pixelsPerCm: cssDiagonal / (about.screenDiagonalInches * 2.54),
+            },
+            coordinates:
+              'Dot positions are CSS pixels from the top-left of the page viewport. t_page is performance.now() in ms; t_phone is the same instant on the phone clock, in seconds.',
+            sync,
+            userAgent: navigator.userAgent,
+          };
+          const label = [about.participant, side()].filter(Boolean).join('-');
+          ({ sessionId } = await api('/api/session/start', { label, meta }));
+
+          for (const [index, config] of chosen.entries()) {
+            if (aborted) break;
+            await runSegment(config, protocol, index + 1, chosen.length, results);
+          }
+        } catch (error) {
+          failure = error;
+        } finally {
+          clearInterval(flushTimer);
+          logEvent('session_end', { aborted, failed: Boolean(failure) });
+          await flushEvents();
+          running = false;
+          stage.hidden = true;
+          $('target').hidden = true;
+          if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+        }
+
+        if (failure) showError(`The run stopped: ${failure.message}`);
+        renderResults(results);
+        refreshSessions();
+        updateRunSummary();
+      }
+
+      function renderResults(results) {
+        const container = $('results');
+        container.textContent = '';
+        if (!results.length) return;
+
+        const heading = document.createElement('p');
+        heading.className = 'caption';
+        heading.textContent = aborted
+          ? `Stopped early. Session ${sessionId}:`
+          : `Finished. Session ${sessionId}:`;
+        container.append(heading);
+
+        const table = document.createElement('table');
+        const head = table.createTHead().insertRow();
+        for (const title of ['Camera', 'Video', 'Frames', 'Rate', 'Lost frames', 'Problem']) {
+          const cell = document.createElement('th');
+          cell.textContent = title;
+          head.append(cell);
+        }
+        const body = table.createTBody();
+        for (const { config, summary, error } of results) {
+          const row = body.insertRow();
+          row.insertCell().textContent = config.label;
+          const info = summary || {};
+          row.insertCell().textContent = info.width ? `${info.width} × ${info.height}` : '–';
+          row.insertCell().textContent = info.framesWritten ?? '–';
+          row.insertCell().textContent = info.meanFps ? `${info.meanFps.toFixed(1)} fps` : '–';
+          const lost = (info.framesSkipped || 0) + (info.framesDropped || 0);
+          row.insertCell().textContent = summary ? String(lost) : '–';
+          row.insertCell().textContent = error || info.error || '';
+        }
+        container.append(table);
+
+        const command = document.createElement('p');
+        command.className = 'caption';
+        command.append('Copy it to your computer with: ');
+        const code = document.createElement('code');
+        code.textContent = `python3 tools/eye-capture/pull_session.py ${location.origin} ${sessionId}`;
+        command.append(code);
+        container.append(command);
+      }
+
+      // ---- Recordings on the phone ----------------------------------------
+
+      async function refreshSessions() {
+        const container = $('sessions');
+        let sessions = [];
+        try {
+          ({ sessions } = await api('/api/sessions'));
+        } catch {
+          container.textContent = 'Could not read the list.';
+          return;
+        }
+        container.textContent = '';
+        if (!sessions.length) {
+          container.textContent = 'None yet.';
+          return;
+        }
+        const table = document.createElement('table');
+        for (const session of sessions) {
+          const row = table.insertRow();
+          row.insertCell().textContent = session.id;
+          const videos = session.files.filter((file) => file.name.endsWith('.mov')).length;
+          row.insertCell().textContent = `${videos} ${videos === 1 ? 'video' : 'videos'}`;
+          row.insertCell().textContent = `${(session.bytes / 1e6).toFixed(0)} MB`;
+          const button = document.createElement('button');
+          button.textContent = 'Delete';
+          button.addEventListener('click', async () => {
+            if (!confirm(`Delete ${session.id} from the phone? This cannot be undone.`)) return;
+            await api('/api/sessions/delete', { sessionId: session.id }).catch((error) =>
+              showError(error.message),
+            );
+            refreshSessions();
+          });
+          row.insertCell().append(button);
+        }
+        container.append(table);
+      }
+
+      // ---- Start-up --------------------------------------------------------
+
+      document.addEventListener('fullscreenchange', () => {
+        if (running && !document.fullscreenElement) aborted = true;
+      });
+      document.addEventListener('keydown', (event) => {
+        if (running && event.key === 'Escape') aborted = true;
+      });
+      for (const input of document.querySelectorAll('input[name="side"]')) {
+        input.addEventListener('change', () => {
+          renderCameras();
+          drawGuides();
+        });
+      }
+      for (const id of SAVED_FIELDS) {
+        $(id).addEventListener('change', () => {
+          saveFields();
+          renderCameras();
+        });
+      }
+      $('start').addEventListener('click', startRun);
+      $('overview').addEventListener('load', drawGuides);
+
+      loadSaved();
+      syncClock().catch(() => {});
+      pollStatus();
+      previewLoop();
+      refreshSessions();
+    </script>
+  </body>
+</html>
