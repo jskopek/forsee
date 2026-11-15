@@ -2,6 +2,7 @@ import { FakeClock } from '@forsee/core';
 import type { PermissionScope, PluginManifest, PredictionRequest } from '@forsee/plugin-api';
 import { validateManifest } from '@forsee/plugin-host';
 import { createTestPluginApi } from '@forsee/plugin-host/testing';
+import { loadLanguageModel, ModelBuilder, type LanguageModel } from '@forsee/prediction';
 import { describe, expect, it } from 'vitest';
 import manifestJson from '../manifest.json';
 import {
@@ -24,6 +25,25 @@ function request(textBefore: string, partialWord: string, requestId = 1): Predic
     maxCandidates: 5,
     kinds: ['completions', 'nextWords', 'letters', 'phrases'],
   };
+}
+
+/** A tiny base model that knows words the seed model does not. */
+function zebraModel(): LanguageModel {
+  const builder = new ModelBuilder({ locale: 'en' });
+  const text = ['the zebra zigzags home', 'a zebra zigzags past', 'zebras zigzag'];
+  for (const line of text) builder.addVocabularyText(line);
+  for (const line of text) builder.addText(line);
+  return loadLanguageModel(builder.build());
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 function withPermissions(scopes: readonly PermissionScope[]): PluginManifest {
@@ -185,5 +205,52 @@ describe('forsee.prediction-ngram', () => {
     kernel.extensions.disposeOwner(NGRAM_PLUGIN_ID);
     await plugin.module.activate(api);
     expect((await provider(kernel)!.predict(request('how are ', ''))).nextWords).toEqual([]);
+  });
+  it('predicts with the seed model until the base model has loaded, then uses it', async () => {
+    const test = await createTestPluginApi({ manifest, origin: 'first-party' });
+    const load = deferred<LanguageModel>();
+    let calls = 0;
+    const plugin = createNgramPredictionPlugin({
+      clock: test.clock,
+      baseModel: () => {
+        calls++;
+        return load.promise;
+      },
+    });
+    await plugin.module.activate(test.api);
+    const p = provider(test.kernel)!;
+    const words = async (id: number) =>
+      (await p.predict(request('the zebra zig', 'zig', id))).completions.map((c) => c.text);
+    expect(await words(1)).not.toContain('zigzags');
+
+    // What the user taught it before the switch is kept.
+    await p.learn!({ text: 'zigzagging', origin: 'composition', locale: 'en', createdAt: 0 });
+    load.resolve(zebraModel());
+    await plugin.baseModelReady();
+    expect(await words(2)).toContain('zigzags');
+    expect(await words(3)).toContain('zigzagging');
+
+    // Loaded once: a later activation uses it straight away.
+    await plugin.module.deactivate?.();
+    test.kernel.extensions.disposeOwner(NGRAM_PLUGIN_ID);
+    await plugin.module.activate(test.api);
+    const again = await provider(test.kernel)!.predict(request('the zebra zig', 'zig', 4));
+    expect(again.completions.map((c) => c.text)).toContain('zigzags');
+    expect(calls).toBe(1);
+  });
+
+  it('keeps the seed model and reports the error when the base model fails to load', async () => {
+    const test = await createTestPluginApi({ manifest, origin: 'first-party' });
+    const errors: unknown[] = [];
+    const plugin = createNgramPredictionPlugin({
+      clock: test.clock,
+      baseModel: () => Promise.reject(new Error('offline')),
+      onBaseModelError: (error) => errors.push(error),
+    });
+    await plugin.module.activate(test.api);
+    await plugin.baseModelReady();
+    expect(errors).toEqual([new Error('offline')]);
+    const result = await provider(test.kernel)!.predict(request('he', 'he'));
+    expect(result.completions.length).toBeGreaterThan(0);
   });
 });

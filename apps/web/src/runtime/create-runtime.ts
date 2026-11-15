@@ -48,6 +48,7 @@ import {
 import { browserAudioPlayer, browserLifecycle, browserSpeechSynthesis } from './browser';
 import { createErrorCollector } from './errors';
 import { defaultFirstPartyPlugins } from './first-party';
+import { fetchLanguageModel } from './language-model';
 import { createLayoutController } from './layout';
 import {
   defaultStorage,
@@ -320,9 +321,13 @@ export async function createForseeRuntime(
   onDispose('prediction.learn', () => learnSubscription.dispose());
 
   // ---------------------------------------------------------------- 5. plugins
+  const languageModel =
+    options.languageModel === undefined ? () => fetchLanguageModel() : options.languageModel;
   const firstParty = (options.firstPartyPlugins ?? defaultFirstPartyPlugins)({
     clock,
     locale: kernel.locale,
+    ...(languageModel === null ? {} : { languageModel }),
+    reportError,
   });
   const pluginHost: PluginHostInstance = createPluginHost({
     kernel,

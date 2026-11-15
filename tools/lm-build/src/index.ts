@@ -7,3 +7,4 @@
 export * from './evaluate';
 export * from './files';
 export * from './seed';
+export * from './tatoeba';

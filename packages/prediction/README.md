@@ -43,18 +43,19 @@ session.pin(dwellingOnText); // keep that candidate in its slot
 
 ## Pieces
 
-| Module           | What it does                                                                                                                                                  |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tokeniser.ts`   | Word, number and emoji tokens; lower-cased model keys with surface forms kept for display; sentence boundaries; locale seam (`LANGUAGE_RULES`).               |
-| `builder.ts`     | `ModelBuilder`: two streaming passes over text, interpolated Kneser–Ney estimation, pruning, quantisation, file writing. Used by `tools/lm-build`.            |
-| `ngram-model.ts` | `NgramLanguageModel` / `loadLanguageModel(bytes)`: the runtime (`LanguageModel`).                                                                             |
-| `char-model.ts`  | Character n-gram model (order 5, Witten–Bell) for next-letter probabilities in unknown words.                                                                 |
-| `user-model.ts`  | `AdaptiveUserModel`: recency-weighted counts of the user's words, bigrams and trigrams (`UserModel`), JSON persistence, "my words" listing.                   |
-| `phrases.ts`     | `PhraseStore`: phrase recall from the user's utterances (`PhraseRecall`), prefix plus frecency.                                                               |
-| `noisy.ts`       | Noisy-channel decoding of the typed prefix from per-key distributions.                                                                                        |
-| `provider.ts`    | `createNgramProvider`: the `forsee.ngram` `PredictionProvider` combining all of the above.                                                                    |
-| `engine.ts`      | `createPredictionEngine`: request ids, provider calls, merging, refinement, cancellation, timeouts, failure isolation, stabilisation (`stabiliseCandidates`). |
-| `seed.ts`        | `loadSeedModel()`: the prebuilt model from [`data/seed/`](data/seed/README.md) (original MIT text, development only).                                         |
+| Module             | What it does                                                                                                                                                                                                                                                         |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tokeniser.ts`     | Word, number and emoji tokens; lower-cased model keys with surface forms kept for display; sentence boundaries; locale seam (`LANGUAGE_RULES`).                                                                                                                      |
+| `builder.ts`       | `ModelBuilder`: two streaming passes over text, interpolated Kneser–Ney estimation, pruning, quantisation, file writing. Used by `tools/lm-build`.                                                                                                                   |
+| `ngram-model.ts`   | `NgramLanguageModel` / `loadLanguageModel(bytes)`: the runtime (`LanguageModel`).                                                                                                                                                                                    |
+| `char-model.ts`    | Character n-gram model (order 5, Witten–Bell) for next-letter probabilities in unknown words.                                                                                                                                                                        |
+| `user-model.ts`    | `AdaptiveUserModel`: recency-weighted counts of the user's words, bigrams and trigrams (`UserModel`), JSON persistence, "my words" listing.                                                                                                                          |
+| `phrases.ts`       | `PhraseStore`: phrase recall from the user's utterances (`PhraseRecall`), prefix plus frecency.                                                                                                                                                                      |
+| `noisy.ts`         | Noisy-channel decoding of the typed prefix from per-key distributions.                                                                                                                                                                                               |
+| `provider.ts`      | `createNgramProvider`: the `forsee.ngram` `PredictionProvider` combining all of the above.                                                                                                                                                                           |
+| `engine.ts`        | `createPredictionEngine`: request ids, provider calls, merging, refinement, cancellation, timeouts, failure isolation, stabilisation (`stabiliseCandidates`).                                                                                                        |
+| `seed.ts`          | `loadSeedModel()`: the prebuilt model from [`data/seed/`](data/seed/README.md) (original MIT text, development only).                                                                                                                                                |
+| `data/en-tatoeba/` | The shipped English model, built from Tatoeba sentences (**CC BY 2.0 FR**, not MIT; see [its README](data/en-tatoeba/README.md)). The app fetches it as a file (`@forsee/prediction/data/en-tatoeba/model.bin`); the seed model covers the time until it has loaded. |
 
 ## Design decisions
 
@@ -95,6 +96,8 @@ Probabilities are quantised to 8 bits with a per-table codebook of 256 log10 val
 Build models with `tools/lm-build` (see its README).
 
 ## Measurements
+
+The shipped English model's figures (keystroke savings 57% top 3 on 2,000 held-out Tatoeba sentences, against 31% for the seed model) are in [`data/en-tatoeba/README.md`](data/en-tatoeba/README.md#measurements).
 
 From the tiny seed data only (about 950 training sentences, 2,700-word list), so they say little about a real model:
 

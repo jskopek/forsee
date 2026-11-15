@@ -19,7 +19,7 @@ import type {
   Voice,
 } from '@forsee/plugin-api';
 import type { ConsentPrompt, FirstPartyPlugin, PluginHostInstance } from '@forsee/plugin-host';
-import type { PredictionEngine } from '@forsee/prediction';
+import type { LanguageModel, PredictionEngine } from '@forsee/prediction';
 import type {
   AudioPlayer,
   SpeechEngine,
@@ -63,6 +63,10 @@ export interface LifecycleEnvironment {
 export interface FirstPartyPluginContext {
   readonly clock: Clock;
   readonly locale: string;
+  /** The base word-prediction model (see `ForseeRuntimeOptions.languageModel`); absent: the seed model. */
+  readonly languageModel?: () => Promise<LanguageModel>;
+  /** Reports a problem to the runtime's error stream. */
+  readonly reportError: (error: unknown, context: string) => void;
 }
 
 /**
@@ -103,6 +107,14 @@ export interface ForseeRuntimeOptions {
    * prediction, quick-fire). Tests use it to add a failing plugin.
    */
   readonly firstPartyPlugins?: (context: FirstPartyPluginContext) => readonly FirstPartyPlugin[];
+  /**
+   * The base word-prediction model. Default: fetches the English model that
+   * ships next to the app (`fetchLanguageModel`). `null`: only the small seed
+   * model built into the bundle (tests). Prediction starts with the seed
+   * model either way and switches once this has loaded; if it fails, the
+   * error is reported as `prediction.model` and the seed model stays.
+   */
+  readonly languageModel?: (() => Promise<LanguageModel>) | null;
   /** Default locale for a new profile (`app.general/locale`). Default `"en-GB"`. */
   readonly defaultLocale?: string;
   /** Also receives every reported error (after `errors` has it). Default: `console.error` in a browser. */

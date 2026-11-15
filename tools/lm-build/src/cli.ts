@@ -6,10 +6,13 @@ import { createNgramProvider, createUserModel, loadLanguageModel } from '@forsee
 import { keystrokeSavings } from './evaluate';
 import { buildFromFiles, formatStats, listInputFiles, readWordList } from './files';
 import { writeSeedModel } from './seed';
+import { TATOEBA_DIR, TATOEBA_ENGLISH_URL, writeTatoebaModel } from './tatoeba';
 
 const USAGE = `Usage:
   lm-build --input <file|dir> [--input …] --out model.bin [options]
   lm-build seed                       rebuild the seed model from packages/prediction/data/seed
+  lm-build tatoeba --sentences eng_sentences.tsv [--out-dir <dir>]
+                                      rebuild the shipped English model from a Tatoeba export
   lm-build check --model model.bin --text heldout.txt [--candidates 3]
 
 Build options:
@@ -115,11 +118,32 @@ async function evaluate(argv: string[]): Promise<void> {
   );
 }
 
+async function tatoeba(argv: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args: argv,
+    options: { sentences: { type: 'string' }, 'out-dir': { type: 'string' } },
+  });
+  if (values.sentences === undefined)
+    throw new Error(`--sentences is required (the unpacked ${TATOEBA_ENGLISH_URL})`);
+  const outDir = values['out-dir'] ?? TATOEBA_DIR;
+  const summary = await writeTatoebaModel(values.sentences, outDir);
+  process.stdout.write(
+    [
+      `Tatoeba model written to ${outDir}.`,
+      `sentences:      ${summary.unique} distinct, ${summary.heldOut} held out, ${summary.train} trained on (${summary.droppedForNames} left out for stock names)`,
+      formatStats(summary.stats),
+      '',
+    ].join('\n'),
+  );
+}
+
 async function main(argv: string[]): Promise<void> {
   const [command, ...rest] = argv;
   if (command === 'seed') {
     const stats = await writeSeedModel();
     process.stdout.write(`Seed model rebuilt.\n${formatStats(stats)}\n`);
+  } else if (command === 'tatoeba') {
+    await tatoeba(rest);
   } else if (command === 'check') {
     await evaluate(rest);
   } else if (command === 'build') {

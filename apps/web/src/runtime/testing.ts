@@ -80,6 +80,8 @@ export function createTestBrowser(
     pointerEnvironment: pointer,
     lifecycle,
     onError: (error) => errors.push(error),
+    // The bundled model is a file next to the app; tests use the seed model.
+    languageModel: null,
     ...overrides,
   });
   return {
