@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { FakeClock } from '@forsee/core';
-import { createNgramProvider, createUserModel, loadLanguageModel } from '@forsee/prediction';
+import { createNgramProvider, createUserModel } from '@forsee/prediction';
+import { loadEnglishModel } from '@forsee/prediction/english';
 import { describe, expect, it } from 'vitest';
 import { keystrokeSavings } from './evaluate';
 import {
@@ -8,7 +9,6 @@ import {
   namesStockName,
   prepareTatoeba,
   TATOEBA_HELDOUT_PATH,
-  TATOEBA_MODEL_PATH,
   tatoebaSentence,
 } from './tatoeba';
 
@@ -55,13 +55,14 @@ describe('Tatoeba preparation', () => {
   });
 });
 
-describe('checked-in Tatoeba model', () => {
-  const load = async () => {
-    const base = loadLanguageModel(new Uint8Array(await readFile(TATOEBA_MODEL_PATH)));
-    return createNgramProvider({ base, user: createUserModel({ clock: new FakeClock() }) });
-  };
+describe('checked-in English model', () => {
+  const load = () =>
+    createNgramProvider({
+      base: loadEnglishModel(),
+      user: createUserModel({ clock: new FakeClock() }),
+    });
   const predict = (
-    provider: Awaited<ReturnType<typeof load>>,
+    provider: ReturnType<typeof load>,
     textBefore: string,
     partialWord: string,
   ): string[] => {
@@ -76,8 +77,8 @@ describe('checked-in Tatoeba model', () => {
     return (partialWord === '' ? r.nextWords : r.completions).map((c) => c.text);
   };
 
-  it('uses the sentence so far', async () => {
-    const provider = await load();
+  it('uses the sentence so far', () => {
+    const provider = load();
     expect(predict(provider, 'Trevor ate a ba', 'ba')).toContain('banana');
     expect(predict(provider, 'I would like a glass of ', '')).toContain('water');
     expect(predict(provider, 'I am hun', 'hun')[0]).toBe('hungry');
@@ -85,7 +86,7 @@ describe('checked-in Tatoeba model', () => {
   });
 
   it('saves keystrokes on held-out Tatoeba sentences', async () => {
-    const provider = await load();
+    const provider = load();
     const heldOut = (await readFile(TATOEBA_HELDOUT_PATH, 'utf8'))
       .split(/\r?\n/)
       .filter((l) => l.trim() !== '');

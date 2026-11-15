@@ -1,19 +1,19 @@
 # English model (Tatoeba)
 
-The English word-prediction model the app ships, and the sentences held back to test it.
+The English word-prediction model the app ships, and the sentences held back to test it. The model itself is embedded in the app bundle as base64 in [`../../src/en-tatoeba/model.generated.ts`](../../src/en-tatoeba/model.generated.ts), loaded with `loadEnglishModel()` from `@forsee/prediction/english`; the Word prediction plugin uses it by default.
 
 ## Licence and credit
 
-**These files are not under the project's MIT licence.** They are derived from the English sentences of [Tatoeba](https://tatoeba.org), a collection of sentences written and translated by its contributors, and are released under the same licence: [Creative Commons Attribution 2.0 France (CC BY 2.0 FR)](https://creativecommons.org/licenses/by/2.0/fr/deed.en).
+**The model and these files are not under the project's MIT licence.** They are derived from the English sentences of [Tatoeba](https://tatoeba.org), a collection of sentences written and translated by its contributors, and are released under the same licence: [Creative Commons Attribution 2.0 France (CC BY 2.0 FR)](https://creativecommons.org/licenses/by/2.0/fr/deed.en).
 
-> Contains sentences from Tatoeba (https://tatoeba.org), licensed under CC BY 2.0 FR. The sentences were de-duplicated and filtered, and `model.bin` holds word statistics (n-gram probabilities) computed from them; see "How it was made".
+> Contains sentences from Tatoeba (https://tatoeba.org), licensed under CC BY 2.0 FR. The sentences were de-duplicated and filtered, and the model holds word statistics (n-gram probabilities) computed from them; see "How it was made".
 
-Anything that ships `model.bin` must carry that credit. The app shows it in the Word prediction plugin's description (in full under Settings → Plugins → Word prediction → Options).
+Anything that ships the model must carry that credit. The app shows it in the Word prediction plugin's description (in full under Settings → Plugins → Word prediction → Options).
 
-| File          | Contents                                                                                                         |
-| ------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `model.bin`   | The model (format: [`../../README.md`](../../README.md#model-file-format-version-1)). 5.9 MB, 3.1 MB gzipped.    |
-| `heldout.txt` | 2,000 Tatoeba sentences that were **not** trained on, for testing the model (unchanged sentences, CC BY 2.0 FR). |
+| File                                      | Contents                                                                                                           |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `../../src/en-tatoeba/model.generated.ts` | The model (format: [`../../README.md`](../../README.md#model-file-format-version-1)), 5.9 MB, as 7.9 MB of base64. |
+| `heldout.txt`                             | 2,000 Tatoeba sentences that were **not** trained on, for testing the model (unchanged sentences, CC BY 2.0 FR).   |
 
 Tatoeba's audio and its per-user data are not used.
 
@@ -32,7 +32,8 @@ To rebuild (the output is deterministic for a given export; Tatoeba updates its 
 curl -O https://downloads.tatoeba.org/exports/per_language/eng/eng_sentences.tsv.bz2
 bunzip2 eng_sentences.tsv.bz2
 pnpm --filter @forsee/lm-build build
-node tools/lm-build/dist/cli.js tatoeba --sentences eng_sentences.tsv
+node tools/lm-build/dist/cli.js tatoeba --sentences eng_sentences.tsv --bin model.bin   # --bin is optional
+node tools/lm-build/dist/cli.js check --model model.bin --text packages/prediction/data/en-tatoeba/heldout.txt
 ```
 
 ## Measurements
@@ -44,7 +45,7 @@ Keystroke savings from the `lm-build` self-check: a simulated typist picks the i
 | `heldout.txt` (2,000 Tatoeba sentences)             | 30.9% / 32.9%             | 56.8% / 59.1%             |
 | `../seed/heldout.txt` (40 conversational sentences) | 67.8% / 69.2%             | 59.7% / 61.9%             |
 
-Each test set favours the model trained on text like it: the seed held-out sentences were written by the same author as the seed corpus, in the same style, and are only 280 words. `predict` p95 is about 0.7 ms (seed: 0.3 ms); loading the file takes about 40 ms on a laptop-class container.
+Each test set favours the model trained on text like it: the seed held-out sentences were written by the same author as the seed corpus, in the same style, and are only 280 words. `predict` p95 is about 0.7 ms (seed: 0.3 ms); decoding and loading it takes under 0.1 s on a laptop-class container, once at startup.
 
 For example, after "Trevor ate a ba" the seed model suggested _bad, bath, bank, back_; this model suggests _banana, bad, baby, bag_.
 

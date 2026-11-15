@@ -6,7 +6,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./data/*": "./data/*"
+    "./english": "./src/english.ts"
   },
   "dependencies": {
     "@forsee/core": "workspace:*",

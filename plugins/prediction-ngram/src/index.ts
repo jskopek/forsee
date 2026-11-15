@@ -14,9 +14,8 @@
  *   recent utterances (`api.history.listRecent`). Without it the plugin
  *   still predicts words; it just starts with no phrases.
  *
- * Base model: the app passes its bundled model (`baseModel`); the plugin
- * predicts with the small seed model of `@forsee/prediction` until that has
- * loaded, or for good if it fails to load.
+ * Base model: the English model built from Tatoeba sentences, embedded in
+ * the bundle (`@forsee/prediction/english`), unless `baseModel` says otherwise.
  *
  * Persistence: the user's learned words (the adaptive user model) are kept in
  * the plugin's private storage (`api.storage`, `plugins/<id>/data.json`),
@@ -45,9 +44,9 @@ import {
   createNgramProvider,
   createPhraseRecall,
   createUserModel,
-  loadSeedModel,
   type LanguageModel,
 } from '@forsee/prediction';
+import { loadEnglishModel } from '@forsee/prediction/english';
 import manifestJson from '../manifest.json';
 
 /** The plugin's manifest (validated by the plugin host when it loads). */
@@ -98,15 +97,11 @@ export interface NgramPredictionPluginOptions {
    */
   readonly clock: Clock;
   /**
-   * The base language model (the app fetches its bundled model file). It is
-   * loaded once, at the first activation, without holding activation up:
-   * until it is ready the plugin predicts with the small seed model, then
-   * switches. If it throws or rejects, the seed model stays and the error goes
-   * to `onBaseModelError`. Default: the seed model shipped with `@forsee/prediction`.
+   * The base language model. Default: the English model built from Tatoeba
+   * sentences (`@forsee/prediction/english`; CC BY 2.0 FR, credited in the
+   * manifest description).
    */
-  readonly baseModel?: () => LanguageModel | Promise<LanguageModel>;
-  /** Called when `baseModel` fails (the seed model is used instead). */
-  readonly onBaseModelError?: (error: unknown) => void;
+  readonly baseModel?: () => LanguageModel;
   /** Locale of the user layer and phrase recall. Default `"en"`. */
   readonly locale?: string;
 }
@@ -115,12 +110,6 @@ export interface NgramPredictionPluginOptions {
 export interface NgramPredictionPlugin {
   readonly manifest: PluginManifest;
   readonly module: PluginModule;
-  /**
-   * Resolves once the `baseModel` of an activation has loaded and is in use
-   * (or failed, and the seed model stays). Resolves at once when no load is
-   * under way.
-   */
-  baseModelReady(): Promise<void>;
 }
 
 /**
@@ -149,26 +138,13 @@ function createSaver(write: () => Promise<void>): {
   };
 }
 
-/** Loads `options.baseModel`, falling back to the seed model (see `baseModel`). */
-async function loadBaseModel(options: NgramPredictionPluginOptions): Promise<LanguageModel> {
-  if (!options.baseModel) return loadSeedModel();
-  try {
-    return await options.baseModel();
-  } catch (error) {
-    options.onBaseModelError?.(error);
-    return loadSeedModel();
-  }
-}
-
 /** Builds the plugin. The returned module can be activated many times (enable, disable, enable). */
 export function createNgramPredictionPlugin(
   options: NgramPredictionPluginOptions,
 ): NgramPredictionPlugin {
   const { clock } = options;
   const locale = options.locale ?? 'en';
-  // The base model is loaded once and kept across activations.
-  let loaded: LanguageModel | undefined;
-  let loading: Promise<LanguageModel> | undefined;
+  let base: LanguageModel | undefined;
   let active: { idle(): Promise<void> } | null = null;
 
   const module: PluginModule = {
@@ -184,9 +160,10 @@ export function createNgramPredictionPlugin(
         if (change.key === NEXT_WORDS_SETTING) settings.nextWords = change.value !== false;
       });
 
+      base ??= options.baseModel ? options.baseModel() : loadEnglishModel();
       const user = createUserModel({ clock, locale });
-      const saved = await api.storage.get(USER_MODEL_KEY);
-      if (saved !== undefined && !user.load(saved)) {
+      const model = await api.storage.get(USER_MODEL_KEY);
+      if (model !== undefined && !user.load(model)) {
         // Unreadable data is left in place (not overwritten until the user learns something new).
         throw new Error('The stored user language model could not be read');
       }
@@ -198,20 +175,11 @@ export function createNgramPredictionPlugin(
         }
       }
 
-      // Predict at once with the seed model; switch to the base model when it
-      // has loaded (it may be a download). The user layer and phrases carry over.
-      const withBase = (base: LanguageModel) => createNgramProvider({ base, user, phrases });
-      let ngram = withBase(loaded ?? loadSeedModel());
+      const ngram = createNgramProvider({ base, user, phrases });
       const saver = createSaver(() =>
         api.storage.set(USER_MODEL_KEY, user.serialise() as unknown as JsonValue),
       );
       active = saver;
-      if (loaded === undefined && options.baseModel) {
-        loading ??= loadBaseModel(options).then((model) => (loaded = model));
-        void loading.then((model) => {
-          if (active === saver) ngram = withBase(model);
-        });
-      }
 
       const provider: PredictionProvider = {
         id: NGRAM_LOCAL_PROVIDER_ID,
@@ -239,9 +207,5 @@ export function createNgramPredictionPlugin(
     },
   };
 
-  const baseModelReady = async (): Promise<void> => {
-    await loading;
-  };
-
-  return { manifest, module, baseModelReady };
+  return { manifest, module };
 }

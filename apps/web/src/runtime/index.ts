@@ -11,7 +11,6 @@
 export { browserAudioPlayer, browserLifecycle, browserSpeechSynthesis } from './browser';
 export { createForseeRuntime, DWELL_FASTER_COMMAND, DWELL_SLOWER_COMMAND } from './create-runtime';
 export { defaultFirstPartyPlugins } from './first-party';
-export { BUNDLED_ENGLISH_MODEL_URL, fetchLanguageModel } from './language-model';
 export { PLUGIN_CONSENT_PATH, PLUGIN_INSTALL_PATH } from './profile-storage';
 export {
   LAYOUT_SETTING_FIELDS,

@@ -3,7 +3,6 @@ import { DEFAULT_DWELL_CONFIG } from '@forsee/gaze';
 import { createBrowserFileSystem } from '@forsee/host';
 import { API_VERSION, type PluginManifest } from '@forsee/plugin-api';
 import { BLOCK_REASONS, type FirstPartyPlugin } from '@forsee/plugin-host';
-import { loadLanguageModel, ModelBuilder, type LanguageModel } from '@forsee/prediction';
 import {
   createNgramPredictionPlugin,
   manifest as ngramManifest,
@@ -151,38 +150,6 @@ describe('the predictor is a plugin', () => {
     await runtime.pluginHost.enable(NGRAM_PLUGIN_ID);
     expect(runtime.pluginHost.get(NGRAM_PLUGIN_ID)?.state).toBe('active');
     expect(completions(kernel, runtime).length).toBeGreaterThan(0);
-  });
-
-  it('predicts with the seed model, then with the language model once it has loaded', async () => {
-    const zebra = (): LanguageModel => {
-      const builder = new ModelBuilder({ locale: 'en' });
-      const text = ['the zebra zigzags home', 'a zebra zigzags past'];
-      for (const line of text) builder.addVocabularyText(line);
-      for (const line of text) builder.addText(line);
-      return loadLanguageModel(builder.build());
-    };
-    let resolve!: (model: LanguageModel) => void;
-    const browser = createTestBrowser();
-    const runtime = await boot(browser, {
-      languageModel: () => new Promise<LanguageModel>((r) => (resolve = r)),
-    });
-    await typed(runtime, 'The zebra zig');
-    expect(completions(runtime.kernel, runtime)).not.toContain('zigzags');
-    resolve(zebra());
-    await settle();
-    expect(completions(runtime.kernel, runtime)).toContain('zigzags');
-    expect(browser.errors).toEqual([]);
-  });
-
-  it('reports a language model that fails to load, and keeps predicting', async () => {
-    const browser = createTestBrowser();
-    const runtime = await boot(browser, {
-      languageModel: () => Promise.reject(new Error('offline')),
-    });
-    await settle();
-    expect(browser.errors.map((e) => e.context)).toEqual(['prediction.model']);
-    await typed(runtime, 'He');
-    expect(completions(runtime.kernel, runtime).length).toBeGreaterThan(0);
   });
 
   it('declares exactly what it uses: without composition.read it cannot register', async () => {

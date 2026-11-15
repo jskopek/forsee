@@ -6,12 +6,12 @@ import { createNgramProvider, createUserModel, loadLanguageModel } from '@forsee
 import { keystrokeSavings } from './evaluate';
 import { buildFromFiles, formatStats, listInputFiles, readWordList } from './files';
 import { writeSeedModel } from './seed';
-import { TATOEBA_DIR, TATOEBA_ENGLISH_URL, writeTatoebaModel } from './tatoeba';
+import { TATOEBA_ENGLISH_URL, writeTatoebaModel } from './tatoeba';
 
 const USAGE = `Usage:
   lm-build --input <file|dir> [--input …] --out model.bin [options]
   lm-build seed                       rebuild the seed model from packages/prediction/data/seed
-  lm-build tatoeba --sentences eng_sentences.tsv [--out-dir <dir>]
+  lm-build tatoeba --sentences eng_sentences.tsv [--bin model.bin]
                                       rebuild the shipped English model from a Tatoeba export
   lm-build check --model model.bin --text heldout.txt [--candidates 3]
 
@@ -121,15 +121,14 @@ async function evaluate(argv: string[]): Promise<void> {
 async function tatoeba(argv: string[]): Promise<void> {
   const { values } = parseArgs({
     args: argv,
-    options: { sentences: { type: 'string' }, 'out-dir': { type: 'string' } },
+    options: { sentences: { type: 'string' }, bin: { type: 'string' } },
   });
   if (values.sentences === undefined)
     throw new Error(`--sentences is required (the unpacked ${TATOEBA_ENGLISH_URL})`);
-  const outDir = values['out-dir'] ?? TATOEBA_DIR;
-  const summary = await writeTatoebaModel(values.sentences, outDir);
+  const summary = await writeTatoebaModel(values.sentences, values.bin);
   process.stdout.write(
     [
-      `Tatoeba model written to ${outDir}.`,
+      'English model rebuilt (packages/prediction/src/en-tatoeba, data/en-tatoeba/heldout.txt).',
       `sentences:      ${summary.unique} distinct, ${summary.heldOut} held out, ${summary.train} trained on (${summary.droppedForNames} left out for stock names)`,
       formatStats(summary.stats),
       '',

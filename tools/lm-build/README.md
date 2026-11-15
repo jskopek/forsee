@@ -9,7 +9,7 @@ node tools/lm-build/dist/cli.js --input a.txt --input b.txt --out model.bin \
   --max-vocab 50000 --min-count 2 --min-ngram-count 2 --order 3 --word-list words.txt
 node tools/lm-build/dist/cli.js check --model model.bin --text heldout.txt   # keystroke savings + latency
 pnpm --filter @forsee/lm-build seed           # rebuild the seed model from packages/prediction/data/seed
-node tools/lm-build/dist/cli.js tatoeba --sentences eng_sentences.tsv   # rebuild the shipped English model
+node tools/lm-build/dist/cli.js tatoeba --sentences eng_sentences.tsv   # rebuild the shipped English model (embedded module)
 ```
 
 - Inputs are files or directories (all `*.txt`, recursively, in sorted order). Each line is tokenised separately, and a line break ends a sentence.
