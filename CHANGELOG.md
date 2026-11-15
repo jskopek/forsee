@@ -9,7 +9,8 @@ Write for the people who use Forsee, not for developers.
 The first version you can install on a Mac or a Windows PC.
 
 - Forsee for Mac and Windows, with a normal installer: drag to Applications on
-  a Mac, double-click on Windows.
+  a Mac, double-click on Windows. On Mac, this version needs Apple silicon
+  (M1 or newer).
 - Keeps itself up to date. New versions download in the background and
   install the next time Forsee is closed; it never restarts while you are
   talking.
