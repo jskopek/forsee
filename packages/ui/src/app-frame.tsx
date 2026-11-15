@@ -25,6 +25,12 @@ export interface AppFrameProps {
    * keyboard; `top` sits in the composition row, at the end of the message.
    */
   readonly actionsPosition?: ControlBarPosition;
+  /**
+   * With `actionsPosition` `top` only: controls placed before the composition
+   * (to its left), while `actions` go after it. Lets Speak sit at the end of
+   * the message and Pause and Settings at its start.
+   */
+  readonly actionsStart?: ReactNode;
   /** Smallest share of the height the keyboard gets, percent. Default 55. */
   readonly keyboardMinPercent?: number;
   /** Rendered above everything (the pause overlay, dialogs). */
@@ -66,6 +72,8 @@ export type ControlBarPosition = 'right' | 'left' | 'top' | 'bottom';
 /** Options of `appFrameGrid`. */
 export interface AppFrameGridOptions {
   readonly actions: ControlBarPosition | 'none';
+  /** With `top`: an `actions-start` area before the composition. */
+  readonly actionsStart?: boolean;
   /** A banner row above the composition bar. */
   readonly banner: boolean;
   /** Smallest share of the frame's height the keyboard row may get, percent. */
@@ -81,9 +89,11 @@ export interface AppFrameGridOptions {
  */
 export function appFrameGrid({
   actions,
+  actionsStart = false,
   banner,
   keyboardMinPercent,
 }: AppFrameGridOptions): CSSProperties {
+  const split = actions === 'top' && actionsStart;
   // Short rows suit a horizontal bar (top or bottom), which leaves less width.
   const stacked = actions === 'bottom' || actions === 'top';
   const rows: [string, string][] = [];
@@ -115,6 +125,11 @@ export function appFrameGrid({
       case 'left':
         return `"actions ${name}"`;
       case 'top':
+        if (split) {
+          return name === 'composition'
+            ? '"actions-start composition actions"'
+            : `"${name} ${name} ${name}"`;
+        }
         return name === 'composition' ? '"composition actions"' : `"${name} ${name}"`;
       default:
         return `"${name}"`;
@@ -125,9 +140,11 @@ export function appFrameGrid({
       ? `minmax(0, 1fr) ${column}`
       : actions === 'left'
         ? `${column} minmax(0, 1fr)`
-        : actions === 'top'
-          ? 'minmax(0, 1fr) clamp(18rem, 45vw, 34rem)'
-          : 'minmax(0, 1fr)';
+        : split
+          ? 'clamp(12rem, 27vw, 21rem) minmax(0, 1fr) clamp(7rem, 17vw, 13rem)'
+          : actions === 'top'
+            ? 'minmax(0, 1fr) clamp(18rem, 45vw, 34rem)'
+            : 'minmax(0, 1fr)';
   return {
     gridTemplateAreas: rows.map(([name]) => area(name)).join(' '),
     gridTemplateColumns: columns,
@@ -149,6 +166,7 @@ export function AppFrame({
   keyboard,
   actions,
   actionsPosition = 'right',
+  actionsStart,
   keyboardMinPercent = 55,
   overlay,
   inert = false,
@@ -172,8 +190,11 @@ export function AppFrame({
   };
   const hasActions = actions !== undefined && actions !== null;
   const hasBanner = banner !== undefined && banner !== null && banner !== false;
+  const hasStart =
+    hasActions && actionsPosition === 'top' && actionsStart !== undefined && actionsStart !== null;
   const gridStyle = appFrameGrid({
     actions: hasActions ? actionsPosition : 'none',
+    actionsStart: hasStart,
     banner: hasBanner,
     keyboardMinPercent,
   });
@@ -214,6 +235,16 @@ export function AppFrame({
         <main className="min-h-0 min-w-0" style={{ gridArea: 'keyboard' }} data-region="keyboard">
           {keyboard}
         </main>
+        {hasStart && (
+          <aside
+            aria-label="More controls"
+            className="flex min-h-0 min-w-0 flex-row gap-[clamp(0.375rem,1.2vh,0.75rem)]"
+            style={{ gridArea: 'actions-start' }}
+            data-region="actions-start"
+          >
+            {actionsStart}
+          </aside>
+        )}
         {hasActions && (
           <aside
             aria-label="Controls"

@@ -65,6 +65,18 @@ describe('appFrameGrid', () => {
     );
   });
 
+  it('splits a top control bar around the composition when asked', () => {
+    const grid = appFrameGrid({
+      actions: 'top',
+      actionsStart: true,
+      banner: false,
+      keyboardMinPercent: 55,
+    });
+    expect(grid.gridTemplateAreas).toBe(
+      '"actions-start composition actions" "predictions predictions predictions" "keyboard keyboard keyboard"',
+    );
+  });
+
   it('has no banner or action areas when they are absent', () => {
     const grid = appFrameGrid({ actions: 'none', banner: false, keyboardMinPercent: 60 });
     expect(grid.gridTemplateAreas).toBe('"composition" "predictions" "keyboard"');

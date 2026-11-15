@@ -145,20 +145,30 @@ function Screen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
   );
 
   // The control bar holds only Speak, Pause and Settings; plugins cannot add
-  // to it. Speak is always nearest the message and takes the space Pause and
-  // Settings leave; Settings is the furthest.
+  // to it. Speak is always nearest the end of the message and takes the space
+  // Pause and Settings leave; Settings is the furthest from it. On top, the
+  // bar wraps the message: Settings, Pause, message, Speak.
   const fixed = vertical
     ? 'flex-none h-[clamp(5rem,15vh,8.5rem)]'
     : 'flex-none w-[clamp(6.5rem,11vw,10.5rem)]';
-  const actions = (
-    <>
+  const pause = <PauseButton />;
+  const actions =
+    position === 'top' ? (
       <div className={`${SIDE_ITEM} flex-1`}>{speak}</div>
-      <div className={`${SIDE_ITEM} ${fixed}`}>
-        <PauseButton />
-      </div>
-      <div className={`${SIDE_ITEM} ${fixed}`}>{settingsButton}</div>
-    </>
-  );
+    ) : (
+      <>
+        <div className={`${SIDE_ITEM} flex-1`}>{speak}</div>
+        <div className={`${SIDE_ITEM} ${fixed}`}>{pause}</div>
+        <div className={`${SIDE_ITEM} ${fixed}`}>{settingsButton}</div>
+      </>
+    );
+  const actionsStart =
+    position === 'top' ? (
+      <>
+        <div className={`${SIDE_ITEM} flex-1`}>{settingsButton}</div>
+        <div className={`${SIDE_ITEM} flex-1`}>{pause}</div>
+      </>
+    ) : undefined;
 
   const keyboard = (
     <KeyboardView
@@ -191,6 +201,7 @@ function Screen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
       keyboard={keyboard}
       actions={actions}
       actionsPosition={position}
+      actionsStart={actionsStart}
       inert={settingsOpen}
       overlay={overlay}
     />
