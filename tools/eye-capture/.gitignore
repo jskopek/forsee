@@ -5,3 +5,8 @@ captures/
 xcuserdata/
 *.xcuserstate
 DerivedData/
+
+# Analysis environment and downloaded model
+analysis/.venv/
+analysis/models/
+__pycache__/
