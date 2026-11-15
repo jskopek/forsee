@@ -1,0 +1,153 @@
+:root {
+  --bg: #0b0f17;
+  --panel: #111827;
+  --line: #1f2937;
+  --text: #f1f5f9;
+  --muted: #a3adbd;
+  --amber: #fbbf24;
+  --green: #0a7f46;
+  --green-hover: #0c9653;
+  color-scheme: dark;
+}
+* {
+  box-sizing: border-box;
+}
+html {
+  font-size: 19px;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  line-height: 1.6;
+}
+main {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 3rem 1rem 2rem;
+}
+a {
+  color: var(--amber);
+}
+a:focus-visible {
+  outline: 3px solid var(--amber);
+  outline-offset: 3px;
+}
+h1,
+h2,
+h3 {
+  line-height: 1.2;
+  margin: 0 0 0.5rem;
+}
+h2 {
+  font-size: 1.4rem;
+  margin-top: 2.5rem;
+}
+h3 {
+  font-size: 1.05rem;
+}
+.hero {
+  text-align: center;
+}
+.logo {
+  border-radius: 22px;
+}
+.hero h1 {
+  font-size: 2.6rem;
+  margin-top: 0.75rem;
+}
+.tagline {
+  font-size: 1.3rem;
+  color: var(--muted);
+  margin: 0;
+}
+.intro {
+  margin-top: 2rem;
+}
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 1rem 0 1.5rem;
+}
+.button {
+  flex: 1 1 15rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  border-radius: 14px;
+  border: 2px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  text-decoration: none;
+  min-height: 4.5rem;
+  justify-content: center;
+}
+.button:hover {
+  border-color: var(--amber);
+}
+.button.primary {
+  background: var(--green);
+  border-color: var(--green);
+}
+.button.primary:hover {
+  background: var(--green-hover);
+  border-color: var(--green-hover);
+}
+.button .label {
+  font-size: 1.15rem;
+  font-weight: 650;
+}
+.button .detail {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.button.primary .detail {
+  color: #d1fae5;
+}
+.steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem 2rem;
+}
+.steps p,
+.note {
+  margin: 0;
+  color: var(--muted);
+}
+.note {
+  margin-top: 1rem;
+}
+.screenshot {
+  margin: 2.5rem 0 0;
+}
+.screenshot img {
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  display: block;
+}
+footer {
+  border-top: 1px solid var(--line);
+  padding: 1.5rem 1rem 2.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem 1.5rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.policy main {
+  max-width: 42rem;
+}
+.policy li {
+  margin-bottom: 0.4rem;
+}

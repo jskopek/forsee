@@ -1,6 +1,6 @@
 /**
  * Setting schemas. Shape carried over from the prototype's `SettingField`
- * (`keyboard-ui/src/plugins/plugin-types.js`) so the settings screen can be
+ * (`legacy/keyboard-ui/src/plugins/plugin-types.js`) so the settings screen can be
  * generated and operated by gaze.
  */
 

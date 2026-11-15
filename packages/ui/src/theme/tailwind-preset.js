@@ -61,7 +61,7 @@ export const colors = {
   // Pause overlay
   pause: '#020617',
 
-  // Tokens ported from the prototype (`keyboard-ui/tailwind.config.js`),
+  // Tokens ported from the prototype (`legacy/keyboard-ui/tailwind.config.js`),
   // kept for pages that still use them.
   'btn-back': '#e6ebf2',
   'btn-back-hover': '#eef2f7',

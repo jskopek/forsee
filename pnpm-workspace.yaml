@@ -4,3 +4,6 @@ packages:
   - 'plugins/*'
   - 'tools/*'
   - 'sidecars/*'
+
+onlyBuiltDependencies:
+  - esbuild

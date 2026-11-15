@@ -1,8 +1,8 @@
-# EyeSpeak
+# Forsee
 
 An open-source, camera-based eye-tracking keyboard designed for real-time verbal communication.
 
-EyeSpeak is built for people who rely on eye control as their main form of interaction, with a focus on **speed**, **fluidity**, and **natural speech**. Most eye-tracking keyboards today are designed to handle writing, computer control, and speech. Eyesight takes a different direction: it is **purpose-built for conversation**.
+Forsee is built for people who rely on eye control as their main form of interaction, with a focus on **speed**, **fluidity**, and **natural speech**. Most eye-tracking keyboards today are designed to handle writing, computer control, and speech. Forsee takes a different direction: it is **purpose-built for conversation**.
 
 By focusing purely on conversational speech, we can optimize for faster human dialog.
 
@@ -18,9 +18,11 @@ pnpm --filter @forsee/web dev     # then open http://localhost:5173
 
 To try it on an iPad or other device on the same network, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#opening-the-app-on-other-devices).
 
+The Mac and Windows app (`apps/desktop`) wraps the same app: `pnpm desktop` opens it. Installers are built and released by CI; see [docs/RELEASING.md](docs/RELEASING.md). The website is in `website/`.
+
 **What works:** typing by dwell with a mouse or anything that moves the pointer (most eye trackers' mouse emulation), direct taps on touch screens, word prediction that learns your words, Speak, Stop, quick-fire replies ("Yes", "No", "Help", ...), in-place Faster/Slower dwell, pause with a deliberate wake target, a large-key two-step layout for less precise pointing, voice, rate and speak-mode settings, core plugins you can turn on and off with their own options (Settings → Plugins), and recovery of the half-written message after a reload.
 
-**Not yet:** webcam eye tracking, the desktop and iPad apps, phrase bank and history screens, the partner display, plugins from anyone other than the project. Status and the device tests still to do are in [docs/MVP_STATUS.md](docs/MVP_STATUS.md).
+**Not yet:** webcam eye tracking, the iPad and Android apps, phrase bank and history screens, the partner display, plugins from anyone other than the project. Status and the device tests still to do are in [docs/MVP_STATUS.md](docs/MVP_STATUS.md).
 
 ## Goals
 
@@ -35,7 +37,7 @@ We are absolutely **not there yet**, but this is the North Star we are aiming fo
 
 ## Project Status
 
-The current version of EyeSight is very early. It currently includes:
+The current version of Forsee is very early. It currently includes:
 
 - Basic on-screen keyboard
 - Gaze-based input via standard device camera
@@ -73,4 +75,4 @@ I would love to talk to you!
 
 ## License
 
-MIT
+MIT, © Empathy Works Inc. See [LICENSE](LICENSE). The first prototype (version 0.1) is kept in [`legacy/`](legacy/).
