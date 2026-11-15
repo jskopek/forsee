@@ -157,20 +157,14 @@
               "action": { "command": "composition.insert", "args": { "text": "z" } }
             },
             {
-              "id": "k-backspace",
-              "label": "Delete",
-              "icon": "backspace",
-              "width": 2,
-              "action": { "command": "composition.deleteGrapheme" },
-              "behaviour": {
-                "type": "escalate",
-                "steps": [
-                  { "command": "composition.deleteGrapheme" },
-                  { "command": "composition.deleteWord" },
-                  { "command": "composition.clear" }
-                ],
-                "stepDwellClasses": ["function", "destructive", "destructive"]
-              }
+              "id": "k-dot",
+              "label": ".",
+              "action": { "command": "composition.insert", "args": { "text": "." } }
+            },
+            {
+              "id": "k-question",
+              "label": "?",
+              "action": { "command": "composition.insert", "args": { "text": "?" } }
             }
           ]
         },
@@ -193,7 +187,456 @@
               "id": "k-space",
               "label": "Space",
               "action": { "command": "composition.insert", "args": { "text": " " } },
-              "width": 2
+              "width": 3
+            },
+            {
+              "id": "k-backspace",
+              "label": "Delete",
+              "icon": "backspace",
+              "width": 1.5,
+              "action": { "command": "composition.deleteGrapheme" },
+              "behaviour": {
+                "type": "escalate",
+                "steps": [
+                  { "command": "composition.deleteGrapheme" },
+                  { "command": "composition.deleteWord" },
+                  { "command": "composition.clear" }
+                ],
+                "stepDwellClasses": ["function", "destructive", "destructive"]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "upper",
+      "name": "Capital letter",
+      "rows": [
+        {
+          "keys": [
+            {
+              "id": "u-a",
+              "label": "A",
+              "action": { "command": "composition.insert", "args": { "text": "A" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-b",
+              "label": "B",
+              "action": { "command": "composition.insert", "args": { "text": "B" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-c",
+              "label": "C",
+              "action": { "command": "composition.insert", "args": { "text": "C" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-d",
+              "label": "D",
+              "action": { "command": "composition.insert", "args": { "text": "D" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-e",
+              "label": "E",
+              "action": { "command": "composition.insert", "args": { "text": "E" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-f",
+              "label": "F",
+              "action": { "command": "composition.insert", "args": { "text": "F" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-g",
+              "label": "G",
+              "action": { "command": "composition.insert", "args": { "text": "G" } },
+              "returnToPage": "letters"
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "id": "u-h",
+              "label": "H",
+              "action": { "command": "composition.insert", "args": { "text": "H" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-i",
+              "label": "I",
+              "action": { "command": "composition.insert", "args": { "text": "I" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-j",
+              "label": "J",
+              "action": { "command": "composition.insert", "args": { "text": "J" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-k",
+              "label": "K",
+              "action": { "command": "composition.insert", "args": { "text": "K" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-l",
+              "label": "L",
+              "action": { "command": "composition.insert", "args": { "text": "L" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-m",
+              "label": "M",
+              "action": { "command": "composition.insert", "args": { "text": "M" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-n",
+              "label": "N",
+              "action": { "command": "composition.insert", "args": { "text": "N" } },
+              "returnToPage": "letters"
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "id": "u-o",
+              "label": "O",
+              "action": { "command": "composition.insert", "args": { "text": "O" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-p",
+              "label": "P",
+              "action": { "command": "composition.insert", "args": { "text": "P" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-q",
+              "label": "Q",
+              "action": { "command": "composition.insert", "args": { "text": "Q" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-r",
+              "label": "R",
+              "action": { "command": "composition.insert", "args": { "text": "R" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-s",
+              "label": "S",
+              "action": { "command": "composition.insert", "args": { "text": "S" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-t",
+              "label": "T",
+              "action": { "command": "composition.insert", "args": { "text": "T" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-u",
+              "label": "U",
+              "action": { "command": "composition.insert", "args": { "text": "U" } },
+              "returnToPage": "letters"
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "id": "u-v",
+              "label": "V",
+              "action": { "command": "composition.insert", "args": { "text": "V" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-w",
+              "label": "W",
+              "action": { "command": "composition.insert", "args": { "text": "W" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-x",
+              "label": "X",
+              "action": { "command": "composition.insert", "args": { "text": "X" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-y",
+              "label": "Y",
+              "action": { "command": "composition.insert", "args": { "text": "Y" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-z",
+              "label": "Z",
+              "action": { "command": "composition.insert", "args": { "text": "Z" } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-dot",
+              "label": ".",
+              "action": { "command": "composition.insert", "args": { "text": "." } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-question",
+              "label": "?",
+              "action": { "command": "composition.insert", "args": { "text": "?" } },
+              "returnToPage": "letters"
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "id": "u-caps",
+              "label": "Caps",
+              "width": 1.5,
+              "action": { "command": "layout.showPage", "args": { "page": "caps" } }
+            },
+            {
+              "id": "u-undo",
+              "label": "Undo",
+              "icon": "undo",
+              "width": 1,
+              "action": { "command": "composition.undo" },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-space",
+              "label": "Space",
+              "action": { "command": "composition.insert", "args": { "text": " " } },
+              "width": 3,
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-backspace",
+              "label": "Delete",
+              "icon": "backspace",
+              "width": 1.5,
+              "action": { "command": "composition.deleteGrapheme" },
+              "behaviour": {
+                "type": "escalate",
+                "steps": [
+                  { "command": "composition.deleteGrapheme" },
+                  { "command": "composition.deleteWord" },
+                  { "command": "composition.clear" }
+                ],
+                "stepDwellClasses": ["function", "destructive", "destructive"]
+              },
+              "returnToPage": "letters"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "caps",
+      "name": "Capitals",
+      "rows": [
+        {
+          "keys": [
+            {
+              "id": "c-a",
+              "label": "A",
+              "action": { "command": "composition.insert", "args": { "text": "A" } }
+            },
+            {
+              "id": "c-b",
+              "label": "B",
+              "action": { "command": "composition.insert", "args": { "text": "B" } }
+            },
+            {
+              "id": "c-c",
+              "label": "C",
+              "action": { "command": "composition.insert", "args": { "text": "C" } }
+            },
+            {
+              "id": "c-d",
+              "label": "D",
+              "action": { "command": "composition.insert", "args": { "text": "D" } }
+            },
+            {
+              "id": "c-e",
+              "label": "E",
+              "action": { "command": "composition.insert", "args": { "text": "E" } }
+            },
+            {
+              "id": "c-f",
+              "label": "F",
+              "action": { "command": "composition.insert", "args": { "text": "F" } }
+            },
+            {
+              "id": "c-g",
+              "label": "G",
+              "action": { "command": "composition.insert", "args": { "text": "G" } }
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "id": "c-h",
+              "label": "H",
+              "action": { "command": "composition.insert", "args": { "text": "H" } }
+            },
+            {
+              "id": "c-i",
+              "label": "I",
+              "action": { "command": "composition.insert", "args": { "text": "I" } }
+            },
+            {
+              "id": "c-j",
+              "label": "J",
+              "action": { "command": "composition.insert", "args": { "text": "J" } }
+            },
+            {
+              "id": "c-k",
+              "label": "K",
+              "action": { "command": "composition.insert", "args": { "text": "K" } }
+            },
+            {
+              "id": "c-l",
+              "label": "L",
+              "action": { "command": "composition.insert", "args": { "text": "L" } }
+            },
+            {
+              "id": "c-m",
+              "label": "M",
+              "action": { "command": "composition.insert", "args": { "text": "M" } }
+            },
+            {
+              "id": "c-n",
+              "label": "N",
+              "action": { "command": "composition.insert", "args": { "text": "N" } }
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "id": "c-o",
+              "label": "O",
+              "action": { "command": "composition.insert", "args": { "text": "O" } }
+            },
+            {
+              "id": "c-p",
+              "label": "P",
+              "action": { "command": "composition.insert", "args": { "text": "P" } }
+            },
+            {
+              "id": "c-q",
+              "label": "Q",
+              "action": { "command": "composition.insert", "args": { "text": "Q" } }
+            },
+            {
+              "id": "c-r",
+              "label": "R",
+              "action": { "command": "composition.insert", "args": { "text": "R" } }
+            },
+            {
+              "id": "c-s",
+              "label": "S",
+              "action": { "command": "composition.insert", "args": { "text": "S" } }
+            },
+            {
+              "id": "c-t",
+              "label": "T",
+              "action": { "command": "composition.insert", "args": { "text": "T" } }
+            },
+            {
+              "id": "c-u",
+              "label": "U",
+              "action": { "command": "composition.insert", "args": { "text": "U" } }
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "id": "c-v",
+              "label": "V",
+              "action": { "command": "composition.insert", "args": { "text": "V" } }
+            },
+            {
+              "id": "c-w",
+              "label": "W",
+              "action": { "command": "composition.insert", "args": { "text": "W" } }
+            },
+            {
+              "id": "c-x",
+              "label": "X",
+              "action": { "command": "composition.insert", "args": { "text": "X" } }
+            },
+            {
+              "id": "c-y",
+              "label": "Y",
+              "action": { "command": "composition.insert", "args": { "text": "Y" } }
+            },
+            {
+              "id": "c-z",
+              "label": "Z",
+              "action": { "command": "composition.insert", "args": { "text": "Z" } }
+            },
+            {
+              "id": "c-dot",
+              "label": ".",
+              "action": { "command": "composition.insert", "args": { "text": "." } }
+            },
+            {
+              "id": "c-question",
+              "label": "?",
+              "action": { "command": "composition.insert", "args": { "text": "?" } }
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "id": "c-shift",
+              "label": "abc",
+              "width": 1.5,
+              "action": { "command": "layout.showPage", "args": { "page": "letters" } }
+            },
+            {
+              "id": "c-undo",
+              "label": "Undo",
+              "icon": "undo",
+              "width": 1,
+              "action": { "command": "composition.undo" }
+            },
+            {
+              "id": "c-space",
+              "label": "Space",
+              "action": { "command": "composition.insert", "args": { "text": " " } },
+              "width": 3
+            },
+            {
+              "id": "c-backspace",
+              "label": "Delete",
+              "icon": "backspace",
+              "width": 1.5,
+              "action": { "command": "composition.deleteGrapheme" },
+              "behaviour": {
+                "type": "escalate",
+                "steps": [
+                  { "command": "composition.deleteGrapheme" },
+                  { "command": "composition.deleteWord" },
+                  { "command": "composition.clear" }
+                ],
+                "stepDwellClasses": ["function", "destructive", "destructive"]
+              }
             }
           ]
         }
@@ -309,6 +752,13 @@
         {
           "keys": [
             {
+              "id": "n-shift",
+              "label": "Shift",
+              "icon": "shift",
+              "width": 1.5,
+              "action": { "command": "layout.showPage", "args": { "page": "upper" } }
+            },
+            {
               "id": "n-dot",
               "label": ".",
               "action": { "command": "composition.insert", "args": { "text": "." } }
@@ -342,22 +792,6 @@
               "id": "n-plus",
               "label": "+",
               "action": { "command": "composition.insert", "args": { "text": "+" } }
-            },
-            {
-              "id": "n-backspace",
-              "label": "Delete",
-              "icon": "backspace",
-              "width": 1.5,
-              "action": { "command": "composition.deleteGrapheme" },
-              "behaviour": {
-                "type": "escalate",
-                "steps": [
-                  { "command": "composition.deleteGrapheme" },
-                  { "command": "composition.deleteWord" },
-                  { "command": "composition.clear" }
-                ],
-                "stepDwellClasses": ["function", "destructive", "destructive"]
-              }
             }
           ]
         },
@@ -370,10 +804,33 @@
               "action": { "command": "layout.showPage", "args": { "page": "letters" } }
             },
             {
+              "id": "n-undo",
+              "label": "Undo",
+              "icon": "undo",
+              "width": 1.5,
+              "action": { "command": "composition.undo" }
+            },
+            {
               "id": "n-space",
               "label": "Space",
               "action": { "command": "composition.insert", "args": { "text": " " } },
-              "width": 4.5
+              "width": 5
+            },
+            {
+              "id": "n-backspace",
+              "label": "Delete",
+              "icon": "backspace",
+              "width": 2,
+              "action": { "command": "composition.deleteGrapheme" },
+              "behaviour": {
+                "type": "escalate",
+                "steps": [
+                  { "command": "composition.deleteGrapheme" },
+                  { "command": "composition.deleteWord" },
+                  { "command": "composition.clear" }
+                ],
+                "stepDwellClasses": ["function", "destructive", "destructive"]
+              }
             }
           ]
         }

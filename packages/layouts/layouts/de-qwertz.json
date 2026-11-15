@@ -133,13 +133,6 @@
         {
           "keys": [
             {
-              "id": "k-shift",
-              "label": "Shift",
-              "width": 1.5,
-              "action": { "command": "layout.showPage", "args": { "page": "upper" } },
-              "icon": "shift"
-            },
-            {
               "id": "k-y",
               "label": "y",
               "action": { "command": "composition.insert", "args": { "text": "y" } }
@@ -180,20 +173,14 @@
               "action": { "command": "composition.insert", "args": { "text": "ß" } }
             },
             {
-              "id": "k-backspace",
-              "label": "Delete",
-              "icon": "backspace",
-              "width": 1.5,
-              "action": { "command": "composition.deleteGrapheme" },
-              "behaviour": {
-                "type": "escalate",
-                "steps": [
-                  { "command": "composition.deleteGrapheme" },
-                  { "command": "composition.deleteWord" },
-                  { "command": "composition.clear" }
-                ],
-                "stepDwellClasses": ["function", "destructive", "destructive"]
-              }
+              "id": "k-dot",
+              "label": ".",
+              "action": { "command": "composition.insert", "args": { "text": "." } }
+            },
+            {
+              "id": "k-question",
+              "label": "?",
+              "action": { "command": "composition.insert", "args": { "text": "?" } }
             }
           ]
         },
@@ -209,26 +196,30 @@
               "id": "k-undo",
               "label": "Undo",
               "icon": "undo",
-              "width": 1,
+              "width": 1.5,
               "action": { "command": "composition.undo" }
-            },
-            {
-              "id": "k-comma",
-              "label": ",",
-              "action": { "command": "composition.insert", "args": { "text": "," } },
-              "width": 1
             },
             {
               "id": "k-space",
               "label": "Space",
               "action": { "command": "composition.insert", "args": { "text": " " } },
-              "width": 3.5
+              "width": 6
             },
             {
-              "id": "k-dot",
-              "label": ".",
-              "action": { "command": "composition.insert", "args": { "text": "." } },
-              "width": 1
+              "id": "k-backspace",
+              "label": "Delete",
+              "icon": "backspace",
+              "width": 2,
+              "action": { "command": "composition.deleteGrapheme" },
+              "behaviour": {
+                "type": "escalate",
+                "steps": [
+                  { "command": "composition.deleteGrapheme" },
+                  { "command": "composition.deleteWord" },
+                  { "command": "composition.clear" }
+                ],
+                "stepDwellClasses": ["function", "destructive", "destructive"]
+              }
             }
           ]
         }
@@ -381,13 +372,6 @@
         {
           "keys": [
             {
-              "id": "u-shift",
-              "label": "Shift",
-              "width": 1.5,
-              "action": { "command": "layout.showPage", "args": { "page": "letters" } },
-              "icon": "shift"
-            },
-            {
               "id": "u-y",
               "label": "Y",
               "action": { "command": "composition.insert", "args": { "text": "Y" } },
@@ -436,20 +420,15 @@
               "returnToPage": "letters"
             },
             {
-              "id": "u-backspace",
-              "label": "Delete",
-              "icon": "backspace",
-              "width": 1.5,
-              "action": { "command": "composition.deleteGrapheme" },
-              "behaviour": {
-                "type": "escalate",
-                "steps": [
-                  { "command": "composition.deleteGrapheme" },
-                  { "command": "composition.deleteWord" },
-                  { "command": "composition.clear" }
-                ],
-                "stepDwellClasses": ["function", "destructive", "destructive"]
-              },
+              "id": "u-dot",
+              "label": ".",
+              "action": { "command": "composition.insert", "args": { "text": "." } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-question",
+              "label": "?",
+              "action": { "command": "composition.insert", "args": { "text": "?" } },
               "returnToPage": "letters"
             }
           ]
@@ -466,29 +445,32 @@
               "id": "u-undo",
               "label": "Undo",
               "icon": "undo",
-              "width": 1,
+              "width": 1.5,
               "action": { "command": "composition.undo" },
-              "returnToPage": "letters"
-            },
-            {
-              "id": "u-comma",
-              "label": ",",
-              "action": { "command": "composition.insert", "args": { "text": "," } },
-              "width": 1,
               "returnToPage": "letters"
             },
             {
               "id": "u-space",
               "label": "Space",
               "action": { "command": "composition.insert", "args": { "text": " " } },
-              "width": 3.5,
+              "width": 6,
               "returnToPage": "letters"
             },
             {
-              "id": "u-dot",
-              "label": ".",
-              "action": { "command": "composition.insert", "args": { "text": "." } },
-              "width": 1,
+              "id": "u-backspace",
+              "label": "Delete",
+              "icon": "backspace",
+              "width": 2,
+              "action": { "command": "composition.deleteGrapheme" },
+              "behaviour": {
+                "type": "escalate",
+                "steps": [
+                  { "command": "composition.deleteGrapheme" },
+                  { "command": "composition.deleteWord" },
+                  { "command": "composition.clear" }
+                ],
+                "stepDwellClasses": ["function", "destructive", "destructive"]
+              },
               "returnToPage": "letters"
             }
           ]
@@ -620,12 +602,6 @@
         {
           "keys": [
             {
-              "id": "c-shift",
-              "label": "abc",
-              "width": 1.5,
-              "action": { "command": "layout.showPage", "args": { "page": "letters" } }
-            },
-            {
               "id": "c-y",
               "label": "Y",
               "action": { "command": "composition.insert", "args": { "text": "Y" } }
@@ -666,10 +642,43 @@
               "action": { "command": "composition.insert", "args": { "text": "ß" } }
             },
             {
+              "id": "c-dot",
+              "label": ".",
+              "action": { "command": "composition.insert", "args": { "text": "." } }
+            },
+            {
+              "id": "c-question",
+              "label": "?",
+              "action": { "command": "composition.insert", "args": { "text": "?" } }
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "id": "c-shift",
+              "label": "abc",
+              "width": 1.5,
+              "action": { "command": "layout.showPage", "args": { "page": "letters" } }
+            },
+            {
+              "id": "c-undo",
+              "label": "Undo",
+              "icon": "undo",
+              "width": 1.5,
+              "action": { "command": "composition.undo" }
+            },
+            {
+              "id": "c-space",
+              "label": "Space",
+              "action": { "command": "composition.insert", "args": { "text": " " } },
+              "width": 6
+            },
+            {
               "id": "c-backspace",
               "label": "Delete",
               "icon": "backspace",
-              "width": 1.5,
+              "width": 2,
               "action": { "command": "composition.deleteGrapheme" },
               "behaviour": {
                 "type": "escalate",
@@ -680,41 +689,6 @@
                 ],
                 "stepDwellClasses": ["function", "destructive", "destructive"]
               }
-            }
-          ]
-        },
-        {
-          "keys": [
-            {
-              "id": "c-numbers",
-              "label": "?123",
-              "width": 1.5,
-              "action": { "command": "layout.showPage", "args": { "page": "numbers" } }
-            },
-            {
-              "id": "c-undo",
-              "label": "Undo",
-              "icon": "undo",
-              "width": 1,
-              "action": { "command": "composition.undo" }
-            },
-            {
-              "id": "c-comma",
-              "label": ",",
-              "action": { "command": "composition.insert", "args": { "text": "," } },
-              "width": 1
-            },
-            {
-              "id": "c-space",
-              "label": "Space",
-              "action": { "command": "composition.insert", "args": { "text": " " } },
-              "width": 3.5
-            },
-            {
-              "id": "c-dot",
-              "label": ".",
-              "action": { "command": "composition.insert", "args": { "text": "." } },
-              "width": 1
             }
           ]
         }
@@ -830,6 +804,13 @@
         {
           "keys": [
             {
+              "id": "n-shift",
+              "label": "Shift",
+              "icon": "shift",
+              "width": 1.5,
+              "action": { "command": "layout.showPage", "args": { "page": "upper" } }
+            },
+            {
               "id": "n-dot",
               "label": ".",
               "action": { "command": "composition.insert", "args": { "text": "." } }
@@ -863,22 +844,6 @@
               "id": "n-plus",
               "label": "+",
               "action": { "command": "composition.insert", "args": { "text": "+" } }
-            },
-            {
-              "id": "n-backspace",
-              "label": "Delete",
-              "icon": "backspace",
-              "width": 1.5,
-              "action": { "command": "composition.deleteGrapheme" },
-              "behaviour": {
-                "type": "escalate",
-                "steps": [
-                  { "command": "composition.deleteGrapheme" },
-                  { "command": "composition.deleteWord" },
-                  { "command": "composition.clear" }
-                ],
-                "stepDwellClasses": ["function", "destructive", "destructive"]
-              }
             }
           ]
         },
@@ -891,10 +856,33 @@
               "action": { "command": "layout.showPage", "args": { "page": "letters" } }
             },
             {
+              "id": "n-undo",
+              "label": "Undo",
+              "icon": "undo",
+              "width": 1.5,
+              "action": { "command": "composition.undo" }
+            },
+            {
               "id": "n-space",
               "label": "Space",
               "action": { "command": "composition.insert", "args": { "text": " " } },
-              "width": 4.5
+              "width": 5
+            },
+            {
+              "id": "n-backspace",
+              "label": "Delete",
+              "icon": "backspace",
+              "width": 2,
+              "action": { "command": "composition.deleteGrapheme" },
+              "behaviour": {
+                "type": "escalate",
+                "steps": [
+                  { "command": "composition.deleteGrapheme" },
+                  { "command": "composition.deleteWord" },
+                  { "command": "composition.clear" }
+                ],
+                "stepDwellClasses": ["function", "destructive", "destructive"]
+              }
             }
           ]
         }

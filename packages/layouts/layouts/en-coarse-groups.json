@@ -322,6 +322,13 @@
         {
           "keys": [
             {
+              "id": "k-undo",
+              "label": "Undo",
+              "icon": "undo",
+              "width": 1,
+              "action": { "command": "composition.undo" }
+            },
+            {
               "id": "k-space",
               "label": "Space",
               "action": { "command": "composition.insert", "args": { "text": " " } },
@@ -342,13 +349,6 @@
                 ],
                 "stepDwellClasses": ["function", "destructive", "destructive"]
               }
-            },
-            {
-              "id": "k-undo",
-              "label": "Undo",
-              "icon": "undo",
-              "width": 1,
-              "action": { "command": "composition.undo" }
             }
           ]
         }

@@ -14,7 +14,6 @@
       "rows": [
         {
           "keys": [
-            { "id": "k-pad-l", "width": 0.5, "spacer": true },
             {
               "id": "k-q",
               "label": "q",
@@ -64,13 +63,11 @@
               "id": "k-p",
               "label": "p",
               "action": { "command": "composition.insert", "args": { "text": "p" } }
-            },
-            { "id": "k-pad-r", "width": 0.5, "spacer": true }
+            }
           ]
         },
         {
           "keys": [
-            { "id": "k-pad2-l", "width": 0.5, "spacer": true },
             {
               "id": "k-a",
               "label": "a",
@@ -115,19 +112,11 @@
               "id": "k-l",
               "label": "l",
               "action": { "command": "composition.insert", "args": { "text": "l" } }
-            },
-            { "id": "k-pad2-r", "width": 0.5, "spacer": true }
+            }
           ]
         },
         {
           "keys": [
-            {
-              "id": "k-shift",
-              "label": "Shift",
-              "width": 1.5,
-              "action": { "command": "layout.showPage", "args": { "page": "upper" } },
-              "icon": "shift"
-            },
             {
               "id": "k-z",
               "label": "z",
@@ -164,20 +153,14 @@
               "action": { "command": "composition.insert", "args": { "text": "m" } }
             },
             {
-              "id": "k-backspace",
-              "label": "Delete",
-              "icon": "backspace",
-              "width": 1.5,
-              "action": { "command": "composition.deleteGrapheme" },
-              "behaviour": {
-                "type": "escalate",
-                "steps": [
-                  { "command": "composition.deleteGrapheme" },
-                  { "command": "composition.deleteWord" },
-                  { "command": "composition.clear" }
-                ],
-                "stepDwellClasses": ["function", "destructive", "destructive"]
-              }
+              "id": "k-dot",
+              "label": ".",
+              "action": { "command": "composition.insert", "args": { "text": "." } }
+            },
+            {
+              "id": "k-question",
+              "label": "?",
+              "action": { "command": "composition.insert", "args": { "text": "?" } }
             }
           ]
         },
@@ -193,26 +176,30 @@
               "id": "k-undo",
               "label": "Undo",
               "icon": "undo",
-              "width": 1,
+              "width": 1.5,
               "action": { "command": "composition.undo" }
-            },
-            {
-              "id": "k-comma",
-              "label": ",",
-              "action": { "command": "composition.insert", "args": { "text": "," } },
-              "width": 1
             },
             {
               "id": "k-space",
               "label": "Space",
               "action": { "command": "composition.insert", "args": { "text": " " } },
-              "width": 3.5
+              "width": 5
             },
             {
-              "id": "k-dot",
-              "label": ".",
-              "action": { "command": "composition.insert", "args": { "text": "." } },
-              "width": 1
+              "id": "k-backspace",
+              "label": "Delete",
+              "icon": "backspace",
+              "width": 2,
+              "action": { "command": "composition.deleteGrapheme" },
+              "behaviour": {
+                "type": "escalate",
+                "steps": [
+                  { "command": "composition.deleteGrapheme" },
+                  { "command": "composition.deleteWord" },
+                  { "command": "composition.clear" }
+                ],
+                "stepDwellClasses": ["function", "destructive", "destructive"]
+              }
             }
           ]
         }
@@ -224,7 +211,6 @@
       "rows": [
         {
           "keys": [
-            { "id": "u-pad-l", "width": 0.5, "spacer": true },
             {
               "id": "u-q",
               "label": "Q",
@@ -284,13 +270,11 @@
               "label": "P",
               "action": { "command": "composition.insert", "args": { "text": "P" } },
               "returnToPage": "letters"
-            },
-            { "id": "u-pad-r", "width": 0.5, "spacer": true }
+            }
           ]
         },
         {
           "keys": [
-            { "id": "u-pad2-l", "width": 0.5, "spacer": true },
             {
               "id": "u-a",
               "label": "A",
@@ -344,19 +328,11 @@
               "label": "L",
               "action": { "command": "composition.insert", "args": { "text": "L" } },
               "returnToPage": "letters"
-            },
-            { "id": "u-pad2-r", "width": 0.5, "spacer": true }
+            }
           ]
         },
         {
           "keys": [
-            {
-              "id": "u-shift",
-              "label": "Shift",
-              "width": 1.5,
-              "action": { "command": "layout.showPage", "args": { "page": "letters" } },
-              "icon": "shift"
-            },
             {
               "id": "u-z",
               "label": "Z",
@@ -400,20 +376,15 @@
               "returnToPage": "letters"
             },
             {
-              "id": "u-backspace",
-              "label": "Delete",
-              "icon": "backspace",
-              "width": 1.5,
-              "action": { "command": "composition.deleteGrapheme" },
-              "behaviour": {
-                "type": "escalate",
-                "steps": [
-                  { "command": "composition.deleteGrapheme" },
-                  { "command": "composition.deleteWord" },
-                  { "command": "composition.clear" }
-                ],
-                "stepDwellClasses": ["function", "destructive", "destructive"]
-              },
+              "id": "u-dot",
+              "label": ".",
+              "action": { "command": "composition.insert", "args": { "text": "." } },
+              "returnToPage": "letters"
+            },
+            {
+              "id": "u-question",
+              "label": "?",
+              "action": { "command": "composition.insert", "args": { "text": "?" } },
               "returnToPage": "letters"
             }
           ]
@@ -430,29 +401,32 @@
               "id": "u-undo",
               "label": "Undo",
               "icon": "undo",
-              "width": 1,
+              "width": 1.5,
               "action": { "command": "composition.undo" },
-              "returnToPage": "letters"
-            },
-            {
-              "id": "u-comma",
-              "label": ",",
-              "action": { "command": "composition.insert", "args": { "text": "," } },
-              "width": 1,
               "returnToPage": "letters"
             },
             {
               "id": "u-space",
               "label": "Space",
               "action": { "command": "composition.insert", "args": { "text": " " } },
-              "width": 3.5,
+              "width": 5,
               "returnToPage": "letters"
             },
             {
-              "id": "u-dot",
-              "label": ".",
-              "action": { "command": "composition.insert", "args": { "text": "." } },
-              "width": 1,
+              "id": "u-backspace",
+              "label": "Delete",
+              "icon": "backspace",
+              "width": 2,
+              "action": { "command": "composition.deleteGrapheme" },
+              "behaviour": {
+                "type": "escalate",
+                "steps": [
+                  { "command": "composition.deleteGrapheme" },
+                  { "command": "composition.deleteWord" },
+                  { "command": "composition.clear" }
+                ],
+                "stepDwellClasses": ["function", "destructive", "destructive"]
+              },
               "returnToPage": "letters"
             }
           ]
@@ -465,7 +439,6 @@
       "rows": [
         {
           "keys": [
-            { "id": "c-pad-l", "width": 0.5, "spacer": true },
             {
               "id": "c-q",
               "label": "Q",
@@ -515,13 +488,11 @@
               "id": "c-p",
               "label": "P",
               "action": { "command": "composition.insert", "args": { "text": "P" } }
-            },
-            { "id": "c-pad-r", "width": 0.5, "spacer": true }
+            }
           ]
         },
         {
           "keys": [
-            { "id": "c-pad2-l", "width": 0.5, "spacer": true },
             {
               "id": "c-a",
               "label": "A",
@@ -566,18 +537,11 @@
               "id": "c-l",
               "label": "L",
               "action": { "command": "composition.insert", "args": { "text": "L" } }
-            },
-            { "id": "c-pad2-r", "width": 0.5, "spacer": true }
+            }
           ]
         },
         {
           "keys": [
-            {
-              "id": "c-shift",
-              "label": "abc",
-              "width": 1.5,
-              "action": { "command": "layout.showPage", "args": { "page": "letters" } }
-            },
             {
               "id": "c-z",
               "label": "Z",
@@ -614,10 +578,43 @@
               "action": { "command": "composition.insert", "args": { "text": "M" } }
             },
             {
+              "id": "c-dot",
+              "label": ".",
+              "action": { "command": "composition.insert", "args": { "text": "." } }
+            },
+            {
+              "id": "c-question",
+              "label": "?",
+              "action": { "command": "composition.insert", "args": { "text": "?" } }
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "id": "c-shift",
+              "label": "abc",
+              "width": 1.5,
+              "action": { "command": "layout.showPage", "args": { "page": "letters" } }
+            },
+            {
+              "id": "c-undo",
+              "label": "Undo",
+              "icon": "undo",
+              "width": 1.5,
+              "action": { "command": "composition.undo" }
+            },
+            {
+              "id": "c-space",
+              "label": "Space",
+              "action": { "command": "composition.insert", "args": { "text": " " } },
+              "width": 5
+            },
+            {
               "id": "c-backspace",
               "label": "Delete",
               "icon": "backspace",
-              "width": 1.5,
+              "width": 2,
               "action": { "command": "composition.deleteGrapheme" },
               "behaviour": {
                 "type": "escalate",
@@ -628,41 +625,6 @@
                 ],
                 "stepDwellClasses": ["function", "destructive", "destructive"]
               }
-            }
-          ]
-        },
-        {
-          "keys": [
-            {
-              "id": "c-numbers",
-              "label": "?123",
-              "width": 1.5,
-              "action": { "command": "layout.showPage", "args": { "page": "numbers" } }
-            },
-            {
-              "id": "c-undo",
-              "label": "Undo",
-              "icon": "undo",
-              "width": 1,
-              "action": { "command": "composition.undo" }
-            },
-            {
-              "id": "c-comma",
-              "label": ",",
-              "action": { "command": "composition.insert", "args": { "text": "," } },
-              "width": 1
-            },
-            {
-              "id": "c-space",
-              "label": "Space",
-              "action": { "command": "composition.insert", "args": { "text": " " } },
-              "width": 3.5
-            },
-            {
-              "id": "c-dot",
-              "label": ".",
-              "action": { "command": "composition.insert", "args": { "text": "." } },
-              "width": 1
             }
           ]
         }
@@ -778,6 +740,13 @@
         {
           "keys": [
             {
+              "id": "n-shift",
+              "label": "Shift",
+              "icon": "shift",
+              "width": 1.5,
+              "action": { "command": "layout.showPage", "args": { "page": "upper" } }
+            },
+            {
               "id": "n-dot",
               "label": ".",
               "action": { "command": "composition.insert", "args": { "text": "." } }
@@ -811,22 +780,6 @@
               "id": "n-plus",
               "label": "+",
               "action": { "command": "composition.insert", "args": { "text": "+" } }
-            },
-            {
-              "id": "n-backspace",
-              "label": "Delete",
-              "icon": "backspace",
-              "width": 1.5,
-              "action": { "command": "composition.deleteGrapheme" },
-              "behaviour": {
-                "type": "escalate",
-                "steps": [
-                  { "command": "composition.deleteGrapheme" },
-                  { "command": "composition.deleteWord" },
-                  { "command": "composition.clear" }
-                ],
-                "stepDwellClasses": ["function", "destructive", "destructive"]
-              }
             }
           ]
         },
@@ -839,10 +792,33 @@
               "action": { "command": "layout.showPage", "args": { "page": "letters" } }
             },
             {
+              "id": "n-undo",
+              "label": "Undo",
+              "icon": "undo",
+              "width": 1.5,
+              "action": { "command": "composition.undo" }
+            },
+            {
               "id": "n-space",
               "label": "Space",
               "action": { "command": "composition.insert", "args": { "text": " " } },
-              "width": 4.5
+              "width": 5
+            },
+            {
+              "id": "n-backspace",
+              "label": "Delete",
+              "icon": "backspace",
+              "width": 2,
+              "action": { "command": "composition.deleteGrapheme" },
+              "behaviour": {
+                "type": "escalate",
+                "steps": [
+                  { "command": "composition.deleteGrapheme" },
+                  { "command": "composition.deleteWord" },
+                  { "command": "composition.clear" }
+                ],
+                "stepDwellClasses": ["function", "destructive", "destructive"]
+              }
             }
           ]
         }

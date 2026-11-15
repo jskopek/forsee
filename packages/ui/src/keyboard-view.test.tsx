@@ -108,10 +108,12 @@ describe('KeyboardView with QWERTY', () => {
     const { host } = setup('forsee/en-qwerty');
     let notifications = 0;
     host.registry.onDidChange(() => (notifications += 1));
+    fireEvent.click(screen.getByRole('button', { name: '?123' }));
+    await host.advance(0);
     fireEvent.click(screen.getByRole('button', { name: 'Shift' }));
     await host.advance(0);
     expect(host.runtime.view.pageId).toBe('upper');
-    expect(notifications).toBe(1);
+    expect(notifications).toBe(2);
     expect(keyTargets(host).every((t) => t.id.startsWith('forsee/en-qwerty/upper/'))).toBe(true);
 
     fireEvent.click(screen.getByRole('button', { name: 'H' }));
