@@ -1,16 +1,9 @@
-import type { SettingField, SettingsContribution } from '@forsee/plugin-api';
+import type { SettingsContribution } from '@forsee/plugin-api';
 import type { PluginStatus } from '@forsee/plugin-host';
-import {
-  ChoiceGroup,
-  GazeTarget,
-  Icon,
-  StepperControl,
-  ToggleTarget,
-  useSetting,
-  type Choice,
-} from '@forsee/ui';
+import { GazeTarget, Icon } from '@forsee/ui';
 import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { ForseeRuntime } from './runtime';
+import { resetSettings, SettingControl } from './SettingControls';
 
 /** Plugins per page of the list. */
 const PLUGINS_PER_PAGE = 3;
@@ -246,15 +239,11 @@ function PluginOptions({
   const toggles = shown.filter((f) => f.type === 'boolean');
   const others = shown.filter((f) => f.type !== 'boolean');
 
-  const resetAll = (): void => {
-    for (const field of fields) {
-      try {
-        runtime.kernel.settings.reset(id, field.key);
-      } catch (error) {
-        runtime.reportError(error, `app.settings.plugins.${id}.reset`);
-      }
-    }
-  };
+  const resetAll = (): void =>
+    resetSettings(
+      runtime,
+      fields.map((field) => ({ namespace: id, field, category: name })),
+    );
 
   return (
     <div className={SECTION}>
@@ -301,12 +290,18 @@ function PluginOptions({
               }}
             >
               {toggles.map((field) => (
-                <BooleanField key={field.key} runtime={runtime} namespace={id} field={field} />
+                <SettingControl key={field.key} runtime={runtime} namespace={id} field={field} />
               ))}
             </div>
           )}
           {others.map((field) => (
-            <SettingFieldControl key={field.key} runtime={runtime} namespace={id} field={field} />
+            <SettingControl
+              key={field.key}
+              runtime={runtime}
+              namespace={id}
+              field={field}
+              className="max-h-[10rem] flex-1"
+            />
           ))}
         </div>
       )}
@@ -338,100 +333,6 @@ function PluginOptions({
           </GazeTarget>
         </div>
       )}
-    </div>
-  );
-}
-
-interface FieldProps {
-  readonly runtime: ForseeRuntime;
-  readonly namespace: string;
-  readonly field: SettingField;
-}
-
-function set(
-  runtime: ForseeRuntime,
-  namespace: string,
-  key: string,
-  value: string | number | boolean,
-): void {
-  try {
-    runtime.kernel.settings.set(namespace, key, value);
-  } catch (error) {
-    runtime.reportError(error, `app.settings.plugins.${namespace}.${key}`);
-  }
-}
-
-function BooleanField({ runtime, namespace, field }: FieldProps): ReactNode {
-  const value = useSetting(namespace, field.key) ?? field.default;
-  return (
-    <ToggleTarget
-      id={`settings/plugin-options/${namespace}/${field.key}`}
-      label={field.label}
-      value={value === true}
-      onChange={(next) => set(runtime, namespace, field.key, next)}
-    />
-  );
-}
-
-/** Generated control for a non-boolean setting: choices, a stepper, or the value shown read-only. */
-function SettingFieldControl({ runtime, namespace, field }: FieldProps): ReactNode {
-  const value = useSetting(namespace, field.key) ?? field.default;
-  const idPrefix = `settings/plugin-options/${namespace}/${field.key}`;
-  if (field.type === 'select') {
-    const options = (field.options ?? []).map((o) =>
-      typeof o === 'string' ? { label: o, value: o } : o,
-    );
-    const choices: Choice<string>[] = options.map((o) => ({
-      value: String(o.value),
-      label: o.label,
-    }));
-    return (
-      <ChoiceGroup
-        label={field.label}
-        idPrefix={idPrefix}
-        choices={choices}
-        value={String(value)}
-        onChoose={(chosen) => {
-          const option = options.find((o) => String(o.value) === chosen);
-          if (option) set(runtime, namespace, field.key, option.value);
-        }}
-        columns={Math.min(choices.length, 4)}
-        className="max-h-[10rem] flex-1"
-      />
-    );
-  }
-  if (field.type === 'number' || field.type === 'range') {
-    const n = Number(value);
-    const step = field.step ?? 1;
-    const decimals = Math.max(0, -Math.floor(Math.log10(step)));
-    const clamp = (x: number): number =>
-      Math.min(field.max ?? Infinity, Math.max(field.min ?? -Infinity, x));
-    return (
-      <StepperControl
-        idPrefix={idPrefix}
-        label={field.label}
-        valueText={n.toFixed(decimals)}
-        downLabel="Less"
-        upLabel="More"
-        canDown={field.min === undefined || n > field.min + 1e-9}
-        canUp={field.max === undefined || n < field.max - 1e-9}
-        onStep={(direction) => {
-          const next = Number(clamp(n + direction * step).toFixed(decimals));
-          set(runtime, namespace, field.key, next);
-        }}
-        className="max-h-[10rem] flex-1"
-      />
-    );
-  }
-  // Text settings need a text entry screen, which the settings sheet does not have yet.
-  return (
-    <div className="flex flex-col gap-1">
-      <h3 className="text-[clamp(0.95rem,2.2vh,1.2rem)] font-semibold text-ink-muted">
-        {field.label}
-      </h3>
-      <p className="rounded-xl bg-surface-overlay px-4 py-3 text-[clamp(1rem,2.4vh,1.25rem)]">
-        {String(value) === '' ? '(not set)' : String(value)}
-      </p>
     </div>
   );
 }

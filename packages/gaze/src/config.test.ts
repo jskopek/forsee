@@ -199,4 +199,31 @@ describe('settings', () => {
     expect(config.dwell).toEqual(adjusted);
     expect(config.method).toBe('switch');
   });
+
+  it('maps blink allowance and fixation spread into the engine config', () => {
+    const config = gazeConfigFromSettings({
+      'selection.holdMs': 500,
+      'fixation.dispersionPx': 120,
+    });
+    const engine = resolveGazeEngineConfig(config.engine);
+    expect(engine.selection.holdMs).toBe(500);
+    expect(engine.fixation.dispersionPx).toBe(120);
+  });
+
+  it('marks every setting that changes selection as needing confirmation', () => {
+    const risky = GAZE_SETTING_FIELDS.filter((f) => (f.danger ?? 'none') !== 'none').map(
+      (f) => f.key,
+    );
+    expect(risky).toEqual(
+      expect.arrayContaining([
+        'selectionMethod',
+        'dwell.letterMs',
+        'dwell.decayPerSecond',
+        'dwell.wakeMs',
+        'targets.hysteresisPx',
+        'selection.holdMs',
+      ]),
+    );
+    expect(GAZE_SETTING_FIELDS.find((f) => f.key === 'selectionMethod')?.danger).toBe('lockout');
+  });
 });

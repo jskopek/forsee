@@ -27,6 +27,8 @@ export interface ChoiceGroupProps<V extends string> {
   readonly dwellClass?: DwellClass;
   /** Show a check mark on the selected option (default true; tabs may leave it out). */
   readonly checkMark?: boolean;
+  /** All options shown but not selectable. */
+  readonly disabled?: boolean;
   readonly className?: string;
 }
 
@@ -48,6 +50,7 @@ export function ChoiceGroup<V extends string>({
   columns,
   dwellClass = 'function',
   checkMark = true,
+  disabled = false,
   className = '',
 }: ChoiceGroupProps<V>): ReactNode {
   const grid: CSSProperties = {
@@ -72,6 +75,7 @@ export function ChoiceGroup<V extends string>({
               label={choice.detail ? `${choice.label}, ${choice.detail}` : choice.label}
               appearance={selected ? 'function' : 'neutral'}
               pressed={selected}
+              disabled={disabled}
               onActivate={() => onChoose(choice.value)}
               className={OPTION}
             >
@@ -101,6 +105,7 @@ export interface ToggleTargetProps {
   readonly label: string;
   readonly value: boolean;
   readonly onChange: (value: boolean) => void;
+  readonly disabled?: boolean;
   readonly className?: string;
 }
 
@@ -110,6 +115,7 @@ export function ToggleTarget({
   label,
   value,
   onChange,
+  disabled = false,
   className = '',
 }: ToggleTargetProps): ReactNode {
   return (
@@ -119,6 +125,7 @@ export function ToggleTarget({
       label={label}
       appearance={value ? 'function' : 'neutral'}
       pressed={value}
+      disabled={disabled}
       onActivate={() => onChange(!value)}
       className={`${OPTION} ${className}`}
     >

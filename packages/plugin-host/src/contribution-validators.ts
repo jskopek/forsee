@@ -1,12 +1,18 @@
 import { validateSettingFields } from '@forsee/core';
-import type {
-  PhraseSet,
-  SettingField,
-  SettingType,
-  ThemeDefinition,
-  ThemeToken,
-  ValidationResult,
-  Vocabulary,
+import {
+  SETTING_AUDIENCES,
+  SETTING_DANGERS,
+  SETTING_UNITS,
+  type PhraseSet,
+  type SettingAudience,
+  type SettingDanger,
+  type SettingField,
+  type SettingType,
+  type SettingUnit,
+  type ThemeDefinition,
+  type ThemeToken,
+  type ValidationResult,
+  type Vocabulary,
 } from '@forsee/plugin-api';
 import { LIMITS } from './guards';
 import { Issues } from './issues';
@@ -206,6 +212,16 @@ const SETTING_FIELD_KEYS = [
   'min',
   'max',
   'step',
+  'category',
+  'order',
+  'unit',
+  'safeMin',
+  'safeMax',
+  'tags',
+  'audience',
+  'danger',
+  'requiresRestart',
+  'enabledWhen',
 ];
 
 function isSettingValue(value: unknown): boolean {
@@ -249,8 +265,32 @@ export function validateSettingFieldsJson(json: unknown): ValidationResult<Setti
     } else if (typeof f.default === 'string' && f.default.length > LIMITS.textLength) {
       issues.add(`${p}/default`, 'Too long');
     }
-    for (const bound of ['min', 'max', 'step'] as const) {
+    for (const bound of ['min', 'max', 'step', 'order', 'safeMin', 'safeMax'] as const) {
       if (f[bound] !== undefined) issues.number(`${p}/${bound}`, f[bound]);
+    }
+    if (f.category !== undefined) label(issues, `${p}/category`, f.category);
+    if (f.unit !== undefined && !SETTING_UNITS.includes(f.unit as SettingUnit)) {
+      issues.add(`${p}/unit`, `Expected one of ${SETTING_UNITS.join(', ')}`);
+    }
+    if (f.audience !== undefined && !SETTING_AUDIENCES.includes(f.audience as SettingAudience)) {
+      issues.add(`${p}/audience`, `Expected one of ${SETTING_AUDIENCES.join(', ')}`);
+    }
+    if (f.danger !== undefined && !SETTING_DANGERS.includes(f.danger as SettingDanger)) {
+      issues.add(`${p}/danger`, `Expected one of ${SETTING_DANGERS.join(', ')}`);
+    }
+    if (f.requiresRestart !== undefined && typeof f.requiresRestart !== 'boolean') {
+      issues.add(`${p}/requiresRestart`, 'Expected a boolean');
+    }
+    if (f.tags !== undefined && issues.array(`${p}/tags`, f.tags, { max: 20 })) {
+      f.tags.forEach((tag, ti) => issues.string(`${p}/tags/${ti}`, tag, { min: 1, max: 40 }));
+    }
+    if (f.enabledWhen !== undefined) {
+      const w = issues.object(`${p}/enabledWhen`, f.enabledWhen, ['key', 'equals']);
+      if (w) {
+        issues.string(`${p}/enabledWhen/key`, w.key, { min: 1, max: MAX_SETTING_KEY_LENGTH });
+        if (!isSettingValue(w.equals))
+          issues.add(`${p}/enabledWhen/equals`, 'Expected a setting value');
+      }
     }
     if (f.options !== undefined && issues.array(`${p}/options`, f.options, { max: 200 })) {
       f.options.forEach((option, oi) => {
