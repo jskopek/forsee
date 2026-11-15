@@ -15,6 +15,13 @@ export interface SheetProps {
   /** Close label. Default `Close`. */
   readonly closeLabel?: string;
   readonly children?: ReactNode;
+  /**
+   * Shown in place of the title bar (title and Close) while set, for
+   * something that must be answered first, such as "Keep these settings?".
+   * Taking the title bar's place means the content below does not move
+   * when it appears. Escape still closes the sheet.
+   */
+  readonly banner?: ReactNode;
   readonly className?: string;
 }
 
@@ -24,8 +31,12 @@ function SheetBody({
   id,
   closeLabel,
   children,
+  banner,
   className,
-}: Required<Omit<SheetProps, 'children'>> & { readonly children?: ReactNode }): ReactNode {
+}: Required<Omit<SheetProps, 'children' | 'banner'>> & {
+  readonly children?: ReactNode;
+  readonly banner?: ReactNode;
+}): ReactNode {
   const { occlusion } = useHostUi();
   // Everything outside the sheet stops being a gaze target while it is open.
   useLayoutEffect(() => occlusion.acquire(), [occlusion]);
@@ -50,6 +61,7 @@ function SheetBody({
   }, [onClose]);
 
   const titleId = `${id}-title`;
+  const showBanner = banner !== undefined && banner !== null && banner !== false;
   return (
     <div
       ref={dialogRef}
@@ -70,24 +82,33 @@ function SheetBody({
         data-forsee-measure={`${id}/panel`}
         className={`flex h-full w-full flex-col gap-[clamp(0.75rem,2vh,1.25rem)] rounded-2xl border-2 border-neutral-border bg-surface-raised p-[clamp(0.75rem,2vh,1.5rem)] ${className}`}
       >
-        <header className="flex shrink-0 items-center justify-between gap-6">
-          <h2 id={titleId} className="text-[clamp(1.5rem,4vh,2.25rem)] font-bold">
-            {title}
-          </h2>
-          <GazeTarget
-            id={`${id}/close`}
-            dwellClass="function"
-            label={closeLabel}
-            appearance="neutral"
-            onActivate={() => onClose()}
-            className="h-[clamp(3.5rem,10vh,5rem)] w-[clamp(9rem,18vw,13rem)]"
-          >
-            <span className="flex items-center gap-2 text-[clamp(1.1rem,2.6vh,1.5rem)]">
-              <Icon name="close" size={28} />
-              {closeLabel}
-            </span>
-          </GazeTarget>
-        </header>
+        {showBanner ? (
+          <div className="shrink-0">
+            <h2 id={titleId} className="sr-only">
+              {title}
+            </h2>
+            {banner}
+          </div>
+        ) : (
+          <header className="flex shrink-0 items-center justify-between gap-6">
+            <h2 id={titleId} className="text-[clamp(1.5rem,4vh,2.25rem)] font-bold">
+              {title}
+            </h2>
+            <GazeTarget
+              id={`${id}/close`}
+              dwellClass="function"
+              label={closeLabel}
+              appearance="neutral"
+              onActivate={() => onClose()}
+              className="h-[clamp(3.5rem,10vh,5rem)] w-[clamp(9rem,18vw,13rem)]"
+            >
+              <span className="flex items-center gap-2 text-[clamp(1.1rem,2.6vh,1.5rem)]">
+                <Icon name="close" size={28} />
+                {closeLabel}
+              </span>
+            </GazeTarget>
+          </header>
+        )}
         <div className="min-h-0 flex-1">{children}</div>
       </div>
     </div>
@@ -108,6 +129,7 @@ export function Sheet({
   id = 'sheet',
   closeLabel = 'Close',
   children,
+  banner,
   className = '',
 }: SheetProps): ReactNode {
   return (
@@ -117,6 +139,7 @@ export function Sheet({
         onClose={onClose}
         id={id}
         closeLabel={closeLabel}
+        banner={banner}
         className={className}
       >
         {children}

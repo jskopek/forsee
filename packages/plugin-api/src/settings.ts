@@ -46,7 +46,65 @@ export interface SettingField {
   readonly max?: number;
   /** Step for `range` (and the increment the gaze UI uses for `number`). */
   readonly step?: number;
+
+  // ---- Metadata for the generated settings screen (all optional) ----
+
+  /**
+   * Group shown on the settings screen ("Dwell timing", "Speech"). Fields
+   * with the same category are listed together, across namespaces. Plugin
+   * fields without one are listed under the plugin's name.
+   */
+  readonly category?: string;
+  /** Position within the category (lower first; default 0, then registration order). */
+  readonly order?: number;
+  /**
+   * Unit of a number, shown next to the value. `ms` values of a second or
+   * more are shown in seconds ("1.2 s").
+   */
+  readonly unit?: SettingUnit;
+  /**
+   * The range offered on the gaze-operated settings screen. `min`/`max`
+   * stay the hard validation bounds (a settings file may go further); the
+   * screen never steps outside `safeMin`/`safeMax`. Must lie within
+   * `min`/`max`, and the default must lie within it.
+   */
+  readonly safeMin?: number;
+  readonly safeMax?: number;
+  /** Extra search words ("speed", "jitter", "tired"). */
+  readonly tags?: readonly string[];
+  /** Who the setting is for. `advanced` and `therapist` are hidden until "Show advanced settings" is on. Default `everyone`. */
+  readonly audience?: SettingAudience;
+  /**
+   * How much a bad value can hurt. `caution` and `lockout` changes made on
+   * the settings screen must be confirmed with the new value in effect
+   * ("Keep these settings?"), otherwise they are undone. Default `none`.
+   */
+  readonly danger?: SettingDanger;
+  /** The change only takes effect after a restart (shown next to the control). */
+  readonly requiresRestart?: boolean;
+  /** Only meaningful while another setting of the same namespace has this value (the control is disabled otherwise). */
+  readonly enabledWhen?: SettingCondition;
 }
+
+/** Units the settings screen knows how to show. */
+export type SettingUnit = 'ms' | 'px' | 'Hz' | '%' | 'x' | 's' | 'min';
+
+/** Who a setting is for. */
+export type SettingAudience = 'everyone' | 'advanced' | 'therapist';
+
+/** How much a bad value can hurt (see `SettingField.danger`). */
+export type SettingDanger = 'none' | 'caution' | 'lockout';
+
+/** `SettingField.enabledWhen`: another key of the same namespace and the value it must have. */
+export interface SettingCondition {
+  readonly key: string;
+  readonly equals: SettingValue;
+}
+
+/** Allowed values of the metadata enums (for validators). */
+export const SETTING_UNITS: readonly SettingUnit[] = ['ms', 'px', 'Hz', '%', 'x', 's', 'min'];
+export const SETTING_AUDIENCES: readonly SettingAudience[] = ['everyone', 'advanced', 'therapist'];
+export const SETTING_DANGERS: readonly SettingDanger[] = ['none', 'caution', 'lockout'];
 
 /**
  * Namespace prefix reserved for the app's own settings. Each first-party
@@ -66,4 +124,13 @@ export interface SettingChange {
   readonly value: SettingValue;
   /** Value before the change (the default if never set). */
   readonly previous: SettingValue;
+}
+
+/**
+ * Payload of the registry's `committed` event: every effective change made
+ * by one operation (`set`, `reset`, `setMany`, `resetMany`, `load`), so a
+ * listener can reconfigure once for a preset instead of once per key.
+ */
+export interface SettingsCommit {
+  readonly changes: readonly SettingChange[];
 }

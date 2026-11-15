@@ -21,6 +21,7 @@ export * from './platform';
 export * from './regions';
 export * from './services';
 export * from './settings';
+export * from './settings-trial';
 export * from './testing';
 export * from './utf8';
 

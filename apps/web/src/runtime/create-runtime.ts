@@ -3,6 +3,7 @@ import {
   DisposableStore,
   GENERAL_SETTINGS_NAMESPACE,
   NOOP_DISPOSABLE,
+  SettingsTrial,
   type ErrorReporter,
   type GazeControl,
   type Kernel,
@@ -395,13 +396,20 @@ export async function createForseeRuntime(
     if (pipeline.selectionMethod !== method) pipeline.setSelectionMethod(method);
   };
   gazeSubscriptions.add(
-    kernel.settings.events.on('changed', (change) => {
-      if (change.namespace !== GAZE_SETTINGS_NAMESPACE) return;
+    // Once per commit, so a preset or a dwell adjustment reconfigures the pipeline once.
+    kernel.settings.events.on('committed', ({ changes }) => {
+      const keys = changes
+        .filter((change) => change.namespace === GAZE_SETTINGS_NAMESPACE)
+        .map((change) => change.key);
+      if (keys.length === 0) return;
+      const touched = (prefix: string): boolean => keys.some((key) => key.startsWith(prefix));
       try {
         gazeSettings = readGazeSettings();
-        if (change.key.startsWith('dwell.')) pipeline.setDwellConfig(gazeSettings.dwell);
-        if (change.key.startsWith('targets.')) targets.setHitTestConfig(gazeSettings.hitTest);
-        if (change.key.startsWith('filter.')) pipeline.setEngineConfig(gazeSettings.engine);
+        if (touched('dwell.')) pipeline.setDwellConfig(gazeSettings.dwell);
+        if (touched('targets.')) targets.setHitTestConfig(gazeSettings.hitTest);
+        if (touched('filter.') || touched('fixation.') || touched('selection.')) {
+          pipeline.setEngineConfig(gazeSettings.engine);
+        }
         applyMethod();
       } catch (error) {
         reportError(error, 'runtime.gaze.settings');
@@ -426,11 +434,11 @@ export async function createForseeRuntime(
   const adjust = async (direction: 'faster' | 'slower'): Promise<void> => {
     const result = adjustDwell(pipeline.dwellConfig, { direction });
     const values = dwellConfigToSettings(result.config);
-    for (const [key, value] of Object.entries(values)) {
-      if (kernel.settings.get(GAZE_SETTINGS_NAMESPACE, key) !== value) {
-        kernel.settings.set(GAZE_SETTINGS_NAMESPACE, key, value);
-      }
-    }
+    kernel.settings.setMany(
+      Object.entries(values)
+        .filter(([key, value]) => kernel.settings.get(GAZE_SETTINGS_NAMESPACE, key) !== value)
+        .map(([key, value]) => ({ namespace: GAZE_SETTINGS_NAMESPACE, key, value })),
+    );
     // Say the new value (not logged, so it is neither history nor learned).
     if (speechEngine.isAvailable()) {
       const seconds = (result.config.classMs.letter / 1000).toFixed(1);
@@ -475,6 +483,9 @@ export async function createForseeRuntime(
       await kernel.commands.execute('gaze.resume', undefined, 'app');
     },
   };
+
+  const settingsTrial = new SettingsTrial({ registry: kernel.settings, clock, reportError });
+  onDispose('settings.trial', () => settingsTrial.dispose());
 
   // ---------------------------------------------------------------- 7. layout
   const layout = createLayoutController(kernel, reportError);
@@ -569,6 +580,7 @@ export async function createForseeRuntime(
       },
       get: (namespace, key) => kernel.settings.get(namespace, key),
       set: (namespace, key, value) => kernel.settings.set(namespace, key, value),
+      trial: settingsTrial,
     },
     pluginHost,
     errors: collector.errors,
