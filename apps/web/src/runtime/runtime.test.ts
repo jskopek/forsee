@@ -77,7 +77,7 @@ describe('restart', () => {
   it('brings back the half sentence, history, settings and learned words; new utterances sort last', async () => {
     const first = createTestBrowser();
     const a = await boot(first);
-    await say(first, a, 'my zorblat is here');
+    await say(first, a, 'My zorblat is here');
     await typed(a, 'I would li');
     await a.gaze.adjustDwell('slower');
     a.speech.updateSettings({ voiceId: 'forsee.web-speech/Serena', rate: 1.2 });
@@ -96,7 +96,7 @@ describe('restart', () => {
       created: false,
     });
     expect(b.kernel.composition.text).toBe('I would li');
-    expect(b.kernel.conversation.listRecent(10).map((u) => u.body)).toEqual(['my zorblat is here']);
+    expect(b.kernel.conversation.listRecent(10).map((u) => u.body)).toEqual(['My zorblat is here']);
     expect(b.gaze.pipeline.dwellConfig.classMs.letter).toBe(
       DEFAULT_DWELL_CONFIG.classMs.letter + 100,
     );
@@ -115,7 +115,7 @@ describe('restart', () => {
     await b.kernel.commands.execute('composition.clear', undefined, 'app');
     await say(second, b, 'Lovely');
     const records = b.kernel.conversation.listRecent(10);
-    expect(records.map((u) => u.body)).toEqual(['my zorblat is here', 'Lovely']);
+    expect(records.map((u) => u.body)).toEqual(['My zorblat is here', 'Lovely']);
     expect(compareHlc(oldRecord.hlc, records[1]!.hlc)).toBeLessThan(0);
     expect(first.errors).toEqual([]);
     expect(second.errors).toEqual([]);
@@ -124,13 +124,13 @@ describe('restart', () => {
   it('flushes when the page is hidden or unloaded', async () => {
     const browser = createTestBrowser();
     const runtime = await boot(browser);
-    await typed(runtime, 'hidden text');
+    await typed(runtime, 'Hidden text');
     browser.pointer.setVisible(false);
     await settle();
     const snapshot = JSON.parse(await browser.files.readText('state/composition.json')) as {
       text: string;
     };
-    expect(snapshot.text).toBe('hidden text');
+    expect(snapshot.text).toBe('Hidden text');
   });
 });
 
@@ -143,8 +143,8 @@ describe('the predictor is a plugin', () => {
 
     await runtime.pluginHost.disable(NGRAM_PLUGIN_ID);
     expect(kernel.extensions.list('predictionProviders')).toEqual([]);
-    await typed(runtime, 'he');
-    expect(kernel.composition.text).toBe('he');
+    await typed(runtime, 'He');
+    expect(kernel.composition.text).toBe('He');
     expect(completions(kernel, runtime)).toEqual([]);
 
     await runtime.pluginHost.enable(NGRAM_PLUGIN_ID);
@@ -172,8 +172,8 @@ describe('the predictor is a plugin', () => {
     expect(status?.reason).toMatch(/composition\.read/);
     expect(runtime.kernel.extensions.list('predictionProviders')).toEqual([]);
     expect(runtime.startupIssues.map((i) => i.part)).toEqual(['plugins']);
-    await typed(runtime, 'still typing');
-    expect(runtime.kernel.composition.text).toBe('still typing');
+    await typed(runtime, 'Still typing');
+    expect(runtime.kernel.composition.text).toBe('Still typing');
   });
 });
 
@@ -218,14 +218,14 @@ describe('degraded starts', () => {
     expect(runtime.startupIssues.map((i) => i.part)).toEqual(['speech']);
     const unavailable = vi.fn();
     runtime.kernel.bus.on('speech.unavailable', unavailable);
-    await typed(runtime, 'hello there');
+    await typed(runtime, 'Hello there');
     await runtime.kernel.commands.execute('composition.speak', undefined, 'keyboard');
     expect(unavailable).toHaveBeenCalledWith(
-      expect.objectContaining({ text: 'hello there', reason: 'no-voice' }),
+      expect.objectContaining({ text: 'Hello there', reason: 'no-voice' }),
     );
-    expect(runtime.kernel.conversation.listRecent(1).map((u) => u.body)).toEqual(['hello there']);
+    expect(runtime.kernel.conversation.listRecent(1).map((u) => u.body)).toEqual(['Hello there']);
     await runtime.kernel.commands.execute('composition.undo', undefined, 'keyboard');
-    expect(runtime.kernel.composition.text).toBe('hello there');
+    expect(runtime.kernel.composition.text).toBe('Hello there');
   });
 
   it('reports speech.unavailable when the browser fails to speak', async () => {
@@ -233,12 +233,12 @@ describe('degraded starts', () => {
     const runtime = await boot(browser);
     const unavailable = vi.fn();
     runtime.speech.onUnavailable(unavailable);
-    await typed(runtime, 'hello');
+    await typed(runtime, 'Hello');
     await runtime.kernel.commands.execute('composition.speak', undefined, 'keyboard');
     browser.synthesis.error('synthesis-failed');
     await settle();
     expect(unavailable).toHaveBeenCalledWith(
-      expect.objectContaining({ text: 'hello', reason: 'error' }),
+      expect.objectContaining({ text: 'Hello', reason: 'error' }),
     );
   });
 
@@ -249,8 +249,8 @@ describe('degraded starts', () => {
     });
     expect(runtime.profile).toMatchObject({ storage: 'memory', persistent: false });
     expect(runtime.profile.warning).toBeUndefined();
-    await typed(runtime, 'ok');
-    expect(runtime.kernel.composition.text).toBe('ok');
+    await typed(runtime, 'Ok');
+    expect(runtime.kernel.composition.text).toBe('Ok');
   });
 
   it('falls back to memory with a warning when storage cannot be opened', async () => {
@@ -305,8 +305,8 @@ describe('degraded starts', () => {
     expect(runtime.startupIssues.map((i) => i.part)).toEqual(['plugins']);
     expect(runtime.startupIssues[0]?.message).toMatch(/boom/);
     expect(runtime.errors.list().map((e) => e.context)).toContain('plugin:forsee.broken:activate');
-    await typed(runtime, 'fine');
-    expect(runtime.kernel.composition.text).toBe('fine');
+    await typed(runtime, 'Fine');
+    expect(runtime.kernel.composition.text).toBe('Fine');
   });
 });
 
@@ -373,7 +373,7 @@ describe('plugins', () => {
     expect(runtime.kernel.extensions.list('phraseSets').map((s) => s.id)).toEqual([
       QUICKFIRE_PHRASE_SET_ID,
     ]);
-    await typed(runtime, 'a long sentence');
+    await typed(runtime, 'A long sentence');
     await runtime.kernel.commands.execute('composition.speak', undefined, 'keyboard');
     await settle();
     browser.synthesis.start();
@@ -384,9 +384,9 @@ describe('plugins', () => {
     );
     await settle();
     expect(browser.synthesis.cancelCalls).toBeGreaterThan(0);
-    expect(browser.synthesis.spoken.map((u) => u.text)).toEqual(['a long sentence', 'Please wait']);
+    expect(browser.synthesis.spoken.map((u) => u.text)).toEqual(['A long sentence', 'Please wait']);
     expect(runtime.kernel.conversation.listRecent(5).map((u) => u.body)).toEqual([
-      'a long sentence',
+      'A long sentence',
       'Please wait',
     ]);
   });
@@ -449,14 +449,14 @@ describe('input modes', () => {
     await settle();
     expect(runtime.gaze.inputMode).toBe('tap');
     expect(runtime.gaze.selectionMethod).toBe('direct');
-    expect(runtime.kernel.composition.text).toBe('a');
+    expect(runtime.kernel.composition.text).toBe('A');
 
     browser.pointer.move(10, 10);
     expect(runtime.gaze.inputMode).toBe('hover');
     expect(runtime.gaze.selectionMethod).toBe('dwell');
     dwellOn(browser, keyboard, 'k-b');
     lookAway(browser);
-    expect(runtime.kernel.composition.text).toBe('ab');
+    expect(runtime.kernel.composition.text).toBe('Ab');
     keyboard.dispose();
   });
 
@@ -566,8 +566,8 @@ describe('keyboards', () => {
     expect(runtime.layout.catalogue).toEqual([]);
     expect(runtime.layout.fallback).toBe(true);
     expect(runtime.layout.definition.id).toBe(FALLBACK_LAYOUT.id);
-    await runtime.kernel.commands.execute('composition.insert', { text: 'hi' }, 'keyboard');
-    expect(runtime.kernel.composition.text).toBe('hi');
+    await runtime.kernel.commands.execute('composition.insert', { text: 'Hi' }, 'keyboard');
+    expect(runtime.kernel.composition.text).toBe('Hi');
   });
 });
 
@@ -638,8 +638,9 @@ describe('offline promise', () => {
     const keyboard = mountTestKeyboard(runtime);
     dwellOn(browser, keyboard, 'k-h');
     dwellOn(browser, keyboard, 'k-i');
-    dwellOn(browser, keyboard, 'k-speak', 1600);
     lookAway(browser);
+    // Speak is in the control bar, not on the keyboard.
+    await runtime.kernel.commands.execute('composition.speak', undefined, 'app');
     await settle();
     browser.synthesis.start();
     browser.synthesis.end();
@@ -647,7 +648,7 @@ describe('offline promise', () => {
     await runtime.flush();
     keyboard.dispose();
     await runtime.dispose();
-    expect(browser.synthesis.spoken.map((u) => u.text)).toEqual(['hi', 'Yes']);
+    expect(browser.synthesis.spoken.map((u) => u.text)).toEqual(['Hi', 'Yes']);
     expect(calls).toEqual([]);
   });
 });

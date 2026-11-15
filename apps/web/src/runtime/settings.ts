@@ -94,8 +94,42 @@ export function speakModeOf(value: unknown): SpeakMode {
 /** Settings namespace of the screen itself (feedback and extra input). */
 export const UI_SETTINGS_NAMESPACE = 'app.ui';
 
-/** `app.ui`: dwell click sound, typing on a physical keyboard, and the settings screen's own options. */
+/**
+ * Where the control bar (Speak, Pause, Settings) sits. `auto` is right in
+ * landscape and top in portrait.
+ */
+export type ControlBarSetting = 'auto' | 'right' | 'left' | 'top' | 'bottom';
+
+/** Narrows a stored value to a control bar position setting. */
+export function controlBarSettingOf(value: unknown): ControlBarSetting {
+  return value === 'right' || value === 'left' || value === 'top' || value === 'bottom'
+    ? value
+    : 'auto';
+}
+
+/**
+ * `app.ui`: control bar position, dwell click sound, typing on a physical
+ * keyboard, and the settings screen's own options.
+ */
 export const UI_SETTING_FIELDS: readonly SettingField[] = [
+  {
+    key: 'controlBar',
+    label: 'Control bar',
+    description:
+      'Where Speak, Pause and Settings sit. Automatic puts them on the right in landscape and next to the message in portrait.',
+    type: 'select',
+    default: 'auto',
+    options: [
+      { label: 'Automatic', value: 'auto' },
+      { label: 'Right', value: 'right' },
+      { label: 'Left', value: 'left' },
+      { label: 'Top, next to the message', value: 'top' },
+      { label: 'Bottom', value: 'bottom' },
+    ],
+    category: 'Screen',
+    order: 0,
+    tags: ['layout', 'speak', 'pause', 'settings', 'sidebar', 'position'],
+  },
   {
     key: 'clickSound',
     label: 'Click sound',

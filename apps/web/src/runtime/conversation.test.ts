@@ -20,10 +20,10 @@ describe('the conversation path', () => {
     const keyboard = mountTestKeyboard(runtime);
 
     dwellOn(browser, keyboard, 'k-h');
-    expect(kernel.composition.text).toBe('h');
+    expect(kernel.composition.text).toBe('H');
     dwellOn(browser, keyboard, 'k-e');
     lookAway(browser);
-    expect(kernel.composition.text).toBe('he');
+    expect(kernel.composition.text).toBe('He');
     // Each dwell carried its key distribution to the composition.
     expect(kernel.composition.state.partialWordSteps).toHaveLength(2);
     expect(keyboard.executed.map((e) => e.command)).toEqual([
@@ -49,14 +49,17 @@ describe('the conversation path', () => {
     expect(completions.length).toBeGreaterThan(0);
     const word = completions.find((c) => c.toLowerCase().startsWith('he')) ?? completions[0]!;
     await kernel.commands.execute('composition.acceptPrediction', { text: word }, 'app');
-    expect(kernel.composition.text).toBe(`${word} `);
+    // It starts the message, so it takes the capital of the "H" typed.
+    const shown = word.charAt(0).toUpperCase() + word.slice(1);
+    expect(kernel.composition.text).toBe(`${shown} `);
 
-    dwellOn(browser, keyboard, 'k-speak', 1600);
     lookAway(browser);
+    // Speak is in the control bar, not on the keyboard.
+    await runtime.kernel.commands.execute('composition.speak', undefined, 'app');
     await settle();
 
     const spoken = browser.synthesis.spoken;
-    expect(spoken.map((u) => u.text)).toEqual([word]);
+    expect(spoken.map((u) => u.text)).toEqual([shown]);
     expect(spoken[0]?.voice?.name).toBe('Serena');
     browser.synthesis.start();
     browser.synthesis.end();
@@ -64,7 +67,7 @@ describe('the conversation path', () => {
 
     expect(kernel.composition.text).toBe('');
     expect(kernel.conversation.listRecent(10).map((u) => [u.sender, u.body])).toEqual([
-      ['user', word],
+      ['user', shown],
     ]);
     expect(browser.errors).toEqual([]);
 

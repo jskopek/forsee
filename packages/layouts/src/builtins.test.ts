@@ -89,10 +89,15 @@ describe('built-in layouts', () => {
           expect(typeof key.action.args?.text).toBe('string');
         }
       }
-      const speaks = keys.filter(
-        (k) => k.spacer !== true && k.group !== true && k.action.command === 'composition.speak',
+      // Speak and Clear are not keyboard keys: Speak is in the app's control
+      // bar, and holding Delete clears.
+      const chrome = keys.filter(
+        (k) =>
+          k.spacer !== true &&
+          k.group !== true &&
+          (k.action.command === 'composition.speak' || k.action.command === 'composition.clear'),
       );
-      expect(speaks.length, layout.id).toBeGreaterThan(0);
+      expect(chrome, layout.id).toEqual([]);
       // `speech.speak` needs text; a key bound to it without text would fail.
       const bare = keys.filter(
         (k) =>

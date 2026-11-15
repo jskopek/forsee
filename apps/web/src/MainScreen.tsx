@@ -1,7 +1,6 @@
 import {
   AppFrame,
   CompositionBar,
-  DwellSpeedControls,
   GazeTarget,
   HostUiProvider,
   Icon,
@@ -12,15 +11,14 @@ import {
   PhraseBar,
   PredictionStrip,
   SpeakButton,
-  StopSpeakingButton,
   useClickSound,
   useComposition,
   useMediaQuery,
   useSetting,
+  type ControlBarPosition,
 } from '@forsee/ui';
 import { useCallback, useState, type ReactNode } from 'react';
 import {
-  layoutHasSpeakKey,
   useActiveLayout,
   useProblems,
   useQuickfireTiles,
@@ -29,19 +27,47 @@ import {
 } from './hooks';
 import { usePhysicalKeyboard, useUnlockSpeechOnGesture } from './input';
 import { useNotices, type Notice } from './notices';
-import { DWELL_FASTER_COMMAND, DWELL_SLOWER_COMMAND, type ForseeRuntime } from './runtime';
+import type { ForseeRuntime } from './runtime';
+import { controlBarSettingOf, type ControlBarSetting } from './runtime/settings';
+import { SettingsPositionProvider } from './settings-position';
 import { SettingsSheet } from './SettingsSheet';
 
 /** The app once the runtime is up: the provider of the host UI around the screen. */
 export function MainScreen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
   return (
     <HostUiProvider services={runtime.hostUi} reportError={runtime.reportError}>
-      <Screen runtime={runtime} />
+      <SettingsPositionProvider>
+        <Screen runtime={runtime} />
+      </SettingsPositionProvider>
     </HostUiProvider>
   );
 }
 
-const SIDE_ITEM = 'flex min-h-0';
+const SIDE_ITEM = 'flex min-h-0 min-w-0';
+
+/** Where the control bar goes for a setting and orientation. */
+export function controlBarPosition(
+  setting: ControlBarSetting,
+  portrait: boolean,
+): ControlBarPosition {
+  if (setting !== 'auto') return setting;
+  return portrait ? 'top' : 'right';
+}
+
+/** Keyboard sides that touch the screen's edge (they get the larger edge keys). */
+function keyboardEdges(position: ControlBarPosition): {
+  top: boolean;
+  right: boolean;
+  bottom: boolean;
+  left: boolean;
+} {
+  return {
+    top: false,
+    right: position !== 'right',
+    bottom: position !== 'bottom',
+    left: position !== 'left',
+  };
+}
 
 function Screen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
   const portrait = useMediaQuery('(orientation: portrait)');
@@ -61,13 +87,46 @@ function Screen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
   usePhysicalKeyboard(runtime, physicalKeyboard && !settingsOpen);
 
   const problemCount = problems.issues.length + problems.errors.length;
-  const ownSpeakKey = layoutHasSpeakKey(layout.definition);
+  const position = controlBarPosition(
+    controlBarSettingOf(useSetting(runtime.settings.namespaces.ui, 'controlBar')),
+    portrait,
+  );
+  const vertical = position === 'left' || position === 'right';
 
   const banner = locked ? (
     <UnlockPrompt onUnlock={() => runtime.speech.unlock()} />
   ) : tiles.length > 0 ? (
     <PhraseBar label="Quick replies" idPrefix="quickfire" tiles={tiles} />
   ) : null;
+
+  const speak = (
+    <SpeakButton
+      command={{ command: 'composition.speak' }}
+      speaking={speaking}
+      stopCommand={{ command: 'speech.stop' }}
+    />
+  );
+  const settingsButton = (
+    <GazeTarget
+      id="actions/settings"
+      dwellClass="function"
+      label={problemCount > 0 ? `Settings, ${problemCount} problems` : 'Settings'}
+      appearance="neutral"
+      onActivate={() => setSettingsOpen(true)}
+      className="h-full min-h-[3.5rem] w-full px-2"
+    >
+      <Icon name="settings" size={28} />
+      <span className="text-[clamp(0.95rem,2.2vh,1.35rem)]">Settings</span>
+      {problemCount > 0 && (
+        <span
+          data-part="problem-badge"
+          className="absolute right-1.5 top-1.5 rounded-full bg-accent px-2 py-0.5 text-sm font-bold text-surface"
+        >
+          {problemCount}
+        </span>
+      )}
+    </GazeTarget>
+  );
 
   const notice = notices[0];
   const composition = (
@@ -85,52 +144,52 @@ function Screen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
     </div>
   );
 
-  const actions = (
+  // The control bar holds only Speak, Pause and Settings; plugins cannot add
+  // to it. Speak is always nearest the end of the message and takes the space
+  // Pause and Settings leave; Settings is the furthest from it. On top, the
+  // bar wraps the message: Settings, Pause, message, Speak.
+  const fixed = vertical
+    ? 'flex-none h-[clamp(5rem,15vh,8.5rem)]'
+    : 'flex-none w-[clamp(6.5rem,11vw,10.5rem)]';
+  const pause = <PauseButton />;
+  const actions =
+    position === 'top' ? (
+      <div className={`${SIDE_ITEM} flex-1`}>{speak}</div>
+    ) : (
+      <>
+        <div className={`${SIDE_ITEM} flex-1`}>{speak}</div>
+        <div className={`${SIDE_ITEM} ${fixed}`}>{pause}</div>
+        <div className={`${SIDE_ITEM} ${fixed}`}>{settingsButton}</div>
+      </>
+    );
+  const actionsStart =
+    position === 'top' ? (
+      <>
+        <div className={`${SIDE_ITEM} flex-1`}>{settingsButton}</div>
+        <div className={`${SIDE_ITEM} flex-1`}>{pause}</div>
+      </>
+    ) : undefined;
+
+  const keyboard = (
+    <KeyboardView
+      key={layout.definition.id}
+      runtime={layout.runtime}
+      targets={runtime.gaze.targets}
+      // Only sides that touch the screen's edge get the larger edge keys.
+      edges={keyboardEdges(position)}
+    />
+  );
+  const overlay = (
     <>
-      <div className={`${SIDE_ITEM} ${portrait ? 'flex-1' : 'flex-[1.1]'}`}>
-        {ownSpeakKey ? (
-          <StopSpeakingButton speaking={speaking} />
-        ) : (
-          <SpeakButton
-            command={{ command: 'composition.speak' }}
-            speaking={speaking}
-            stopCommand={{ command: 'speech.stop' }}
-          />
-        )}
-      </div>
-      <div className={`${SIDE_ITEM} ${portrait ? 'flex-[3]' : 'flex-[2.6]'}`}>
-        <DwellSpeedControls
-          horizontal={portrait}
-          commands={{
-            faster: { command: DWELL_FASTER_COMMAND },
-            slower: { command: DWELL_SLOWER_COMMAND },
-          }}
+      <PauseOverlay />
+      {settingsOpen && (
+        <SettingsSheet
+          runtime={runtime}
+          problems={problems}
+          portrait={portrait}
+          onClose={closeSettings}
         />
-      </div>
-      <div className={`${SIDE_ITEM} flex-1`}>
-        <PauseButton />
-      </div>
-      <div className={`${SIDE_ITEM} flex-1`}>
-        <GazeTarget
-          id="actions/settings"
-          dwellClass="function"
-          label={problemCount > 0 ? `Settings, ${problemCount} problems` : 'Settings'}
-          appearance="neutral"
-          onActivate={() => setSettingsOpen(true)}
-          className="h-full min-h-[3.5rem] w-full px-2"
-        >
-          <Icon name="settings" size={28} />
-          <span className="text-[clamp(0.95rem,2.2vh,1.35rem)]">Settings</span>
-          {problemCount > 0 && (
-            <span
-              data-part="problem-badge"
-              className="absolute right-1.5 top-1.5 rounded-full bg-accent px-2 py-0.5 text-sm font-bold text-surface"
-            >
-              {problemCount}
-            </span>
-          )}
-        </GazeTarget>
-      </div>
+      )}
     </>
   );
 
@@ -139,35 +198,12 @@ function Screen({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
       banner={banner}
       composition={composition}
       predictions={<PredictionStrip />}
-      keyboard={
-        <KeyboardView
-          key={layout.definition.id}
-          runtime={layout.runtime}
-          targets={runtime.gaze.targets}
-          // Only sides that touch the screen's edge get the larger edge keys.
-          edges={
-            portrait
-              ? { top: false, right: true, bottom: false, left: true }
-              : { top: false, right: false, bottom: true, left: true }
-          }
-        />
-      }
+      keyboard={keyboard}
       actions={actions}
-      actionsPosition={portrait ? 'bottom' : 'side'}
+      actionsPosition={position}
+      actionsStart={actionsStart}
       inert={settingsOpen}
-      overlay={
-        <>
-          <PauseOverlay />
-          {settingsOpen && (
-            <SettingsSheet
-              runtime={runtime}
-              problems={problems}
-              portrait={portrait}
-              onClose={closeSettings}
-            />
-          )}
-        </>
-      }
+      overlay={overlay}
     />
   );
 }

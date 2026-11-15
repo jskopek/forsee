@@ -20,7 +20,7 @@ To try it on an iPad or other device on the same network, see [docs/DEVELOPMENT.
 
 The Mac and Windows app (`apps/desktop`) wraps the same app: `pnpm desktop` opens it. Installers are built and released by CI; see [docs/RELEASING.md](docs/RELEASING.md). The website is in `website/`.
 
-**What works:** typing by dwell with a mouse or anything that moves the pointer (most eye trackers' mouse emulation), direct taps on touch screens, word prediction that learns your words, Speak, Stop, quick-fire replies ("Yes", "No", "Help", ...), in-place Faster/Slower dwell, pause with a deliberate wake target, a large-key two-step layout for less precise pointing, voice, rate and speak-mode settings, core plugins you can turn on and off with their own options (Settings → Plugins), and recovery of the half-written message after a reload.
+**What works:** typing by dwell with a mouse or anything that moves the pointer (most eye trackers' mouse emulation), direct taps on touch screens, word prediction that learns your words, Speak, Stop, quick-fire replies ("Yes", "No", "Help", ...), Faster/Slower dwell (Settings → Input), pause with a deliberate wake target, a large-key two-step layout for less precise pointing, voice, rate and speak-mode settings, core plugins you can turn on and off with their own options (Settings → Plugins), and recovery of the half-written message after a reload.
 
 **Not yet:** webcam eye tracking, the iPad and Android apps, phrase bank and history screens, the partner display, plugins from anyone other than the project. Status and the device tests still to do are in [docs/MVP_STATUS.md](docs/MVP_STATUS.md).
 

@@ -12,6 +12,7 @@ import {
   message,
   openApp,
   rest,
+  speakButton,
   test,
 } from './fixtures';
 
@@ -43,6 +44,8 @@ async function openSettings(page: Page): Promise<Locator> {
 
 async function chooseLayout(page: Page, name: string): Promise<void> {
   const sheet = await openSettings(page);
+  // Settings reopens where it was left; the keyboards are under Keyboard.
+  await sheet.getByRole('button', { name: 'Keyboard', exact: true }).click();
   await sheet.getByRole('button', { name }).click();
   await sheet.getByRole('button', { name: 'Close' }).click();
   await expect(sheet).toHaveCount(0);
@@ -142,7 +145,7 @@ test.describe('notices at 1024x768', () => {
     await dwellType(page, key(page, 'h'));
     await dwellType(page, key(page, 'i'));
     const prompt = page.getByRole('button', { name: 'Turn on speech' });
-    await dwellUntil(page, key(page, 'Speak'), () => prompt.isVisible(), 4000);
+    await dwellUntil(page, speakButton(page), () => prompt.isVisible(), 4000);
     await page.screenshot({
       path: shotPath('prompt-speech-1024x768.png', (n) => testInfo.outputPath(n)),
     });
@@ -199,8 +202,8 @@ test.describe('target sizes at 1024x768', () => {
     report.predictions = await smallestTarget(
       page.getByRole('group', { name: 'Word predictions' }),
     );
-    report['action bar'] = await smallestTarget(
-      page.getByRole('complementary', { name: 'Actions' }),
+    report['control bar'] = await smallestTarget(
+      page.getByRole('complementary', { name: 'Controls' }),
     );
 
     await chooseLayout(page, 'English large groups, en');

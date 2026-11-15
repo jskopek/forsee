@@ -1,5 +1,5 @@
-import { isActionKey, isGroupKey, type LayoutRuntime } from '@forsee/layouts';
-import type { LayoutActionKey, LayoutDefinition, LayoutKey, PhraseSet } from '@forsee/plugin-api';
+import type { LayoutRuntime } from '@forsee/layouts';
+import type { LayoutDefinition, PhraseSet } from '@forsee/plugin-api';
 import type { PhraseTile } from '@forsee/ui';
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { ForseeRuntime, RuntimeError, StartupIssue } from './runtime';
@@ -38,26 +38,6 @@ export function useKeyboardCatalogue(runtime: ForseeRuntime): readonly LayoutDef
     return () => subscription.dispose();
   }, [runtime]);
   return catalogue;
-}
-
-function actionKeysOf(key: LayoutKey): LayoutActionKey[] {
-  if (isGroupKey(key)) return [...key.keys];
-  return isActionKey(key) ? [key] : [];
-}
-
-/** Whether a layout has its own Speak key (`composition.speak`) on any page. */
-export function layoutHasSpeakKey(definition: LayoutDefinition): boolean {
-  return definition.pages.some((page) =>
-    page.rows.some((row) =>
-      row.keys.flatMap(actionKeysOf).some((key) => {
-        if (key.action.command === 'composition.speak') return true;
-        return (
-          key.behaviour?.type === 'escalate' &&
-          key.behaviour.steps.some((step) => step.command === 'composition.speak')
-        );
-      }),
-    ),
-  );
 }
 
 /** True while the speech engine is saying something (from its start and end events). */
