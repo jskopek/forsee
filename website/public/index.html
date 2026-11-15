@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Forsee: a speech keyboard for people who talk with their eyes</title>
+    <meta
+      name="description"
+      content="Forsee is a free, open-source speech keyboard for people who use eye gaze to communicate. For Mac and Windows. Works offline."
+    />
+    <meta name="theme-color" content="#0b0f17" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="stylesheet" href="/site.css" />
+  </head>
+  <body>
+    <main>
+      <header class="hero">
+        <img class="logo" src="/icon.svg" alt="" width="96" height="96" />
+        <h1>Forsee</h1>
+        <p class="tagline">A speech keyboard for people who talk with their eyes.</p>
+      </header>
+
+      <section class="intro">
+        <p>
+          Forsee lets you type by looking at keys and speaks what you write out loud. It works with
+          eye trackers and head pointers that move the mouse, and with touch screens. It is designed
+          for conversation, so it is quick to speak, quick to correct, and has short replies like
+          “Yes”, “No” and “Help” one look away.
+        </p>
+        <p>
+          It is free and open source, and it works without an internet connection. Nothing you type
+          or say leaves your computer.
+        </p>
+      </section>
+
+      <section class="downloads" aria-labelledby="download-heading">
+        <h2 id="download-heading">Download</h2>
+        <div class="buttons" id="buttons">
+          <a class="button" id="mac" href="/download/mac">
+            <span class="label">Download for Mac</span>
+            <span class="detail">Apple silicon (M1 or newer)</span>
+          </a>
+          <a class="button" id="windows" href="/download/windows">
+            <span class="label">Download for Windows</span>
+            <span class="detail">Windows 10 or 11</span>
+          </a>
+        </div>
+        <div class="steps">
+          <div>
+            <h3>On a Mac</h3>
+            <p>
+              Open the downloaded file and drag Forsee into the Applications folder. Then open it
+              from Applications. Macs with an Intel processor are not supported yet.
+            </p>
+          </div>
+          <div>
+            <h3>On Windows</h3>
+            <p>Double-click the downloaded file. Forsee installs and opens by itself.</p>
+          </div>
+        </div>
+        <p class="note">
+          Forsee keeps itself up to date: new versions download in the background and install the
+          next time you close it.
+        </p>
+      </section>
+
+      <figure class="screenshot">
+        <img
+          src="/screenshot.png"
+          alt="The Forsee keyboard: a large QWERTY keyboard with word suggestions above it, quick replies along the top and Speak, Stop and Pause buttons at the side."
+          width="1366"
+          height="768"
+          loading="lazy"
+        />
+      </figure>
+
+      <section class="early">
+        <h2>An early version</h2>
+        <p>
+          This is version 0.2. It is usable, but still young, and we would love to hear how it works
+          for you. If you rely on eye gaze, support someone who does, or work in AAC or speech
+          therapy, please get in touch at jeanmarc (at) empathy.works or on
+          <a href="https://github.com/jskopek/forsee/discussions">GitHub</a>.
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      <a href="https://github.com/jskopek/forsee">Source code</a>
+      <a href="https://github.com/jskopek/forsee/releases">All versions</a>
+      <a href="/code-signing">Code signing and privacy</a>
+      <span>© Empathy Works Inc. · MIT licence</span>
+    </footer>
+
+    <script>
+      // Put the button for this computer first.
+      (function () {
+        var platform =
+          (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+        var ua = navigator.userAgent || '';
+        var isWindows = /win/i.test(platform) || /windows/i.test(ua);
+        var isMac = /mac/i.test(platform) || /macintosh/i.test(ua);
+        var first = isWindows ? 'windows' : isMac ? 'mac' : null;
+        if (first === null) return;
+        var buttons = document.getElementById('buttons');
+        var button = document.getElementById(first);
+        button.classList.add('primary');
+        buttons.insertBefore(button, buttons.firstChild);
+      })();
+    </script>
+  </body>
+</html>

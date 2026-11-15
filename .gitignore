@@ -267,3 +267,11 @@ playwright-report/
 test-results/
 blob-report/
 coverage/
+
+# Forsee desktop build output
+apps/desktop/out/
+apps/desktop/release/
+!apps/desktop/build/
+
+# Claude Code personal settings
+.claude/settings.local.json

@@ -156,6 +156,51 @@ describe('validateSettingFieldsJson', () => {
     ).toEqual([]);
   });
 
+  it('accepts the settings-screen metadata and checks its shape', () => {
+    expect(
+      paths(
+        validateSettingFieldsJson([
+          { key: 'on', label: 'On', type: 'boolean', default: true },
+          {
+            key: 'delayMs',
+            label: 'Delay',
+            type: 'number',
+            default: 500,
+            min: 0,
+            max: 5000,
+            step: 100,
+            unit: 'ms',
+            safeMin: 100,
+            safeMax: 2000,
+            category: 'Speech',
+            order: 2,
+            tags: ['wait'],
+            audience: 'advanced',
+            danger: 'caution',
+            requiresRestart: false,
+            enabledWhen: { key: 'on', equals: true },
+          },
+        ]),
+      ),
+    ).toEqual([]);
+    expect(
+      paths(
+        validateSettingFieldsJson([
+          {
+            key: 'a',
+            label: 'A',
+            type: 'number',
+            default: 1,
+            unit: 'furlongs',
+            danger: 'extreme',
+            tags: 'x',
+            enabledWhen: { key: 'b' },
+          },
+        ]),
+      ),
+    ).toEqual(['/0/unit', '/0/danger', '/0/tags', '/0/enabledWhen/equals']);
+  });
+
   it('checks shape first, then the settings registry rules', () => {
     expect(paths(validateSettingFieldsJson({}))).toEqual(['']);
     expect(

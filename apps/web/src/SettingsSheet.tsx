@@ -1,4 +1,5 @@
-import { GAZE_SETTINGS_NAMESPACE } from '@forsee/gaze';
+import { safeRange, stepSettingValue } from '@forsee/core';
+import { GAZE_SETTING_FIELDS, GAZE_SETTINGS_NAMESPACE } from '@forsee/gaze';
 import { formatVoiceId, type SpeakMode, type Voice } from '@forsee/plugin-api';
 import {
   ChoiceGroup,
@@ -12,32 +13,41 @@ import {
   type Choice,
 } from '@forsee/ui';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { AllSettingsSection } from './AllSettingsSection';
 import { useActiveLayout, useKeyboardCatalogue, type Problems } from './hooks';
 import { PluginsSection } from './PluginsSection';
 import { useSettingsPosition } from './settings-position';
-import { DWELL_FASTER_COMMAND, DWELL_SLOWER_COMMAND, type ForseeRuntime } from './runtime';
+import {
+  DWELL_FASTER_COMMAND,
+  DWELL_SLOWER_COMMAND,
+  SPEECH_SETTING_FIELDS,
+  type ForseeRuntime,
+} from './runtime';
 import { controlBarSettingOf, type ControlBarSetting } from './runtime/settings';
+import { resetSettings, SettingsTrialBanner, useSettingsTrial } from './SettingControls';
 
-type Tab = 'keyboard' | 'voice' | 'speech' | 'input' | 'plugins' | 'problems';
+type Tab = 'keyboard' | 'voice' | 'speech' | 'input' | 'all' | 'plugins' | 'problems';
 
-/** Range offered for the speaking rate (the engine accepts more). */
-const RATE = { min: 0.5, max: 2, step: 0.1 } as const;
+/** The speaking rate's schema (its safe range is what the stepper offers; the engine accepts more). */
+const RATE_FIELD = SPEECH_SETTING_FIELDS.find((f) => f.key === 'rate');
 /** Voices per page (including "Automatic" on the first). */
 const VOICES_PER_PAGE = 6;
 /** The dwell times "Reset dwell times" restores. */
-const DWELL_TIME_KEYS = [
+const DWELL_TIME_KEYS = new Set([
   'dwell.letterMs',
   'dwell.predictionMs',
   'dwell.functionMs',
   'dwell.destructiveMs',
-];
+]);
 
 const TAB_BUTTON = 'h-full min-h-[3.5rem] w-full px-3 text-[clamp(1rem,2.4vh,1.35rem)]';
 
 /**
- * The settings sheet (minimal for the MVP): the keyboard in use, voice, speech rate and
- * mode, click sound, physical keyboard and dwell reset, the core plugins
- * (on/off and their options), plus the list of problems. Every change applies at once and is stored through the runtime.
+ * The settings sheet: the keyboard in use, voice, speech rate and
+ * mode, click sound, physical keyboard and dwell reset, every registered
+ * setting by category ("All settings", generated from the schemas), the
+ * core plugins (on/off and their options), plus the list of problems.
+ * Risky changes show "Keep these settings?" in place of the title bar. Every change applies at once and is stored through the runtime.
  */
 export function SettingsSheet({
   runtime,
@@ -52,17 +62,24 @@ export function SettingsSheet({
   readonly onClose: () => void;
 }): ReactNode {
   const [tab, setTab] = useSettingsPosition<Tab>('tab', 'keyboard');
+  const trialPending = useSettingsTrial(runtime) !== null;
   const problemCount = problems.issues.length + problems.errors.length;
   const tabs: Choice<Tab>[] = [
     { value: 'keyboard', label: 'Keyboard' },
     { value: 'voice', label: 'Voice' },
     { value: 'speech', label: 'Speaking' },
     { value: 'input', label: 'Input' },
+    { value: 'all', label: 'All settings' },
     { value: 'plugins', label: 'Plugins' },
     { value: 'problems', label: problemCount > 0 ? `Problems (${problemCount})` : 'Problems' },
   ];
   return (
-    <Sheet title="Settings" id="settings" onClose={onClose}>
+    <Sheet
+      title="Settings"
+      id="settings"
+      onClose={onClose}
+      banner={trialPending ? <SettingsTrialBanner runtime={runtime} /> : null}
+    >
       <div
         className={`grid h-full min-h-0 gap-[clamp(1rem,3vw,2rem)] ${
           portrait
@@ -89,6 +106,7 @@ export function SettingsSheet({
           {tab === 'speech' && <SpeakingSection runtime={runtime} />}
           {tab === 'input' && <InputSection runtime={runtime} />}
           {tab === 'plugins' && <PluginsSection runtime={runtime} />}
+          {tab === 'all' && <AllSettingsSection runtime={runtime} />}
           {tab === 'problems' && <ProblemsSection problems={problems} />}
         </section>
       </div>
@@ -321,9 +339,10 @@ function SpeakingSection({ runtime }: { readonly runtime: ForseeRuntime }): Reac
   const ns = runtime.settings.namespaces.speech;
   const rate = Number(useSetting(ns, 'rate') ?? 1);
   const mode = String(useSetting(ns, 'speakMode') ?? 'on-demand') as SpeakMode;
+  const range = RATE_FIELD ? safeRange(RATE_FIELD) : { min: 0.5, max: 2 };
   const step = (direction: -1 | 1): void => {
-    const next = Math.round((rate + direction * RATE.step) * 10) / 10;
-    runtime.speech.updateSettings({ rate: Math.min(RATE.max, Math.max(RATE.min, next)) });
+    if (!RATE_FIELD) return;
+    runtime.speech.updateSettings({ rate: stepSettingValue(RATE_FIELD, rate, direction) });
   };
   return (
     <div className={SECTION}>
@@ -333,8 +352,8 @@ function SpeakingSection({ runtime }: { readonly runtime: ForseeRuntime }): Reac
         valueText={`${rate.toFixed(1)}×`}
         downLabel="Slower"
         upLabel="Faster"
-        canDown={rate > RATE.min + 1e-9}
-        canUp={rate < RATE.max - 1e-9}
+        canDown={rate > range.min + 1e-9}
+        canUp={rate < range.max - 1e-9}
         onStep={step}
         className="max-h-[10rem] flex-1"
       />
@@ -356,15 +375,16 @@ function InputSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNo
   const physicalKeyboard = useSetting(ui, 'physicalKeyboard') === true;
   const general = runtime.settings.namespaces.general;
   const autoCapitalise = useSetting(general, 'autoCapitalise') !== false;
-  const reset = (): void => {
-    for (const key of DWELL_TIME_KEYS) {
-      try {
-        runtime.kernel.settings.reset(GAZE_SETTINGS_NAMESPACE, key);
-      } catch (error) {
-        runtime.reportError(error, 'app.settings.resetDwell');
-      }
-    }
-  };
+  // One step, with "Keep these settings?" (the defaults may be faster than this user can manage).
+  const reset = (): void =>
+    resetSettings(
+      runtime,
+      GAZE_SETTING_FIELDS.filter((field) => DWELL_TIME_KEYS.has(field.key)).map((field) => ({
+        namespace: GAZE_SETTINGS_NAMESPACE,
+        field,
+        category: field.category ?? '',
+      })),
+    );
   return (
     <div className={SECTION}>
       <div className="grid max-h-[10rem] min-h-0 flex-1 grid-cols-3 gap-[clamp(0.75rem,2vh,1.25rem)]">

@@ -273,6 +273,9 @@ export function createKernel(options: KernelOptions): Kernel {
         description:
           'A capital letter at the start of each sentence, and "I" on its own in English.',
         default: options.defaultAutoCapitalise ?? false,
+        category: 'Input and selection',
+        order: 30,
+        tags: ['capital', 'uppercase', 'shift', 'case', 'typing'],
       },
     ]),
   );

@@ -8,6 +8,15 @@ export const LAYOUT_SETTINGS_NAMESPACE = 'app.layout';
 
 const SPEAK_MODES: readonly SpeakMode[] = ['on-demand', 'each-sentence', 'each-word'];
 
+/**
+ * Categories of the app's own settings on the settings screen. Fields
+ * without a category (voice, keyboard) have screens of their own.
+ */
+export const APP_SETTING_CATEGORIES = Object.freeze({
+  speech: 'Speech',
+  feedback: 'Feedback',
+});
+
 /** `app.speech`: voice, rate, pitch, volume and speak mode. */
 export const SPEECH_SETTING_FIELDS: readonly SettingField[] = [
   {
@@ -26,6 +35,12 @@ export const SPEECH_SETTING_FIELDS: readonly SettingField[] = [
     min: SPEECH_LIMITS.rate.min,
     max: SPEECH_LIMITS.rate.max,
     step: 0.1,
+    unit: 'x',
+    safeMin: 0.5,
+    safeMax: 2,
+    category: APP_SETTING_CATEGORIES.speech,
+    order: 1,
+    tags: ['speed', 'fast', 'slow', 'voice'],
   },
   {
     key: 'pitch',
@@ -35,6 +50,9 @@ export const SPEECH_SETTING_FIELDS: readonly SettingField[] = [
     min: SPEECH_LIMITS.pitch.min,
     max: SPEECH_LIMITS.pitch.max,
     step: 0.1,
+    category: APP_SETTING_CATEGORIES.speech,
+    order: 2,
+    tags: ['voice', 'high', 'low'],
   },
   {
     key: 'volume',
@@ -44,6 +62,13 @@ export const SPEECH_SETTING_FIELDS: readonly SettingField[] = [
     min: SPEECH_LIMITS.volume.min,
     max: SPEECH_LIMITS.volume.max,
     step: 0.1,
+    description:
+      'Speech volume within the device volume. The screen keeps it at 0.2 or more so you are never silent by accident.',
+    safeMin: 0.2,
+    category: APP_SETTING_CATEGORIES.speech,
+    order: 3,
+    danger: 'caution',
+    tags: ['loud', 'quiet', 'sound'],
   },
   {
     key: 'speakMode',
@@ -55,6 +80,9 @@ export const SPEECH_SETTING_FIELDS: readonly SettingField[] = [
       { label: 'After each sentence', value: 'each-sentence' },
       { label: 'After each word', value: 'each-word' },
     ],
+    category: APP_SETTING_CATEGORIES.speech,
+    order: 0,
+    tags: ['speak', 'automatic', 'sentence', 'word'],
   },
 ];
 
@@ -79,7 +107,10 @@ export function controlBarSettingOf(value: unknown): ControlBarSetting {
     : 'auto';
 }
 
-/** `app.ui`: control bar position, dwell click sound and typing on a physical keyboard. */
+/**
+ * `app.ui`: control bar position, dwell click sound, typing on a physical
+ * keyboard, and the settings screen's own options.
+ */
 export const UI_SETTING_FIELDS: readonly SettingField[] = [
   {
     key: 'controlBar',
@@ -95,6 +126,9 @@ export const UI_SETTING_FIELDS: readonly SettingField[] = [
       { label: 'Top, next to the message', value: 'top' },
       { label: 'Bottom', value: 'bottom' },
     ],
+    category: 'Screen',
+    order: 0,
+    tags: ['layout', 'speak', 'pause', 'settings', 'sidebar', 'position'],
   },
   {
     key: 'clickSound',
@@ -102,6 +136,9 @@ export const UI_SETTING_FIELDS: readonly SettingField[] = [
     description: 'A short click when something is selected.',
     type: 'boolean',
     default: true,
+    category: APP_SETTING_CATEGORIES.feedback,
+    order: 0,
+    tags: ['sound', 'audio', 'feedback'],
   },
   {
     key: 'physicalKeyboard',
@@ -110,6 +147,18 @@ export const UI_SETTING_FIELDS: readonly SettingField[] = [
       'Letters, space, Backspace and Enter (speak) on a connected keyboard type into the message.',
     type: 'boolean',
     default: true,
+    category: 'Input and selection',
+    order: 20,
+    tags: ['keyboard', 'typing', 'input'],
+  },
+  {
+    key: 'showAdvanced',
+    label: 'Show advanced settings',
+    description:
+      'Lists the settings meant for experienced users and therapists. Risky changes still ask “Keep these settings?”.',
+    type: 'boolean',
+    default: false,
+    tags: ['therapist', 'expert', 'more'],
   },
 ];
 

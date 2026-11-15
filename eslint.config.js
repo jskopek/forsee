@@ -40,16 +40,15 @@ export default tseslint.config(
   {
     ignores: [
       // legacy code, left untouched
-      'keyboard-ui/**',
-      'app/**',
-      'conversations/**',
-      'templates/**',
+      'legacy/**',
       // generated
       '**/node_modules/**',
       '**/dist/**',
       '**/coverage/**',
       '**/playwright-report/**',
       '**/test-results/**',
+      'apps/desktop/out/**',
+      'apps/desktop/release/**',
     ],
   },
   js.configs.recommended,

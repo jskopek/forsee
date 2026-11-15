@@ -21,6 +21,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm format:check
+      # A new app version needs its CHANGELOG.md entry (docs/RELEASING.md).
+      - run: pnpm release:check
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build

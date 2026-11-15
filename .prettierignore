@@ -1,14 +1,9 @@
 # legacy code, left untouched
-/keyboard-ui
-/app
-/conversations
-/templates
+/legacy
 /reports
 /research_notes
 /*.md
 /docs/V1_PLAN.md
-.github/copilot-instructions.md
-/pyproject.toml
 
 # generated
 node_modules
@@ -19,3 +14,5 @@ test-results
 pnpm-lock.yaml
 *.tsbuildinfo
 .claude/
+release
+out
