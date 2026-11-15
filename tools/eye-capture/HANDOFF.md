@@ -6,8 +6,8 @@ format. This file covers what is left to do.
 
 ## Where things stand
 
-- **Branch:** `claude/modest-keller-tzw1nz` in `jskopek/forsee`. No pull request exists; do not
-  open one unless the owner asks.
+- **Branch:** `claude/modest-keller-tzw1nz` in `jskopek/forsee`, open as pull request #31. Push
+  further work to the same branch.
 - **Code:** everything is under `tools/eye-capture/`.
 - **Not verified:** the iOS app (`ios/EyeCapture/*.swift`) has never been compiled or run. It was
   written without Xcode and has passed a syntax check only.
@@ -134,7 +134,7 @@ data, since the eye lags the dot slightly.
 
 ## Ground rules
 
-- Commit to `claude/modest-keller-tzw1nz` and push there. No pull request unless asked.
+- Commit to `claude/modest-keller-tzw1nz` and push there; pull request #31 picks the commits up.
 - CI runs `prettier --check .`, so format Markdown and HTML with the repo's prettier before
   committing. Keep JavaScript inline in `controller.html`; a separate `.js` file would be linted
   by the repo's ESLint config, which does not allow browser globals there.
