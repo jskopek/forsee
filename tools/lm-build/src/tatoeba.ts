@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { encodeBase64, ModelBuilder, type ModelStats } from '@forsee/prediction';
-import { forEachLine, readWordList } from './files';
-import { REPO_ROOT, SEED_DIR } from './seed';
+import { forEachLine } from './files';
 
 /**
  * The shipped English model, built from the English sentences of Tatoeba
@@ -23,6 +23,9 @@ import { REPO_ROOT, SEED_DIR } from './seed';
  *    kept only one time in `stockNameKeepOneIn`, so the names do not crowd
  *    out ordinary words, for example at the start of a sentence.
  */
+
+/** Repository root (this file is `tools/lm-build/{src,dist}/…`). */
+export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 export const TATOEBA_DIR = join(REPO_ROOT, 'packages/prediction/data/en-tatoeba');
 export const TATOEBA_HELDOUT_PATH = join(TATOEBA_DIR, 'heldout.txt');
@@ -54,7 +57,6 @@ export const TATOEBA_BUILD_OPTIONS = {
   order: 3,
   maxVocab: 30_000,
   minNgramCount: 3,
-  wordListWeight: 0.3,
   description:
     'Forsee English model: built from Tatoeba sentences (https://tatoeba.org), CC BY 2.0 FR',
 } as const;
@@ -142,12 +144,12 @@ export async function readTatoebaExport(path: string): Promise<string[]> {
   return out;
 }
 
-/** Builds the model from prepared training sentences (with the seed word list as the unigram prior). */
-export async function buildTatoebaModel(
-  train: readonly string[],
-): Promise<{ bytes: Uint8Array; stats: ModelStats }> {
-  const wordList = await readWordList(join(SEED_DIR, 'vocabulary.txt'));
-  const builder = new ModelBuilder({ ...TATOEBA_BUILD_OPTIONS, wordList });
+/** Builds the model from prepared training sentences. */
+export function buildTatoebaModel(train: readonly string[]): {
+  bytes: Uint8Array;
+  stats: ModelStats;
+} {
+  const builder = new ModelBuilder(TATOEBA_BUILD_OPTIONS);
   for (const sentence of train) builder.addVocabularyText(sentence);
   for (const sentence of train) builder.addText(sentence);
   const bytes = builder.build();
@@ -185,7 +187,7 @@ export async function writeTatoebaModel(
   binPath?: string,
 ): Promise<TatoebaBuildSummary> {
   const split = prepareTatoeba(await readTatoebaExport(exportPath));
-  const { bytes, stats } = await buildTatoebaModel(split.train);
+  const { bytes, stats } = buildTatoebaModel(split.train);
   await mkdir(TATOEBA_DIR, { recursive: true });
   await writeFile(TATOEBA_MODULE_PATH, renderEnglishModule(bytes));
   await writeFile(TATOEBA_HELDOUT_PATH, `${split.heldOut.join('\n')}\n`);

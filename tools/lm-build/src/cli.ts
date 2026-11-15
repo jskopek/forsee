@@ -5,12 +5,10 @@ import { FakeClock } from '@forsee/core';
 import { createNgramProvider, createUserModel, loadLanguageModel } from '@forsee/prediction';
 import { keystrokeSavings } from './evaluate';
 import { buildFromFiles, formatStats, listInputFiles, readWordList } from './files';
-import { writeSeedModel } from './seed';
 import { TATOEBA_ENGLISH_URL, writeTatoebaModel } from './tatoeba';
 
 const USAGE = `Usage:
   lm-build --input <file|dir> [--input …] --out model.bin [options]
-  lm-build seed                       rebuild the seed model from packages/prediction/data/seed
   lm-build tatoeba --sentences eng_sentences.tsv [--bin model.bin]
                                       rebuild the shipped English model from a Tatoeba export
   lm-build check --model model.bin --text heldout.txt [--candidates 3]
@@ -138,10 +136,7 @@ async function tatoeba(argv: string[]): Promise<void> {
 
 async function main(argv: string[]): Promise<void> {
   const [command, ...rest] = argv;
-  if (command === 'seed') {
-    const stats = await writeSeedModel();
-    process.stdout.write(`Seed model rebuilt.\n${formatStats(stats)}\n`);
-  } else if (command === 'tatoeba') {
+  if (command === 'tatoeba') {
     await tatoeba(rest);
   } else if (command === 'check') {
     await evaluate(rest);

@@ -37,7 +37,6 @@ export {
   type NgramProvider,
   type NgramProviderOptions,
 } from './provider';
-export { loadSeedModel, seedModelBytes } from './seed';
 export {
   createTokeniser,
   isSpecialWord,

@@ -31,9 +31,9 @@ import {
   createNgramProvider,
   createPredictionEngine,
   createUserModel,
-  loadSeedModel,
   type PredictionEngine,
 } from '@forsee/prediction';
+import { loadEnglishModel } from '@forsee/prediction/english';
 import { act, render, type RenderOptions, type RenderResult } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
 import type { HostUiServices } from './contracts';
@@ -44,7 +44,7 @@ import { HostUiProvider } from './provider';
  * Test helpers for this package and for the app assembler: a real kernel,
  * a real gaze pipeline fed by the automatic pointer source over a
  * `FakePointerEnvironment`, a real layout runtime and a prediction engine
- * with the seed model, all on one `FakeClock`. Import from
+ * with the English model, all on one `FakeClock`. Import from
  * `@forsee/ui/testing` in a test file that opts into jsdom
  * (`// @vitest-environment jsdom`).
  */
@@ -100,9 +100,9 @@ export interface TestHostOptions {
   readonly engine?: GazeEngineConfigPatch;
   /** Build a gaze pipeline. Default true; false gives a tap-only (click) setup. */
   readonly gaze?: boolean;
-  /** Build a prediction engine with the seed model. Default true. */
+  /** Build a prediction engine with the English model. Default true. */
   readonly prediction?: boolean;
-  /** Prediction providers to register instead of the seed-model n-gram provider. */
+  /** Prediction providers to register instead of the English-model n-gram provider. */
   readonly providers?: readonly PredictionProvider[];
   /** Rectangles for elements by `data-forsee-measure` name. */
   readonly measure?: MeasureByName;
@@ -176,7 +176,7 @@ export function createTestHost(options: TestHostOptions = {}): TestHost {
   let prediction: PredictionEngine | undefined;
   if (options.prediction !== false) {
     const providers = options.providers ?? [
-      createNgramProvider({ base: loadSeedModel(), user: createUserModel({ clock }) }),
+      createNgramProvider({ base: loadEnglishModel(), user: createUserModel({ clock }) }),
     ];
     for (const provider of providers) {
       kernel.extensions.register('predictionProviders', 'app', provider);
