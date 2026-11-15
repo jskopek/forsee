@@ -637,7 +637,7 @@ Everything in stage B depends only on A2.
 
 | Decision | Recommendation |
 |---|---|
-| Where legacy code lives | Leave in place for now; move Django and `keyboard-ui/` into `legacy/` once v1 runs |
+| Where legacy code lives | Moved into `legacy/` for 0.2 (the SUBTLEX word lists were removed) |
 | Plain files vs SQLite | Plain files for v1, behind an interface; add a derived index when v2 retrieval needs one |
 | Whether the neural keyboard model is in the first release | Build the interface, harness and desktop inference service now; turn the model on per device class only after measurement |
 | Asynchronous messaging (texting a reply) as part of "speech" | Out of v1 core; possible as an output-sink plugin |

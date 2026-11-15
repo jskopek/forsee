@@ -3,7 +3,7 @@
   "productName": "Forsee",
   "version": "0.2.0",
   "description": "Forsee: an offline speech keyboard for eye-gaze users",
-  "author": "Forsee contributors",
+  "author": "Empathy Works Inc.",
   "homepage": "https://github.com/jskopek/forsee",
   "private": true,
   "license": "MIT",

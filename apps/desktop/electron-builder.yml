@@ -4,7 +4,7 @@
 # updating.
 appId: works.empathy.forsee
 productName: Forsee
-copyright: Copyright © 2026 Forsee contributors (MIT)
+copyright: Copyright © 2025-2026 Empathy Works Inc. (MIT)
 
 directories:
   output: release

@@ -343,7 +343,7 @@ if (!app.requestSingleInstanceLock()) {
   app.setAboutPanelOptions({
     applicationName: 'Forsee',
     applicationVersion: app.getVersion(),
-    copyright: 'MIT licensed. Made by the Forsee contributors.',
+    copyright: '© Empathy Works Inc. MIT licensed.',
     website: 'https://github.com/jskopek/forsee',
   });
 

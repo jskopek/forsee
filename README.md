@@ -75,4 +75,4 @@ I would love to talk to you!
 
 ## License
 
-MIT
+MIT, © Empathy Works Inc. See [LICENSE](LICENSE). The first prototype (version 0.1) is kept in [`legacy/`](legacy/).
