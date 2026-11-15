@@ -38,7 +38,19 @@ export interface CompositionBufferOptions extends EventBusOptions {
    * letter, capitalise the candidate's first letter too. Default true.
    */
   readonly matchCase?: boolean;
+  /** Automatic capitals; see `AutoCapitalise`. Default `off`. Changeable later. */
+  readonly autoCapitalise?: AutoCapitalise;
 }
+
+/**
+ * Automatic capitals, applied as text is typed (part of the same undo step):
+ * - `off`: none.
+ * - `sentences`: a letter typed, or a prediction accepted, at the start of
+ *   the text or of a sentence (after `.` `!` `?` and a space) gets a capital.
+ * - `sentences-and-i`: also the English pronoun "i" on its own ("i", "i'm",
+ *   "i'd") becomes "I" once the next character shows the word has ended.
+ */
+export type AutoCapitalise = 'off' | 'sentences' | 'sentences-and-i';
 
 interface Record_ {
   readonly text: string;
@@ -103,6 +115,19 @@ function reconcileSteps(steps: readonly InputStep[], partial: string): readonly 
   return [{ text: partial, distribution: null }];
 }
 
+/** The text so far ends a sentence (or is empty), so the next letter starts one. */
+const SENTENCE_START = /(^|[.!?…]["'”’)\]]*\s+|\n\s*)$/u;
+const STARTS_WITH_LOWER_LETTER = /^\p{Ll}/u;
+/** A lone lower-case "i" ending the text (`"so i"`). */
+const LONE_I = /(^|[\s([{"“‘])i$/u;
+/** Characters that end a word, so a lone "i" before them is the pronoun. */
+const ENDS_WORD = /^[^\p{L}\p{N}]/u;
+
+function capitaliseFirst(word: string): string {
+  const head = Array.from(word)[0] ?? '';
+  return head.toUpperCase() + word.slice(head.length);
+}
+
 /** Upper-cases the first character of `word` if `model` starts with an upper-case letter. */
 function matchLeadingCase(word: string, model: string): string {
   const first = model.charAt(0);
@@ -131,6 +156,8 @@ export class CompositionBuffer implements Disposable {
   private readonly historyLimit: number;
   private readonly clock: Clock | undefined;
   private readonly matchCase: boolean;
+  /** Automatic capitals (see `AutoCapitalise`); takes effect from the next change. */
+  autoCapitalise: AutoCapitalise;
   private cachedState: CompositionState | null = null;
 
   constructor(options: CompositionBufferOptions = {}) {
@@ -142,6 +169,21 @@ export class CompositionBuffer implements Disposable {
     this.historyLimit = limit;
     this.clock = options.clock;
     this.matchCase = options.matchCase ?? true;
+    this.autoCapitalise = options.autoCapitalise ?? 'off';
+  }
+
+  /** `text` about to follow `before`, with an automatic sentence capital. */
+  private capitaliseStart(before: string, text: string): string {
+    if (this.autoCapitalise === 'off') return text;
+    if (!STARTS_WITH_LOWER_LETTER.test(text) || !SENTENCE_START.test(before)) return text;
+    return capitaliseFirst(text);
+  }
+
+  /** `before`, with a lone "i" at its end made "I" when `text` ends that word. */
+  private capitaliseLoneI(before: string, text: string): string {
+    if (this.autoCapitalise !== 'sentences-and-i') return before;
+    if (!ENDS_WORD.test(text) || !LONE_I.test(before)) return before;
+    return `${before.slice(0, -1)}I`;
   }
 
   get text(): string {
@@ -180,18 +222,21 @@ export class CompositionBuffer implements Disposable {
    */
   insert(text: string, distribution?: KeyDistribution): void {
     if (text === '') return;
-    const { text: before, steps, autoSpace } = this.current;
-    if (autoSpace && before.endsWith(' ')) {
+    const { text: typedBefore, steps, autoSpace } = this.current;
+    if (autoSpace && typedBefore.endsWith(' ')) {
       if (/^\s+$/u.test(text)) {
         this.current = { ...this.current, autoSpace: false };
         return;
       }
       if (ATTACHING_PUNCTUATION.test(text)) {
-        const next = before.slice(0, -1) + text + (/\s$/u.test(text) ? '' : ' ');
+        const word = this.capitaliseLoneI(typedBefore.slice(0, -1), text);
+        const next = word + text + (/\s$/u.test(text) ? '' : ' ');
         this.apply('insert', { text: next, steps: [], autoSpace: true });
         return;
       }
     }
+    const before = this.capitaliseLoneI(typedBefore, text);
+    text = this.capitaliseStart(before, text);
     const next = before + text;
     const appended: InputStep[] = [...steps, { text, distribution: distribution ?? null }];
     this.apply('insert', {
@@ -252,6 +297,7 @@ export class CompositionBuffer implements Disposable {
     let accepted = word;
     if (partial === '') {
       if (base !== '' && !OPENERS.test(base)) base += ' ';
+      accepted = this.capitaliseStart(base, word);
     } else if (this.matchCase) {
       accepted = matchLeadingCase(word, partial);
     }

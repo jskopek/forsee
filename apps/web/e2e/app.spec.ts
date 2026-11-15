@@ -37,15 +37,15 @@ test.describe('with speech', () => {
     await expect(page.getByRole('button', { name: 'Speak', exact: true })).toHaveCount(1);
 
     // Each letter fires only after resting on it (adaptive dwell: 0.6 to 1.5 times 400 ms).
-    expect(await dwellType(page, key(page, 'h'))).toBe('h');
+    expect(await dwellType(page, key(page, 'h'))).toBe('H');
     const tookE = await dwellUntil(
       page,
       key(page, 'e'),
-      async () => (await message(page).textContent()) === 'he',
+      async () => (await message(page).textContent()) === 'He',
       3000,
     );
     expect(tookE).toBeGreaterThanOrEqual(0.6 * 400 - 50);
-    expect(await dwellType(page, key(page, 'l'))).toBe('hel');
+    expect(await dwellType(page, key(page, 'l'))).toBe('Hel');
 
     // A completion appears; dwelling on it accepts it (prediction dwell is 500 ms now).
     const strip = page.getByRole('group', { name: 'Word predictions' });
@@ -53,14 +53,16 @@ test.describe('with speech', () => {
     await expect(first).toBeVisible();
     const word = (await first.textContent())?.trim() ?? '';
     expect(word.toLowerCase().startsWith('hel')).toBe(true);
-    expect(await dwellType(page, first)).toBe(`${word} `);
+    // It starts the message, so it takes the capital of the "H" typed.
+    const accepted = `${word.charAt(0).toUpperCase()}${word.slice(1)}`;
+    expect(await dwellType(page, first)).toBe(`${accepted} `);
 
     // Speak is in the control bar and turns into "Stop speaking" while speech plays.
     const stop = page.getByRole('button', { name: 'Stop speaking' });
     await expect(stop).toHaveCount(0);
     await dwellUntil(page, speakButton(page), () => stop.isVisible(), 3000);
     await expectMessage(page, '');
-    expect(await spokenTexts(page)).toContain(word);
+    expect(await spokenTexts(page)).toContain(accepted);
     await expect(page.getByRole('button', { name: 'Stop speaking' })).toHaveCount(0);
   });
 
@@ -80,7 +82,7 @@ test.describe('with speech', () => {
   }) => {
     await openApp(page);
     await page.keyboard.type('abc');
-    await expectMessage(page, 'abc');
+    await expectMessage(page, 'Abc');
     const replies = page.getByRole('navigation', { name: 'Quick replies' });
     await expect(replies.getByRole('button')).toHaveText([
       'Yes',
@@ -93,7 +95,7 @@ test.describe('with speech', () => {
     ]);
     await dwell(page, replies.getByRole('button', { name: 'Yes' }), 1000);
     await expect.poll(() => spokenTexts(page)).toEqual(['Yes']);
-    await expectMessage(page, 'abc');
+    await expectMessage(page, 'Abc');
   });
 
   test('pause: keys do nothing until the wake target is dwelt on', async ({ page }) => {
@@ -118,7 +120,7 @@ test.describe('with speech', () => {
     );
     expect(took).toBeGreaterThanOrEqual(1900);
     await expectMessage(page, '');
-    expect(await dwellType(page, key(page, 'q'))).toBe('q');
+    expect(await dwellType(page, key(page, 'q'))).toBe('Q');
   });
 
   test('settings: coarse layout through its two-step groups, voice and rate', async ({ page }) => {
@@ -171,7 +173,7 @@ test.describe('with speech', () => {
     ).toBeVisible();
     const group = page.getByRole('group', { name: 'Keyboard: ABCDE' });
     await dwellUntil(page, key(page, 'ABCDE'), () => group.isVisible(), 3000);
-    expect(await dwellType(page, key(page, 'C'))).toBe('c');
+    expect(await dwellType(page, key(page, 'C'))).toBe('C');
     await expect(key(page, 'ABCDE')).toBeVisible();
   });
 
@@ -294,8 +296,8 @@ test.describe('speech before any click or tap', () => {
     await installFakeSpeech(page, { needsActivation: true });
     await openApp(page);
     // Only mouse movement so far (dwell is not a user gesture for the browser).
-    expect(await dwellType(page, key(page, 'h'))).toBe('h');
-    expect(await dwellType(page, key(page, 'i'))).toBe('hi');
+    expect(await dwellType(page, key(page, 'h'))).toBe('H');
+    expect(await dwellType(page, key(page, 'i'))).toBe('Hi');
     await dwellUntil(
       page,
       speakButton(page),
@@ -309,7 +311,7 @@ test.describe('speech before any click or tap', () => {
     expect(await spokenTexts(page)).toEqual([]);
 
     await prompt.click();
-    await expect.poll(() => spokenTexts(page)).toEqual(['hi']);
+    await expect.poll(() => spokenTexts(page)).toEqual(['Hi']);
     await expect(prompt).toHaveCount(0);
     await expect(page.getByRole('navigation', { name: 'Quick replies' })).toBeVisible();
   });
@@ -327,11 +329,11 @@ test.describe('touch', () => {
       await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
     }
     // No dwell wait: the letters are there straight away.
-    await expect(message(page)).toHaveText('hi', { timeout: 300 });
+    await expect(message(page)).toHaveText('Hi', { timeout: 300 });
     const speak = await speakButton(page).boundingBox();
     if (!speak) throw new Error('Speak');
     await page.touchscreen.tap(speak.x + speak.width / 2, speak.y + speak.height / 2);
-    await expect.poll(() => spokenTexts(page)).toEqual(['hi']);
+    await expect.poll(() => spokenTexts(page)).toEqual(['Hi']);
     await expectMessage(page, '');
   });
 });
@@ -344,10 +346,10 @@ test.describe('without any speech voice (headless Chromium as it is)', () => {
     const notice = page.locator('[data-notice^="notice/unspoken"]');
     await expect(notice).toBeVisible({ timeout: 10_000 });
     await expect(notice).toContainText('Could not speak');
-    await expect(notice).toContainText('hello there');
+    await expect(notice).toContainText('Hello there');
     await expectMessage(page, '');
     await notice.getByRole('button', { name: 'Put text back' }).click();
-    await expectMessage(page, 'hello there');
+    await expectMessage(page, 'Hello there');
     await expect(notice).toHaveCount(0);
   });
 });

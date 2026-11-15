@@ -175,6 +175,8 @@ export async function createForseeRuntime(
     speech: speechService,
     gaze: gazeControl,
     reportError,
+    // A speech keyboard has no Shift on its letters page: capitals come by themselves.
+    defaultAutoCapitalise: true,
     ...(options.defaultLocale === undefined ? {} : { defaultLocale: options.defaultLocale }),
   });
   onDispose('kernel', () => kernel.dispose());

@@ -354,6 +354,8 @@ function InputSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNo
   const ui = runtime.settings.namespaces.ui;
   const clickSound = useSetting(ui, 'clickSound') === true;
   const physicalKeyboard = useSetting(ui, 'physicalKeyboard') === true;
+  const general = runtime.settings.namespaces.general;
+  const autoCapitalise = useSetting(general, 'autoCapitalise') !== false;
   const reset = (): void => {
     for (const key of DWELL_TIME_KEYS) {
       try {
@@ -365,7 +367,7 @@ function InputSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNo
   };
   return (
     <div className={SECTION}>
-      <div className="grid max-h-[10rem] min-h-0 flex-1 grid-cols-2 gap-[clamp(0.75rem,2vh,1.25rem)]">
+      <div className="grid max-h-[10rem] min-h-0 flex-1 grid-cols-3 gap-[clamp(0.75rem,2vh,1.25rem)]">
         <ToggleTarget
           id="settings/click-sound"
           label="Click sound"
@@ -377,6 +379,12 @@ function InputSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNo
           label="Typing on a keyboard"
           value={physicalKeyboard}
           onChange={(value) => runtime.settings.set(ui, 'physicalKeyboard', value)}
+        />
+        <ToggleTarget
+          id="settings/auto-capitalise"
+          label="Automatic capitals"
+          value={autoCapitalise}
+          onChange={(value) => runtime.settings.set(general, 'autoCapitalise', value)}
         />
       </div>
       <div className="flex max-h-[12rem] min-h-0 flex-1 flex-col gap-2">
