@@ -275,6 +275,44 @@ async function main() {
     log('live view:', summary.live);
     await shot('08-live');
 
+    // 8b. Drift correction from selections: a look-point through the API (a target the size of
+    // the screen, so it is never an outlier) shows up in the experiments card's side-by-side
+    // numbers; the card's switch changes the setting.
+    for (let i = 0; i < 3; i++) {
+      const res = await fetch(`${engine.url}/api/lookpoint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          x: SCREEN.width / 2,
+          y: SCREEN.height / 2,
+          id: `e2e-${i}`,
+          rect: { x: 0, y: 0, width: SCREEN.width, height: SCREEN.height },
+        }),
+      });
+      if (!res.ok) problems.push(`lookpoint answered ${res.status}`);
+      await page.waitForTimeout(700);
+    }
+    await page.click('#nav a[href="#experiments"]');
+    await page.getByTestId('drift-card').waitFor({ timeout: 10000 });
+    await waitFor(
+      async () =>
+        /This session\s*[1-9]/.test((await page.getByTestId('drift-stats').textContent()) || ''),
+      10000,
+      'drift numbers in the experiments card',
+    );
+    summary.drift = (await page.getByTestId('drift-stats').textContent()).replace(/\s+/g, ' ');
+    await page.getByTestId('drift-toggle').check();
+    await waitFor(
+      async () =>
+        (await (await fetch(`${engine.url}/api/config`)).json()).values.calibration
+          .drift_correction === true,
+      5000,
+      'drift correction switched on from the card',
+    );
+    await page.getByTestId('drift-toggle').uncheck();
+    log('drift card:', summary.drift);
+    await shot('08b-drift');
+
     // 9. Recording.
     await page.click('#nav a[href="#recordings"]');
     await page.getByTestId('rec-label').fill('ui test');

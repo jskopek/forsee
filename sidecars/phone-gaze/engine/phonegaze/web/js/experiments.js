@@ -365,6 +365,127 @@ function presetsCard(ctx, rerender) {
   return { el, render };
 }
 
+/**
+ * Drift correction from selections: the switch, and the side-by-side numbers the engine keeps
+ * whether or not the correction is applied (state.drift, also GET /api/drift).
+ */
+function driftCard(ctx) {
+  const { api } = ctx;
+  let pending = false;
+  const toggle = h('input', {
+    type: 'checkbox',
+    'data-testid': 'drift-toggle',
+    onchange: async (e) => {
+      pending = true;
+      try {
+        const res = await api.post('/api/config', {
+          changes: { 'calibration.drift_correction': e.target.checked },
+        });
+        if (ctx.config) ctx.config.values = res.values;
+      } catch (err) {
+        ctx.toast(err.message, 'error');
+      }
+      pending = false;
+      api.refreshState().catch(() => {});
+    },
+  });
+  const status = h('p', { class: 'muted small', 'data-testid': 'drift-status' });
+  const table = h('div', { class: 'tablewrap', 'data-testid': 'drift-stats' });
+  const button = (text, body) =>
+    h('button', {
+      class: 'small',
+      text,
+      onclick: async () => {
+        try {
+          await api.post('/api/drift/reset', body);
+          await api.refreshState();
+        } catch (err) {
+          ctx.toast(err.message, 'error');
+        }
+      },
+    });
+  const el = h(
+    'section',
+    { class: 'card wide', 'data-testid': 'drift-card' },
+    h('h2', { text: 'Drift correction from selections' }),
+    h('p', {
+      class: 'muted',
+      text:
+        'Each key you select in Forsee by dwell is a place you looked. The engine learns a small, ' +
+        'slowly changing offset from these to undo slow drift (you settling in your chair, the ' +
+        'phone creeping). It is always measured, and only applied when switched on. Numbers are ' +
+        'the distance from the gaze estimate to the centre of the selected key, taken before that ' +
+        'key changed anything; keys you delete straight away are left out. Lower is better. ' +
+        'Untested on a real phone.',
+    }),
+    h('label', { class: 'row' }, toggle, 'Apply drift correction to the gaze output'),
+    status,
+    table,
+    h(
+      'div',
+      { class: 'row' },
+      button('Forget the learned offset', { offset: true }),
+      button('Clear the numbers', { offset: false, stats: true }),
+    ),
+  );
+  const row = (label, block) => {
+    const c = (block && block.corrected) || {};
+    const u = (block && block.uncorrected) || {};
+    return h(
+      'tr',
+      {},
+      h('td', { text: label }),
+      h('td', { text: fmt(block ? block.n : 0, 0) }),
+      h('td', { text: `${deg(c.median_deg)} / ${deg(c.mean_deg)}` }),
+      h('td', { text: `${deg(u.median_deg)} / ${deg(u.mean_deg)}` }),
+    );
+  };
+  function render() {
+    const d = api.state && api.state.drift;
+    if (!d) {
+      fill(table, h('p', { class: 'muted', text: 'No numbers yet.' }));
+      return;
+    }
+    if (!pending) toggle.checked = Boolean(d.enabled);
+    const rejected = Object.entries(d.rejected || {})
+      .map(([k, v]) => `${v} ${k}`)
+      .join(', ');
+    status.textContent =
+      `${d.enabled ? (d.applied ? 'On and applied' : 'On, waiting for selections') : 'Off (measuring only)'}` +
+      ` · offset ${deg(d.offset_deg)} from ${d.used_since_reset} selection(s) since the last reset` +
+      `${d.last_reset_reason ? ` (${d.last_reset_reason})` : ''}` +
+      ` · ${d.undone || 0} undone${rejected ? ` · not used: ${rejected}` : ''}` +
+      ` · mouse clicks ${d.clicks ? 'counted' : 'ignored'}`;
+    fill(
+      table,
+      h(
+        'table',
+        {},
+        h(
+          'thead',
+          {},
+          h(
+            'tr',
+            {},
+            h('th', { text: 'Selections' }),
+            h('th', { text: 'n' }),
+            h('th', { text: 'With correction (median / mean)' }),
+            h('th', { text: 'Without (median / mean)' }),
+          ),
+        ),
+        h(
+          'tbody',
+          {},
+          row('This session', d.session),
+          row(`Last ${(d.settings && d.settings.recent) || 50}`, d.recent),
+        ),
+      ),
+    );
+  }
+  render();
+  return { el, render };
+}
+
 function resultText(r) {
   if (typeof r.accuracy_deg === 'number')
     return `validated ${deg(r.accuracy_deg)} (${r.best_model})`;
@@ -443,6 +564,8 @@ export default {
     const list = h('div', { 'data-testid': 'settings' });
     let rows = [];
     let presets = null;
+    const drift = driftCard(ctx);
+    const offState = ctx.api.on('state', () => drift.render());
     const rerender = () => rows.forEach((r) => r.refresh());
     root.append(
       h(
@@ -455,6 +578,7 @@ export default {
         'div',
         { class: 'grid' },
         h('div', { class: 'card wide', id: 'presets-slot' }),
+        drift.el,
         h('section', { class: 'card wide' }, list),
       ),
     );
@@ -524,6 +648,6 @@ export default {
         r.row.hidden = Boolean(q) && !`${r.s.path} ${r.s.description}`.toLowerCase().includes(q);
       }
     });
-    return () => {};
+    return () => offState();
   },
 };

@@ -78,7 +78,7 @@ export default {
         check('fit', 'Fit the whole screen into this box'),
         check('raw', 'Show unfiltered point'),
         check('models', 'Show every model'),
-        check('lookpoints', 'Use dwell clicks for drift correction'),
+        check('lookpoints', 'Send dwell selections and mouse clicks on targets as look-points'),
         h(
           'label',
           { class: 'row' },
@@ -146,7 +146,13 @@ export default {
             title: `${size} px target`,
           });
           area.appendChild(el);
-          targets.push({ el, x, y, r: size / 2 });
+          const target = { el, x, y, r: size / 2 };
+          // A mouse click on a target: a weaker look-point (the engine uses it only when
+          // calibration.drift_clicks is on).
+          el.addEventListener('click', () => {
+            if (opts.lookpoints) sendLookpoint(target, 'click');
+          });
+          targets.push(target);
         }
       }
       const ratio = window.devicePixelRatio || 1;
@@ -175,6 +181,22 @@ export default {
       }
     }
 
+    /** A known look-point for drift correction: the target's centre and its bounding box. */
+    function sendLookpoint(t, kind) {
+      const m = mapper();
+      const [sx, sy] = m.toScreen(t.x, t.y);
+      const [x0, y0] = m.toScreen(t.x - t.r, t.y - t.r);
+      const [x1, y1] = m.toScreen(t.x + t.r, t.y + t.r);
+      api
+        .post('/api/lookpoint', {
+          x: sx,
+          y: sy,
+          kind,
+          rect: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 },
+        })
+        .catch((err) => ctx.toast(err.message, 'error'));
+    }
+
     function dwellStep(ax, ay, now) {
       let hit = null;
       for (const t of targets) {
@@ -193,12 +215,7 @@ export default {
         hit.el.classList.add('hit');
         window.setTimeout(() => hit.el.classList.remove('hit'), 400);
         dwell = { target: null, since: now, cooldownUntil: now + 700 };
-        if (opts.lookpoints) {
-          const [sx, sy] = mapper().toScreen(hit.x, hit.y);
-          api
-            .post('/api/lookpoint', { x: sx, y: sy })
-            .catch((err) => ctx.toast(err.message, 'error'));
-        }
+        if (opts.lookpoints) sendLookpoint(hit, 'dwell');
       }
     }
 
