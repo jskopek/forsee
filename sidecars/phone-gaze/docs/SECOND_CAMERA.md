@@ -1,10 +1,5 @@
 # Second camera: the Mac's webcam as a position anchor
 
-> **Parked design note.** Copied from the local branch `worktree-agent-a2231ae709b3d99b0`
-> (commit ab8551e). The code it describes (`engine/phonegaze/second_camera/`, the simulated
-> webcam, the page and its tests) is **not** in this branch: it lives on that local branch and in
-> `second-camera-experiment.patch` (made against commit b817b08). See [../ROADMAP.md](../ROADMAP.md).
-
 **Experimental, off by default. Tested only against the simulators (an observation-level
 two-camera simulator and the rendering simulator with the real face landmarker). It has never
 seen a real MacBook camera or a real face.**

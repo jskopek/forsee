@@ -31,6 +31,7 @@ import numpy as np
 from . import calibration as calib
 from . import filters as filters_mod
 from . import lens as lens_mod
+from . import second_camera as _second_camera  # second camera (experimental)
 from .config import Config, save_config, update
 from .fallback import FallbackPointer
 from .models.drift import DriftCorrector, DriftSettings, points_per_degree
@@ -275,6 +276,10 @@ class Engine:
         self._rates = {"gaze": _Rate(60), "obs": _Rate(10), "predictions": _Rate(10), "frame": _Rate(10)}
         self._last_state_json = ""
 
+        # second camera (experimental; phonegaze/second_camera): inert unless second_camera.enabled
+        self.second_camera = _second_camera.SecondCamera(self)
+        self._obs_m: Observation | None = None
+
     # ------------------------------------------------------------------------------------------
     # Life cycle
     # ------------------------------------------------------------------------------------------
@@ -327,6 +332,7 @@ class Engine:
             except Exception:  # noqa: BLE001
                 pass
         self.gaze_ws.close()
+        self.second_camera.stop()  # second camera
         if self.hotkeys is not None:
             self.hotkeys.stop()
             self.hotkeys = None
@@ -401,10 +407,10 @@ class Engine:
 
     def _new_models(self) -> list[GazeModel]:
         if self.model_factory is not None:
-            return list(self.model_factory())
+            return list(self.model_factory()) + self.second_camera.extra_models()  # second camera
         from .models import build_models
 
-        return list(build_models(self.config.models))
+        return list(build_models(self.config.models)) + self.second_camera.extra_models()  # second camera
 
     def _start_hotkeys(self) -> None:
         from .outputs.hotkeys import HotkeyListener
@@ -821,9 +827,11 @@ class Engine:
         # models fitted on ARKit's eyes must not be fed their output.
         arkit_lost = frame.camera.type == "arkit" and (frame.arkit is None or not frame.arkit.tracked)
         hold = zoom_stable is False or arkit_lost
+        # second camera: the observation the models and calibration see (obs itself when off)
+        obs_m = self._obs_m = self.second_camera.on_phone_frame(frame, obs)
         if self.active_run is not None and not hold:
             try:
-                self.active_run.add(obs)
+                self.active_run.add(obs_m)
             except Exception:  # noqa: BLE001
                 if _log_allowed("calib-add"):
                     log.exception("calibration add failed")
@@ -831,12 +839,13 @@ class Engine:
         if self._aim_samples is not None:
             self._aim_samples.append((dict(self.quality), frame.lens.adjusting_focus))
 
-        raw = None if hold else self._predict(obs)
+        raw = None if hold else self._predict(obs_m)
         fb_mode = getattr(self.config.outputs, "fallback_pointer", "off")
         if not hold and (fb_mode == "always" or (fb_mode == "uncalibrated" and self.active_model() is None)):
-            raw = self.fallback.update(obs, self.screen, now, self.config.outputs, self.config.filters.points_per_degree)
+            raw = self.fallback.update(obs_m, self.screen, now, self.config.outputs, self.config.filters.points_per_degree)
             if raw is not None:
                 raw.t_local = now
+        raw = self.second_camera.fallback(obs_m, raw)  # second camera: wide head box
         if raw is not None and raw.valid:
             self.drift.add_prediction(self._gaze_time(raw), raw.x, raw.y)
             if self.drift_applied(now):
@@ -869,7 +878,7 @@ class Engine:
                 self.stop_recording()
 
         self._ui_messages(frame, decoded, obs, raw, point, now)
-        self._lens_control(frame, decoded, obs, now)
+        self._lens_control(frame, decoded, self.second_camera.lens_obs(obs, decoded.intrinsics), now)  # second camera: wide head box
         timings["outputs"] = (time.perf_counter() - t0) * 1000.0
         if frame.t_received is not None:
             timings["total"] = (time.monotonic() - frame.t_received) * 1000.0
@@ -935,7 +944,7 @@ class Engine:
         if self._rates["obs"].ready(now):
             self.broadcast({"type": "obs", **obs.to_dict()})
         if self.models and self._rates["predictions"].ready(now):
-            preds = self.predict_all(obs)
+            preds = self.predict_all(self._obs_m or obs)  # second camera
             dicts = {k: (v.to_dict() if v else None) for k, v in preds.items()}
             # Model names at the top level (as INTERFACES.md lists) and under "predictions".
             self.broadcast({**{k: v for k, v in dicts.items() if k not in ("type", "predictions")}, "type": "predictions", "predictions": dicts})
@@ -1394,6 +1403,7 @@ class Engine:
             answer["chosen"] = result.chosen
             self._save_profile(result)
             self._drift_reset("new calibration")
+            self.second_camera.calibrated()  # second camera: reference pose for track_phone
         elif run.kind == "refine":
             reports = []
             for name, model in list(self.models.items()):
@@ -1701,6 +1711,8 @@ class Engine:
                 if self.hotkeys is not None:
                     self.hotkeys.stop()
                 self._start_hotkeys()
+            if "second_camera" in sections:  # second camera
+                self.second_camera.sync()
             if "phone.url" in applied and self.config.phone.url:
                 await self.connect(self.config.phone.url)
         except PhoneError as exc:
@@ -1806,6 +1818,7 @@ class Engine:
                 "hints": self.hints,
                 "quality": self.quality,
                 "aim": self.aim,
+                "second_camera": self.second_camera.state(),  # second camera
             }
         )
 
@@ -1837,6 +1850,7 @@ class Engine:
         while self.running:
             await asyncio.sleep(0.2)
             self._frame_watchdog()
+            self.second_camera.sync()  # second camera: open or close the webcam as configured
             if not self._subscribers:
                 continue
             try:

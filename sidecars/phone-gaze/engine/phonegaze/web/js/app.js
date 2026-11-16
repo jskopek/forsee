@@ -11,8 +11,9 @@ import experiments, { trackPresetResults } from './experiments.js';
 import recordings from './recordings.js';
 import tuning from './tuning.js';
 import { installGlint } from './glint.js';
+import secondCamera from './second-camera.js'; // second camera (experimental)
 
-const VIEWS = [dashboard, aim, tuning, live, experiments, recordings];
+const VIEWS = [dashboard, aim, tuning, live, experiments, recordings, secondCamera];
 
 const ctx = {
   api,

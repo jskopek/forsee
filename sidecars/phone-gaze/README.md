@@ -225,6 +225,41 @@ In the Models simulator (`tests/test_models_drift.py`: a ridge calibration, the 
 true error grows to about 2.8° without correction and stays at about 0.3° with it; with no drift
 both are about 0.25°.
 
+### Second camera: the Mac's webcam as an anchor (experiment, off by default)
+
+**Tested only against the simulators; never run with a real MacBook camera.** Design, geometry
+and the full simulator tables: [docs/SECOND_CAMERA.md](docs/SECOND_CAMERA.md).
+
+The MacBook's camera is fixed to the screen, so where it is relative to the screen is known.
+When it and the phone see the same head, the engine works out where the phone is relative to the
+screen, notices when the phone is moved, and can feed that to the gaze models.
+
+- **Turn it on.** The **Second camera** page (or the Experiments page, settings
+  `second_camera.*`): tick `enabled`. The page shows the webcam with the detected face, where the
+  phone is relative to the screen (with its uncertainty), whether the two cameras' distances
+  agree, and "Phone moved, re-anchoring" after a bump. Wait for **Anchored** (a few seconds of
+  both cameras seeing your face) before calibrating. With `--sim` the simulator's own webcam is
+  used.
+- **Camera permission.** macOS asks the app that runs the engine (Terminal, iTerm or your editor)
+  the first time. If you said no, or the page says the camera opens but delivers no frames: System
+  Settings > Privacy & Security > **Camera**, turn it on for that app, quit and reopen it.
+  `camera_index` picks another camera.
+- **Check the geometry first.** Measure where the phone is with a ruler and compare with the
+  page. If the **Ratio** in "Do the cameras agree?" is not near 1 after a calibration, set
+  `hfov_deg` to the suggested field of view. `offset_mm` is the lens's height above the top edge
+  of the picture (about 8 mm on recent MacBooks; measure yours).
+- **What to compare** (Validate after each; the extra models appear in its table):
+  `screen_pose` `prior` or `fixed` (model `geometric_2cam` against `geometric`, also with a 2 × 2
+  grid); `track_phone` (calibrate, move the phone a few centimetres, Validate with it off, then
+  on, without recalibrating); `distance_source` `triangulated`; `head_pose_source`; `webcam_model`
+  (the webcam alone, the baseline the phone must beat); `wide_head_box` (move your head out of
+  the phone's view: the crops should follow and the gaze keep coming, marked low confidence).
+- **Simulator numbers** (degrees, one head position, phone moved 2 cm and 4° after calibration):
+  plain geometric 0.93 still, 2.79 after the phone moved, 1.47 with `track_phone`; webcam alone
+  7.4; the prior and fixed screen pose did not beat the plain model. On rendered images with the
+  real face landmarker the solved phone position was 3 to 10 cm off (MediaPipe's head pose on the
+  synthetic face is biased), while a phone move was measured to about 1 cm.
+
 ### Record a session and send it back
 
 On the **Recordings** page press Start, do a calibration and a validation, look around for a
@@ -302,6 +337,7 @@ cd sidecars/phone-gaze/engine
 .venv/bin/python -m pytest                       # all Python tests (about a minute)
 node tests/ui/ui_e2e.cjs                         # browser UI against the simulator
 node tests/ui/accuracy_e2e.cjs arkit camera      # accuracy against the simulator (about 6 min)
+node tests/ui/second_camera_e2e.cjs              # the second camera against the simulator (about 4 min)
 .venv/bin/python -m phonegaze.sim --mode camera  # the simulated phone on its own, port 8081
 ```
 
