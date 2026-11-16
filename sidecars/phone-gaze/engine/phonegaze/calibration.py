@@ -38,7 +38,7 @@ import numpy as np
 
 from .config import CalibrationConfig
 from .models import features as F
-from .models.base import BaseModel, Correction, error_stats, fit_samples, loo_predictions, mm_per_point
+from .models.base import BaseModel, Correction, error_stats, fit_samples, lopo_predictions, loo_predictions, mm_per_point, pose_groups
 from .types import CalibSample, FitReport, GazeModel, GazePoint, Observation, ScreenInfo
 
 log = logging.getLogger(__name__)
@@ -163,52 +163,83 @@ def angular_error_deg(predicted: tuple[float, float], target: tuple[float, float
 # ---------------------------------------------------------------------------------------------
 
 
-def _dot_feature(obs: Observation) -> tuple[np.ndarray, str] | None:
-    """A per-sample measurement used to find outliers and judge stability, in approximate
-    degrees of eye rotation: the mean iris-centre ray of the available eyes (the most direct
-    measurement; head-pose jitter does not reach it), else the mean optical-axis angle."""
+EYE_WIDTH_M = 0.03
+"""Typical distance between the inner and outer eye corners, to turn the iris-to-corner vector
+into approximate degrees of eye rotation."""
+
+SPREAD_FACTOR = {"corner": 1.0, "iris": 1.5, "gaze": 1.0}
+"""How much of ``max_spread_deg`` each stability feature may use. The raw iris ray also moves
+with head translation (about 5.6 degrees per millimetre), so it gets more room."""
+
+
+def _dot_features(obs: Observation) -> dict[str, np.ndarray]:
+    """Per-sample measurements used to find outliers and judge stability, each in approximate
+    degrees of eye rotation:
+
+    - ``"corner"``: the iris centre relative to the eye corners. Head translation moves iris and
+      corners together, so seated sway does not count, but corner noise does (a lot at low
+      resolution);
+    - ``"iris"``: the iris-centre ray. Precise, but head translation reaches it;
+    - ``"gaze"``: the optical-axis angles (ARKit's eye direction, or the estimators' axis).
+
+    All of them move when the eyes really move; :func:`clean_dot` judges a dot on whichever is
+    steadiest, so each feature's own noise or blind spot does not reject good dots."""
+    out: dict[str, np.ndarray] = {}
+    vecs = [v for v in (F.iris_corner_vector(obs, s) for s in F.SIDES) if v is not None]
+    if vecs:
+        out["corner"] = np.degrees(np.mean(np.array(vecs, float), axis=0) * EYE_WIDTH_M / F.EYE_IRIS_DISTANCE_M)
     rays = [obs.intrinsics.ray(*obs.eye(s).iris_center) for s in F.SIDES if obs.intrinsics is not None and obs.eye(s).iris_center is not None and not obs.eye(s).blink]
     if rays:
         d = obs.distance or 0.6
-        return np.mean(rays, axis=0) * d / (F.EYE_IRIS_DISTANCE_M * math.pi / 180.0), "iris"
+        out["iris"] = np.mean(rays, axis=0) * d / (F.EYE_IRIS_DISTANCE_M * math.pi / 180.0)
     angs = [F.dir_angles(g) for g in (F.optical_dir(obs, s) for s in F.SIDES) if g is not None]
     if angs:
-        return np.degrees(np.mean(angs, axis=0)), "gaze"
-    return None
+        out["gaze"] = np.degrees(np.mean(angs, axis=0))
+    return out
 
 
 def clean_dot(observations: list[Observation], outlier_mad: float = 3.0, min_samples: int = 4, max_spread_deg: float = 3.0) -> tuple[list[Observation], str]:
     """Drop blinks, missing eyes and outliers from one dot's observations; check stability.
 
-    Returns the kept observations and ``""``, or ``[]`` and the reason the dot was rejected.
+    Each stability feature (:func:`_dot_features`) available in at least ``min_samples``
+    observations is tried; the dot is judged on the one with the smallest spread relative to its
+    limit, and its outliers are dropped. Returns the kept observations and ``""``, or ``[]`` and
+    the reason the dot was rejected.
     """
-    usable: list[tuple[Observation, np.ndarray]] = []
-    kind_count: dict[str, int] = {}
-    feats = []
+    usable: list[tuple[Observation, dict[str, np.ndarray]]] = []
     for o in observations:
         if (o.left.blink and o.right.blink) or not (F.eye_usable(o.left) or F.eye_usable(o.right)):
             continue
-        f = _dot_feature(o)
-        if f is None:
-            continue
-        feats.append((o, f))
-        kind_count[f[1]] = kind_count.get(f[1], 0) + 1
-    if not feats:
+        f = _dot_features(o)
+        if f:
+            usable.append((o, f))
+    if not usable:
         return [], "no usable eye measurements (blinks or tracking lost)"
-    main = max(kind_count, key=lambda k: kind_count[k])
-    usable = [(o, f[0]) for o, f in feats if f[1] == main]
-    if len(usable) < min_samples:
-        return [], f"only {len(usable)} usable samples (need {min_samples})"
-    x = np.array([f for _, f in usable])
-    med = np.median(x, axis=0)
-    mad = np.median(np.abs(x - med), axis=0) * 1.4826
-    mad = np.maximum(mad, 0.1)  # degrees: never call sub-0.1-degree noise an outlier
-    keep = np.all(np.abs(x - med) <= outlier_mad * mad, axis=1)
-    kept = [o for (o, _), k in zip(usable, keep) if k]
-    if len(kept) < min_samples:
-        return [], f"only {len(kept)} samples left after removing outliers (need {min_samples})"
-    spread = float(np.sqrt(np.sum(np.var(x[keep], axis=0))))
-    if spread > max_spread_deg:
+    best: tuple[float, list[Observation], float] | None = None
+    most = 0
+    for kind, factor in SPREAD_FACTOR.items():
+        rows = [(o, f[kind]) for o, f in usable if kind in f]
+        most = max(most, len(rows))
+        if len(rows) < min_samples:
+            continue
+        x = np.array([v for _, v in rows])
+        med = np.median(x, axis=0)
+        mad = np.median(np.abs(x - med), axis=0) * 1.4826
+        mad = np.maximum(mad, 0.1)  # degrees: never call sub-0.1-degree noise an outlier
+        keep = np.all(np.abs(x - med) <= outlier_mad * mad, axis=1)
+        kept = [o for (o, _), k in zip(rows, keep) if k]
+        if len(kept) < min_samples:
+            continue
+        spread = float(np.sqrt(np.sum(np.var(x[keep], axis=0))))
+        score = spread / (max_spread_deg * factor)
+        if best is None or score < best[0]:
+            best = (score, kept, spread)
+    if best is None:
+        if most < min_samples:
+            return [], f"only {most} usable samples (need {min_samples})"
+        return [], f"too few samples left after removing outliers (need {min_samples})"
+    score, kept, spread = best
+    if score > 1.0:
         return [], f"gaze not steady (spread {spread:.1f} deg)"
     return kept, ""
 
@@ -308,24 +339,33 @@ MIN_LOO_COVERAGE = 0.7
 """A model must predict at least this fraction of held-out samples to be chosen."""
 
 
-def _common_distance(models: dict[str, GazeModel]) -> float | None:
-    for m in models.values():
-        fn = getattr(m, "degree_distance", None)
-        d = fn() if fn is not None else None
-        if d:
-            return float(d)
-    return None
+REGRESSION_MODELS = ("ridge", "kernel")
+"""Models that learn a mapping from features and cannot extrapolate to head positions they never
+saw. From one head position they are chosen only by a clear margin (:data:`REGRESSION_MARGIN`)."""
+
+REGRESSION_MARGIN = 0.5
+"""From a single head position a regression model (or a blend whose weight is mostly regression
+models, ``params["regression_share"]`` above one half) must score below this fraction of the best
+physical model's score (geometric, reflection, residual) to be chosen."""
+
+
+def _regression_like(r: FitReport) -> bool:
+    return r.model in REGRESSION_MODELS or float((r.params or {}).get("regression_share") or 0.0) > 0.5
 
 
 def fit_all(samples: list[CalibSample], screen: ScreenInfo, models: list[GazeModel]) -> CalibrationResult:
-    """Fit every candidate, score each by leave-one-dot-out, choose the best (lowest
-    ``loo_error_deg``, falling back to ``loo_error_pt``).
+    """Fit every candidate, score each held-out, choose the best.
+
+    Scores: ``loo_error_deg`` is leave-one-dot-out. With samples from more than one head
+    position (``pose_group``), each model is also scored leave-one-POSE-out
+    (``params["lopo_error_deg"]``) and the selection score (``params["selection_error_deg"]``) is
+    the worse of the two, so a model that only interpolates between the head positions it saw
+    is not chosen over one that generalises. See :func:`choose`.
 
     Errors (``train_error_*``, ``loo_error_*``) are the error of each dot's MEAN prediction,
     averaged over dots: accuracy, separate from the frame-to-frame noise that ``precision_deg``
     reports and the filters remove. ``params["loo_sample_error_deg"]`` is the per-sample mean.
-    Degrees use one eye-to-screen distance for every model: the geometric model's solved
-    viewing distance when it fitted, else each observation's camera distance.
+    Degrees use each observation's measured eye-to-camera distance, the same for every model.
     """
     from .models.blend import BlendModel
 
@@ -333,6 +373,8 @@ def fit_all(samples: list[CalibSample], screen: ScreenInfo, models: list[GazeMod
     reports: dict[str, FitReport] = {}
     fitted: dict[str, GazeModel] = {}
     loo: dict[str, np.ndarray] = {}
+    lopo: dict[str, np.ndarray] = {}
+    multi_pose = len(pose_groups(train)) > 1
     plain = [m for m in models if not isinstance(m, BlendModel)]
     blends = [m for m in models if isinstance(m, BlendModel)]
     for m in plain:
@@ -342,14 +384,25 @@ def fit_all(samples: list[CalibSample], screen: ScreenInfo, models: list[GazeMod
         if rep.ok and isinstance(m, BaseModel):
             t0 = time.perf_counter()
             loo[m.name] = loo_predictions(m, train, screen)
+            if multi_pose:
+                lopo[m.name] = lopo_predictions(m, train, screen)
             rep.fit_seconds = (rep.fit_seconds or 0.0) + time.perf_counter() - t0
     for b in blends:
-        rep = b.fit_from_members({k: v for k, v in fitted.items() if reports[k].ok and isinstance(v, BaseModel)}, loo, train, screen)
+        members = {k: v for k, v in fitted.items() if reports[k].ok and isinstance(v, BaseModel)}
+        # Weight members by their leave-one-pose-out predictions when there are several poses.
+        rep = b.fit_from_members(members, {k: lopo.get(k, loo.get(k)) for k in loo}, train, screen)
         reports[b.name] = rep
         fitted[b.name] = b
         if rep.ok:
+            share = sum(w for n, w in b.weights.items() if n in REGRESSION_MODELS) / max(sum(b.weights.values()), 1e-12)
+            rep.params = {**rep.params, "regression_share": share}
             loo[b.name] = b.loo_from_members(loo, train)
-    dist = _common_distance({k: v for k, v in fitted.items() if reports[k].ok})
+            if multi_pose and lopo:
+                lopo[b.name] = b.loo_from_members(lopo, train)
+    # One distance rule for every model: each observation's measured eye-to-camera distance. A
+    # geometric solve can fit well while placing the camera tens of centimetres from where it is,
+    # and its solved viewing distance would then flatter some models and not others.
+    dist = None
     for name, rep in reports.items():
         if not rep.ok:
             continue
@@ -362,21 +415,55 @@ def fit_all(samples: list[CalibSample], screen: ScreenInfo, models: list[GazeMod
             rep.loo_error_deg, rep.loo_error_pt = st["error_of_mean_deg"], st["error_of_mean_pt"]
             coverage = st["n_valid"] / max(st["n"], 1)
             rep.params = {**rep.params, "loo_coverage": coverage, "loo_sample_error_deg": st["error_deg"]}
+            score_deg, score_pt = rep.loo_error_deg, rep.loo_error_pt
+            if name in lopo:
+                sp = error_stats(train, lopo[name], screen, dist)
+                lp_cov = sp["n_valid"] / max(sp["n"], 1)
+                rep.params = {**rep.params, "lopo_error_deg": sp["error_of_mean_deg"], "lopo_error_pt": sp["error_of_mean_pt"], "lopo_coverage": lp_cov}
+                if sp["error_of_mean_deg"] is not None and score_deg is not None:
+                    score_deg = max(score_deg, sp["error_of_mean_deg"])
+                if sp["error_of_mean_pt"] is not None and score_pt is not None:
+                    score_pt = max(score_pt, sp["error_of_mean_pt"])
+                coverage = min(coverage, lp_cov)
+                rep.params["loo_coverage"] = coverage
+            rep.params = {**rep.params, "selection_error_deg": score_deg, "selection_error_pt": score_pt}
             if coverage < MIN_LOO_COVERAGE:
                 rep.message = (rep.message + " " if rep.message else "") + f"Predicted only {coverage:.0%} of held-out samples; not eligible for automatic choice."
-    chosen = choose(list(reports.values()))
+    chosen = choose(list(reports.values()), multi_pose=multi_pose)
+    if chosen is not None and not multi_pose:
+        rep = reports[chosen]
+        rep.message = (rep.message + " " if rep.message else "") + "Calibrated from one head position: how well it copes with head movement was not tested (repeat the grid from more head positions to test it)."
     return CalibrationResult(reports=[reports[m.name] for m in models if m.name in reports], chosen=chosen, models={k: v for k, v in fitted.items()})
 
 
-def choose(reports: list[FitReport]) -> str | None:
-    """The eligible report with the lowest leave-one-dot-out error (degrees, else points)."""
+def _score(r: FitReport, unit: str) -> float | None:
+    p = r.params or {}
+    v = p.get(f"selection_error_{unit}")
+    if v is None:
+        v = r.loo_error_deg if unit == "deg" else r.loo_error_pt
+    return None if v is None else float(v)
+
+
+def choose(reports: list[FitReport], multi_pose: bool = False) -> str | None:
+    """The eligible report with the lowest selection score (degrees, else points).
+
+    The score is the leave-one-dot-out error, or with several head positions the worse of that
+    and the leave-one-pose-out error. From a single head position nothing measures how a model
+    copes with head movement, so a regression model (:data:`REGRESSION_MODELS`) is chosen only
+    if it beats the best physical model by a clear margin (:data:`REGRESSION_MARGIN`)."""
     ok = [r for r in reports if r.ok and (r.params or {}).get("loo_coverage", 1.0) >= MIN_LOO_COVERAGE]
-    with_deg = [r for r in ok if r.loo_error_deg is not None]
-    if with_deg:
-        return min(with_deg, key=lambda r: r.loo_error_deg).model  # type: ignore[arg-type, return-value]
-    with_pt = [r for r in ok if r.loo_error_pt is not None]
-    if with_pt:
-        return min(with_pt, key=lambda r: r.loo_error_pt).model  # type: ignore[arg-type, return-value]
+    for unit in ("deg", "pt"):
+        scored = [(s, r) for r in ok if (s := _score(r, unit)) is not None]
+        if not scored:
+            continue
+        best_s, best = min(scored, key=lambda t: t[0])
+        if not multi_pose and _regression_like(best):
+            physical = [(s, r) for s, r in scored if not _regression_like(r)]
+            if physical:
+                phys_s, phys = min(physical, key=lambda t: t[0])
+                if best_s > REGRESSION_MARGIN * phys_s:
+                    return phys.model
+        return best.model
     return ok[0].model if ok else None
 
 
@@ -409,7 +496,8 @@ def drift_correct(model: GazeModel, samples: list[CalibSample], screen: ScreenIn
     if not isinstance(model, BaseModel) or not samples:
         return FitReport(model=name, ok=False, message="drift correction needs a fitted model and look-points")
     mx, my, _ = mm_per_point(screen)
-    dist = model.degree_distance() or next((s.obs.distance for s in samples if s.obs.distance), None) or 0.6
+    measured = [s.obs.distance for s in samples if s.obs.distance]
+    dist = float(np.median(measured)) if measured else (model.degree_distance() or 0.6)
     pt_per_deg = dist * 1000.0 * math.tan(math.radians(1.0)) / ((mx + my) / 2)
     _, pred, target, _ = model.dot_predictions(samples)
     resid = []
@@ -443,7 +531,7 @@ def validation_metrics(model: GazeModel, samples: list[CalibSample], screen: Scr
     ``accuracy_of_mean_deg`` (error of each dot's mean prediction, averaged over dots)."""
     if isinstance(model, BaseModel):
         pred = model.predict_samples(samples)
-        dist = model.degree_distance()
+        dist = None  # each observation's measured distance, the same for every model (see fit_all)
     else:
         pred = np.full((len(samples), 2), np.nan)
         for i, s in enumerate(samples):

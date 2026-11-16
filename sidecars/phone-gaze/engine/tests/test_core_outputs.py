@@ -89,9 +89,10 @@ def test_cursor_rate_limit_min_move_clamp_and_mouse_pause() -> None:
 def test_cursor_without_permission_or_platform() -> None:
     q = FakeQuartz(allowed=False)
     sink = CursorSink(backend=q, clock=Clock())
-    assert sink.available and sink.status.startswith("no permission")
+    # No permission: the pointer is not touched at all (warping would lock out the trackpad).
+    assert not sink.available and sink.status.startswith("no permission")
     sink.emit(gp(10, 10), None)
-    assert q.warps == [(10, 10)] and q.moves == []
+    assert q.warps == [] and q.moves == []
     if sys.platform != "darwin":
         plain = CursorSink()
         assert not plain.available and "macOS" in plain.status

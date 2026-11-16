@@ -212,6 +212,27 @@ class Flow {
     this.counter.textContent = label || `${done} / ${total}`;
   }
 
+  /**
+   * On a Mac the engine measures the main display. A calibration shown anywhere else (another
+   * display, a window that is not full screen) would map gaze on one display to points on
+   * another and still report plausible numbers, so refuse it. Waits up to 2 s for a full-screen
+   * transition to finish first.
+   */
+  async ensureExact(plan) {
+    if (!plan.screen || plan.screen.source !== 'macos') return;
+    const t0 = performance.now();
+    while (!screenMapper(plan.screen, plan.targets).exact) {
+      if (performance.now() - t0 > 2000) {
+        throw new Error(
+          'This window does not cover the main display, which is the screen Phone Gaze uses. ' +
+            'Move this window to the main display (System Settings > Displays sets which one ' +
+            'that is), make it full screen, and start again.',
+        );
+      }
+      await this.wait(100);
+    }
+  }
+
   placeDot(screen, x, y, points) {
     const map = screenMapper(screen, points);
     const [cx, cy] = map.toCss(x, y);
@@ -233,18 +254,21 @@ class Flow {
 
   // ------------------------------------------------------------------ engine calls
 
-  async startRun(kind) {
-    const plan = await this.api.post('/api/calibration/start', { kind });
+  async startRun(kind, extra = {}) {
+    const plan = await this.api.post('/api/calibration/start', { kind, ...extra });
     this.runId = plan.run_id;
     this.check();
     return plan;
   }
 
-  async finishRun(plan) {
+  async finishRun(plan, extra = {}) {
     this.counter.textContent = 'Fitting…';
     this.dot.hidden = true;
     this.panel(h('h1', { text: 'Working it out…' }), h('p', { text: 'Fitting every model.' }));
-    const answer = await this.api.post('/api/calibration/finish', { run_id: plan.run_id });
+    const answer = await this.api.post('/api/calibration/finish', {
+      run_id: plan.run_id,
+      ...extra,
+    });
     this.runId = null;
     this.check();
     return answer;
@@ -257,6 +281,7 @@ class Flow {
     const { poseGroup = 0, offset = 0, total = plan.targets.length, prefix = '' } = opts;
     const settle = plan.settle_ms ?? 600;
     const collect = plan.collect_ms ?? 900;
+    await this.ensureExact(plan);
     for (let i = 0; i < plan.targets.length; i++) {
       const t = plan.targets[i];
       this.placeDot(plan.screen, t.x, t.y, plan.targets);
@@ -286,6 +311,7 @@ class Flow {
     const pts = plan.targets;
     if (!pts.length) return;
     const settle = plan.settle_ms ?? 600;
+    await this.ensureExact(plan);
     this.placeDot(plan.screen, pts[0].x, pts[0].y, pts);
     this.send(plan, pts[0], 'show');
     const s0 = performance.now();
@@ -478,17 +504,18 @@ class Flow {
     let pursuitAnswer = null;
     if (opts.flash) await this.runFlash(DEFAULT_FLASH);
     if (opts.movingDot) {
-      // A separate engine run: the engine fits each run on its own samples, so this is
-      // run first and the grid's fit (below) is the one that stays in use.
+      // A separate engine run, fitted for its report only (commit: false): the grid's fit
+      // (below) is the one that goes into use, and cancelling the grid keeps the previous
+      // calibration rather than the moving-dot fit.
       const pplan = await this.startRun('pursuit');
       if (pplan.flash && pplan.flash.pattern) await this.runFlash(pplan.flash.pattern);
       this.clearPanel();
       await this.runPursuit(pplan);
-      pursuitAnswer = await this.finishRun(pplan);
+      pursuitAnswer = await this.finishRun(pplan, { commit: false });
       this.clearPanel();
     }
-    const plan = await this.startRun('grid');
-    const nRounds = Math.max(1, plan.pose_rounds || opts.poseRounds || 1);
+    const plan = await this.startRun('grid', { pose_rounds: opts.poseRounds });
+    const nRounds = Math.max(1, opts.poseRounds || plan.pose_rounds || 1);
     const total = plan.targets.length * nRounds;
     for (let r = 0; r < nRounds; r++) {
       if (r > 0) {

@@ -45,7 +45,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--no-browser", action="store_true", help="do not open the UI in a browser")
     p.add_argument("--no-cursor", action="store_true", help="never move the system cursor")
     p.add_argument("--no-hotkeys", action="store_true", help="do not listen for global shortcuts")
-    p.add_argument("--profile", default="default", help="calibration profile name (default 'default')")
+    p.add_argument("--profile", help="calibration profile name (default 'default'; 'sim' with --sim, 'replay' with --replay)")
     p.add_argument("--log-level", default="INFO", help="DEBUG, INFO, WARNING or ERROR")
     args = p.parse_args(argv)
     if sum(1 for v in (args.sim, args.phone, args.replay) if v) > 1:
@@ -70,7 +70,9 @@ async def run(args: argparse.Namespace) -> int:
         config.server.host = args.host
     phone_url = args.phone or config.phone.url
 
-    profile_dir = config_path.parent / "profiles" / args.profile
+    # The simulator and replays keep their own calibrations, so they never replace the real one.
+    profile = args.profile or ("sim" if args.sim else "replay" if args.replay else "default")
+    profile_dir = config_path.parent / "profiles" / profile
     engine = Engine(config, config_path=config_path, profile_dir=profile_dir, hotkeys=not args.no_hotkeys, no_cursor=args.no_cursor)
     # --sim and --replay do not connect to the saved phone; --phone connects without saving.
     await engine.start(autoconnect=not (args.sim or args.replay or args.phone))

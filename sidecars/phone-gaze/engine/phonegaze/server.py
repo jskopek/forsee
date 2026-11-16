@@ -155,11 +155,12 @@ def create_app(engine: Engine) -> web.Application:
 
     async def calib_start(request: web.Request) -> web.Response:
         body = await _body(request)
-        return _json(engine.start_calibration(str(body.get("kind", "grid"))))
+        rounds = body.get("pose_rounds")
+        return _json(engine.start_calibration(str(body.get("kind", "grid")), pose_rounds=int(rounds) if rounds is not None else None))
 
     async def calib_finish(request: web.Request) -> web.Response:
         body = await _body(request)
-        return _json(await engine.finish_calibration(str(body.get("run_id", ""))))
+        return _json(await engine.finish_calibration(str(body.get("run_id", "")), commit=body.get("commit", True) is not False))
 
     async def calib_cancel(request: web.Request) -> web.Response:
         body = await _body(request)

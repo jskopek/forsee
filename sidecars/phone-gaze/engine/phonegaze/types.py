@@ -33,6 +33,7 @@ Serialised dictionaries use snake_case keys (the phone wire format in PROTOCOL.m
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import asdict, dataclass, field, fields
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
@@ -175,6 +176,34 @@ class Intrinsics:
         )
 
 
+_ZOOM_READINGS: dict[str, str] = {}
+"""Per camera id, the last way its attachment intrinsics were read (to log changes only)."""
+
+ZOOM_READING_TOLERANCE = 0.25
+
+
+def _zoom_reading(camera_id: str, fx: float, width: int, height: int, fov: float | None, zoom: float) -> str:
+    """How to read attachment intrinsics sent with ``intrinsicsIncludeZoom`` false at ``zoom``:
+    ``"unzoomed"`` (multiply by the zoom), ``"zoomed"`` (already describe the zoomed buffer) or
+    ``"fov"`` (neither matches the field of view; use the field of view instead). Without a field
+    of view, ``"unzoomed"`` as the protocol says. Logged once per camera and reading."""
+    if not fov:
+        return "unzoomed"
+    ref = Intrinsics.from_fov(width, height, fov, zoom).fx
+    errs = {"unzoomed": abs(fx * zoom / ref - 1.0), "zoomed": abs(fx / ref - 1.0)}
+    best = min(errs, key=lambda k: errs[k])
+    reading = best if errs[best] <= ZOOM_READING_TOLERANCE else "fov"
+    if _ZOOM_READINGS.get(camera_id) != reading:
+        _ZOOM_READINGS[camera_id] = reading
+        msg = {
+            "unzoomed": "describe the unzoomed sensor; scaling them by the zoom",
+            "zoomed": "already include the zoom; using them as they are",
+            "fov": f"match neither reading (fx {fx:.0f}, expected about {ref:.0f} at zoom {zoom:g}); using the field of view instead",
+        }[reading]
+        logging.getLogger("phonegaze").info("camera %s: the phone's intrinsics %s", camera_id or "?", msg)
+    return reading
+
+
 @dataclass
 class CameraInfo:
     """The camera that produced a frame, as described in the frame header (PROTOCOL.md).
@@ -208,8 +237,12 @@ class CameraInfo:
         """Build from a frame header's ``camera`` object (camelCase wire format).
 
         Zoom handling, decided once here: the wire ``fx fy cx cy`` are taken as given when
-        ``intrinsicsIncludeZoom`` is true (ARKit, simulator). When it is false or missing, they
-        describe the unzoomed sensor and are scaled about the image centre by ``zoom``.
+        ``intrinsicsIncludeZoom`` is true (ARKit, simulator). When it is false or missing they may
+        describe the unzoomed sensor or, as nobody has checked on a device, already the zoomed
+        buffer. With a field of view to compare against (:func:`_zoom_reading`) the reading whose
+        ``fx`` is within 25 % of the field of view's is used (the other is off by the zoom
+        factor), and if neither is, the field of view's intrinsics are. Without one, the wire
+        values are scaled about the image centre by ``zoom``.
         """
         width, height = int(cam["width"]), int(cam["height"])
         zoom = float(cam.get("zoom") or 1.0)
@@ -219,10 +252,18 @@ class CameraInfo:
         if all(cam.get(k) is not None for k in ("fx", "fy", "cx", "cy")):
             fx, fy, cx, cy = (float(cam[k]) for k in ("fx", "fy", "cx", "cy"))
             if not cam.get("intrinsicsIncludeZoom", False) and zoom != 1.0:
-                fx, fy = fx * zoom, fy * zoom
-                cx = width / 2 + (cx - width / 2) * zoom
-                cy = height / 2 + (cy - height / 2) * zoom
-            intr = Intrinsics(fx, fy, cx, cy, width, height)
+                reading = _zoom_reading(str(cam.get("id", "")), fx, width, height, float(fov) if fov else None, zoom)
+                if reading == "unzoomed":
+                    fx, fy = fx * zoom, fy * zoom
+                    cx = width / 2 + (cx - width / 2) * zoom
+                    cy = height / 2 + (cy - height / 2) * zoom
+                elif reading == "fov":
+                    fx = fy = float("nan")
+            if math.isfinite(fx):
+                intr = Intrinsics(fx, fy, cx, cy, width, height)
+            elif fov:
+                intr = Intrinsics.from_fov(width, height, float(fov), zoom)
+                source = "fov"
         elif fov:
             intr = Intrinsics.from_fov(width, height, float(fov), zoom)
             source = "fov"

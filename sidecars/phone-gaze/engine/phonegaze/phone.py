@@ -9,6 +9,7 @@ Imported by: ``pipeline.py`` (Engine), ``server.py`` (UI actions), tests (with `
 from __future__ import annotations
 
 import asyncio
+import errno
 import logging
 import time
 from collections import deque
@@ -189,7 +190,7 @@ class PhoneClient:
         except asyncio.TimeoutError as exc:
             raise PhoneError(f"{method} {path}: no answer from {self.base_url} in {timeout_s:.0f} s") from exc
         except aiohttp.ClientError as exc:
-            raise PhoneError(f"{method} {path}: cannot reach {self.base_url}: {exc}") from exc
+            raise PhoneError(f"{method} {path}: cannot reach {self.base_url}: {exc}{_unreachable_hint(exc)}") from exc
 
     async def status(self) -> dict[str, Any]:
         """``GET /api/status``."""
@@ -300,6 +301,27 @@ class PhoneClient:
                 log.warning("skipping malformed frame: %s", exc)
 
 
+LOCAL_NETWORK_HINT = (
+    " If Safari on this Mac can open the phone's address but Phone Gaze cannot, macOS is blocking the"
+    " terminal: System Settings > Privacy & Security > Local Network, turn on the app that runs"
+    " run.sh (Terminal, iTerm or your editor). On the iPhone: Settings > Privacy & Security > Local"
+    " Network > Eye Capture must be on."
+)
+
+
+def _unreachable_hint(exc: BaseException) -> str:
+    """The Local Network permission hint when ``exc`` is "no route to host" (EHOSTUNREACH), which
+    is what macOS 15+ reports when the launching app lacks Local Network permission."""
+    seen: BaseException | None = exc
+    for _ in range(5):
+        if seen is None:
+            break
+        if (isinstance(seen, OSError) and seen.errno == errno.EHOSTUNREACH) or "no route to host" in str(seen).lower():
+            return "." + LOCAL_NETWORK_HINT
+        seen = getattr(seen, "os_error", None) or seen.__cause__ or seen.__context__
+    return ""
+
+
 async def run_with_reconnect(
     client: PhoneClient,
     on_message: Callable[[Message, float], Awaitable[None] | None],
@@ -322,6 +344,9 @@ async def run_with_reconnect(
         try:
             if on_state:
                 on_state("connecting", client.base_url)
+            # A fresh clock each time: the phone's clock stops while it sleeps, so samples from
+            # before a disconnect would give an offset wrong by the sleep time.
+            client.clock = ClockSync()
             await client.sync_clock(5)
             if on_connect is not None:
                 await on_connect()

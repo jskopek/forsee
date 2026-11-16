@@ -72,5 +72,17 @@ if [ "$install_only" = 1 ]; then
   exit 0
 fi
 
+# pynput (global shortcuts) can crash Python 3.14 on macOS 26: turn shortcuts off there.
+if [ "$(uname)" = Darwin ] && "$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 14) else 1)'; then
+  case " ${args[*]-} " in
+    *" --no-hotkeys "*) ;;
+    *)
+      echo "Note: Python 3.14 or newer; global shortcuts are off (pynput can crash it on macOS)." >&2
+      echo "      For shortcuts, install uv and delete $VENV so run.sh rebuilds it with Python 3.12." >&2
+      args+=(--no-hotkeys)
+      ;;
+  esac
+fi
+
 cd "$ENGINE"
 exec "$PY" -m phonegaze ${args[@]+"${args[@]}"}

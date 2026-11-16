@@ -56,6 +56,7 @@ class FakePhone:
         self.runner: web.AppRunner | None = None
         self.url = ""
         self.sim_gaze: list[tuple[float, float]] = []
+        self.arkit_tracked = True
 
     def now(self) -> float:
         return time.monotonic() - self.offset
@@ -181,6 +182,9 @@ class FakePhone:
             "rotationRate": [0, 0, 0],
             "parts": descs,
         }
+        if self.mode == "arkit":
+            header["camera"].update({"id": "arkit-face", "position": "front", "type": "arkit"})
+            header["arkit"] = {"tracked": self.arkit_tracked}
         if self.sim_screen is not None:
             header["sim"] = {"gaze": [100.0, 200.0]}
         return header, parts

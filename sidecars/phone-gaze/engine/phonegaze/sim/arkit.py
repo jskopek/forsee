@@ -93,8 +93,15 @@ def arkit_block(scene: SimScene, cap: Capture) -> dict[str, Any]:
     blend: dict[str, float] = {}
     for side in ("left", "right"):
         eye = st.eyes[side]
-        c_f = R_face_rep.T @ (eye.center - p_face_rep)
-        g_f = R_face_rep.T @ eye.visual
+        # Eyes relative to the TRUE face, then reported on the NOISY face (``face`` above): as on a
+        # device, where ARKit's eye transforms sit at fixed spots of its face model, face-tracking
+        # jitter and bias reach the eye centres and directions instead of cancelling out.
+        c_f = R_face.T @ (eye.center - p_face) + np.asarray(k.arkit_eye_offset_mm, float) / 1000.0
+        g_f = R_face.T @ eye.visual
+        if k.arkit_gaze_gain != 1.0:
+            g_yaw = math.atan2(g_f[0], g_f[2]) * k.arkit_gaze_gain
+            g_pitch = math.asin(max(-1.0, min(1.0, float(g_f[1])))) * k.arkit_gaze_gain
+            g_f = np.array([math.cos(g_pitch) * math.sin(g_yaw), math.sin(g_pitch), math.cos(g_pitch) * math.cos(g_yaw)])
         bias_yaw, bias_pitch = k.arkit_eye_bias_deg
         R_bias = rot_y(math.radians(bias_yaw)) @ rot_x(-math.radians(bias_pitch))
         g_rep = R_bias @ g_f

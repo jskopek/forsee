@@ -29,6 +29,11 @@ BLEND_OUTLIER_FRACTION = 0.08
 median is left out of that frame's average."""
 
 
+FAMILIES = {"ridge": "regression", "kernel": "regression", "geometric": "geometric", "residual": "geometric", "reflection": "reflection"}
+"""Members that share features and so share mistakes. Each family is one vote when the blend
+decides which members to ignore for a frame (:meth:`BlendModel._drop_outliers`)."""
+
+
 def _registry() -> dict[str, type]:
     from . import REGISTRY
 
@@ -233,8 +238,27 @@ class BlendModel(BaseModel):
             w = self._weights(wanted, samples, exclude=int(d))
             if not w:
                 continue
-            idx = dots == d
-            out[idx] = self._combine({k: v[idx] for k, v in wanted.items()}, w)
+            idx = np.flatnonzero(dots == d)
+            out[idx] = self._combine_dropping({k: v[idx] for k, v in wanted.items()}, w)
+        return out
+
+    def _combine_dropping(self, preds: dict[str, np.ndarray], weights: dict[str, float]) -> np.ndarray:
+        """As :meth:`_combine`, but per sample with the same outlier rule as live prediction
+        (:meth:`_drop_outliers`), so held-out scores describe what the blend really does."""
+        n = len(next(iter(preds.values()))) if preds else 0
+        out = np.full((n, 2), np.nan)
+        saved = self.weights
+        self.weights = weights
+        try:
+            for i in range(n):
+                pts = {k: GazePoint(x=float(v[i, 0]), y=float(v[i, 1]), t=0.0, confidence=1.0) for k, v in preds.items() if k in weights and np.all(np.isfinite(v[i]))}
+                if not pts:
+                    continue
+                pts = self._drop_outliers(pts)
+                total = sum(weights[k] for k in pts)
+                out[i] = (sum(weights[k] * p.x for k, p in pts.items()) / total, sum(weights[k] * p.y for k, p in pts.items()) / total)
+        finally:
+            self.weights = saved
         return out
 
     def _fit(self, samples: list[CalibSample], screen: ScreenInfo) -> FitReport:
@@ -254,19 +278,40 @@ class BlendModel(BaseModel):
         return next((m.degree_distance() for m in self.members.values() if m.degree_distance()), None)
 
     def refine(self, samples: list[CalibSample], screen: ScreenInfo) -> FitReport:
-        """Re-solve members' screen poses first (when 3+ dots), then the blend's own
-        correction."""
-        if len(dot_groups(fit_samples(samples))) >= 3:
-            for m in self.members.values():
-                fn = getattr(m, "refine_pose", None)
-                if fn is not None:
-                    fn(samples, screen)
-        return super().refine(samples, screen)
+        """Refine every member with its own quick refine (screen pose, offset or affine), so the
+        members agree again before the blend decides which of them to trust for a frame. A single
+        correction of the blend's output would not do: which members are used can change from
+        frame to frame."""
+        samples = fit_samples(samples)
+        if not samples or not self.fitted:
+            return FitReport(model=self.name, ok=False, message="no refine samples" if samples else "the model is not fitted")
+        before_pt, before_deg = self._dot_errors(samples, screen)
+        methods = {}
+        for name, m in self.members.items():
+            rep = m.refine(samples, screen)
+            methods[name] = (rep.params or {}).get("method") if rep.ok else f"failed: {rep.message}"
+        after_pt, after_deg = self._dot_errors(samples, screen)
+        n_dots = len(dot_groups(samples))
+        return FitReport(
+            model=self.name,
+            ok=True,
+            n_samples=len(samples),
+            n_dots=n_dots,
+            train_error_deg=after_deg,
+            train_error_pt=after_pt,
+            params={"method": "members", "members": methods, "before_error_deg": before_deg, "before_error_pt": before_pt},
+            message=f"quick refine of each member on {n_dots} dot(s)",
+        )
 
     def _predict_raw(self, obs: Observation) -> GazePoint | None:
         pts = {}
         for name, m in self.members.items():
-            p = m.predict(obs) if self._live else m.predict_raw(obs)
+            if self._live:
+                p = m.predict(obs)
+            else:
+                p = m.predict_raw(obs)
+                if p is not None and not m.correction.is_identity:  # members' own refines
+                    p.x, p.y = m.correction.apply(p.x, p.y)
             if p is not None and p.valid:
                 pts[name] = p
         if not pts:
@@ -280,24 +325,34 @@ class BlendModel(BaseModel):
         return GazePoint(x=float(x), y=float(y), t=obs.t, confidence=float(conf), model=self.name, t_local=obs.t_local, extra={"members": sorted(pts)}, left=first.left, right=first.right)
 
     def _drop_outliers(self, pts: dict[str, GazePoint]) -> dict[str, GazePoint]:
-        """With three or more members, drop those far from the weighted median. A regression
-        model asked about a head pose it never saw can extrapolate across the whole screen; one
-        such member would otherwise drag the average with it."""
-        if len(pts) < 3:
+        """Drop members that disagree with the other model FAMILIES (:data:`FAMILIES`).
+
+        A regression model asked about a head pose it never saw can extrapolate across the
+        screen. Ridge and kernel use the same features and go wrong together, so a median over
+        models (they held over half the weight) kept them and dropped the correct members. Here
+        each family is one vote: its point is the weighted mean of its members, the reference is
+        the per-axis median of the family points, and
+        members further than :data:`BLEND_OUTLIER_FRACTION` of the screen diagonal from the
+        reference are left out of this frame."""
+        fams: dict[str, list[str]] = {}
+        for n in pts:
+            fams.setdefault(FAMILIES.get(n, n), []).append(n)
+        if len(fams) < 2:
             return pts
-        names = list(pts)
-        w = np.array([self.weights[n] for n in names], float)
-        xy = np.array([[pts[n].x, pts[n].y] for n in names], float)
-
-        def wmedian(v: np.ndarray) -> float:
-            order = np.argsort(v)
-            cw = np.cumsum(w[order])
-            return float(v[order][np.searchsorted(cw, cw[-1] / 2.0)])
-
-        med = np.array([wmedian(xy[:, 0]), wmedian(xy[:, 1])])
+        fam_pt, fam_w = {}, {}
+        for f, names in fams.items():
+            w = np.array([max(self.weights.get(n, 0.0), 1e-9) for n in names])
+            xy = np.array([[pts[n].x, pts[n].y] for n in names], float)
+            fam_pt[f] = (w[:, None] * xy).sum(axis=0) / w.sum()
+            fam_w[f] = float(w.sum())
+        if len(fams) == 2:
+            # No majority: trust the family that scored better held-out (its pooled weight).
+            ref = fam_pt[max(fam_w, key=lambda f: fam_w[f])]
+        else:
+            ref = np.median(np.array(list(fam_pt.values())), axis=0)
         size = self.screen_size or (1500.0, 1000.0)
         limit = BLEND_OUTLIER_FRACTION * float(np.hypot(*size))
-        keep = {n: pts[n] for n, p in zip(names, xy) if float(np.hypot(*(p - med))) <= limit}
+        keep = {n: p for n, p in pts.items() if float(np.hypot(p.x - ref[0], p.y - ref[1])) <= limit}
         return keep or pts
 
     def _state(self) -> dict[str, Any]:

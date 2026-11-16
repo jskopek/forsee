@@ -142,6 +142,8 @@ class Knobs:
     arkit_head_noise_mm: float = 1.0
     arkit_head_noise_deg: float = 0.3
     arkit_tracked: bool = True
+    arkit_eye_offset_mm: tuple[float, float, float] = (0.0, 0.0, 0.0)  # constant error of ARKit's eye centres, face axes
+    arkit_gaze_gain: float = 1.0  # ARKit's eye rotation = true rotation x gain (real ARKit under-reports)
     thermal: str = "nominal"  # "nominal" | "serious" | "critical"
     zoom_lag_frames: int = 0  # frames whose image still uses the previous zoom
 

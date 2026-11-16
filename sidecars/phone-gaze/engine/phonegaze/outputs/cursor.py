@@ -1,5 +1,5 @@
 """System cursor output. Owner: Core. macOS only (Quartz ``CGEventPost`` mouse-moved events via
-ctypes, ``CGWarpMouseCursorPosition`` as a fallback); on other systems ``CursorSink.emit`` does
+ctypes; without Accessibility permission the pointer is not moved at all); on other systems ``CursorSink.emit`` does
 nothing and :attr:`CursorSink.status` says why.
 
 Behaviour (docs/research/05): at most ``max_rate_hz`` moves per second, moves under
@@ -65,10 +65,12 @@ class CursorSink:
             allowed = None
             log.debug("permission check failed: %s", exc)
         if allowed is False:
+            # Do not fall back to warping the pointer: each warp suppresses the real mouse for
+            # 0.25 s, so at gaze rate the trackpad would be locked out (and the "real mouse
+            # moved, pause" check could never fire).
             self.status = "no permission: " + PERMISSION_HELP
             log.warning(PERMISSION_HELP)
-            # Warping needs no permission, but apps see no hover; better than nothing.
-            self._use_warp = True
+            return
         if self.bounds is None:
             try:
                 self.bounds = tuple(self.backend.display_bounds())  # type: ignore[assignment]

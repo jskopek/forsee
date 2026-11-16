@@ -23,28 +23,41 @@ const { chromium } = require('playwright');
 const ENGINE_DIR = path.resolve(__dirname, '..', '..');
 const SCREEN = { width: 1512, height: 982 }; // the simulator's default screen
 
-// Upper bounds in degrees. The measured numbers are in the README; the bounds leave room for
-// run-to-run noise on a slower machine without letting a real regression through. The camera
-// path's geometric model is NOT robust to head movement after a one-position calibration (its
-// eyeball centre comes from MediaPipe's eye corners, which shift by about a millimetre relative
-// to the eyeball when the head turns; 1 mm is about 5 degrees), so its bound there is loose and
-// the reflection model, which is robust, carries the real check.
+// Upper bounds in degrees. Rows named live_* are measured against the simulator's TRUE gaze
+// target (independent of anything the engine says about itself); the others are the engine's own
+// validation numbers. The measured numbers are in the README; the bounds leave room for
+// run-to-run noise without letting a real regression through.
+//
+// The simulator's ARKit face tracking has realistic noise: face-pose jitter and bias reach the
+// eye centres, as on a device, and the geometric model amplifies eye-centre error (about 5.6
+// degrees per millimetre), so it is loose in ARKit mode. The camera path's geometric model is
+// not robust to head movement after a one-position calibration (its eyeball centre comes from
+// MediaPipe's eye corners, which shift relative to the eyeball when the head turns), so it is
+// not bounded there; the chosen model carries the check.
 const BOUNDS = {
   arkit: [
-    ['validation', 'chosen', 1.5],
-    ['live_chosen', 'mean_deg', 2.5],
-    ['validation_after_head_move', 'geometric', 2.0],
-    ['validation_3_poses_new_position', 'geometric', 1.5],
+    ['live_chosen', 'mean_deg', 1.5],
+    ['live_geometric', 'mean_deg', 4.0],
+    ['live_after_head_move', 'mean_deg', 4.0],
+    ['live_3_poses_new_position', 'mean_deg', 2.5],
   ],
   camera: [
-    ['validation', 'chosen', 1.0],
-    ['live_chosen', 'mean_deg', 2.0],
-    ['validation_after_head_move', 'reflection', 3.0],
-    ['validation_after_head_move', 'geometric', 12.0],
+    ['live_chosen', 'mean_deg', 1.2],
+    ['live_geometric', 'mean_deg', 4.0],
+    // After a one-position calibration the reflection model's error at the moved head varied
+    // from 0.6 to 4.4 degrees between runs (it depends on which eye-to-screen geometry the
+    // calibration happened to see); 3 head positions fix it (next rows).
+    ['live_after_head_move', 'mean_deg', 5.0],
+    ['live_3_poses_new_position', 'mean_deg', 2.0],
     ['validation_3_poses_new_position', 'reflection', 1.5],
-    ['validation_3_poses_new_position', 'geometric', 5.0],
   ],
 };
+
+/** The engine's own validation number for its chosen model may be at most this much better than
+ * what live gaze measures against the truth: live = 2 x validation + 0.5 degrees (the filter and
+ * settling add a little). A bigger gap means the engine's self-reports cannot be trusted. */
+const SELF_REPORT_FACTOR = 2.0;
+const SELF_REPORT_SLACK_DEG = 0.5;
 
 function log(...args) {
   console.log(`[accuracy ${new Date().toISOString().slice(11, 19)}]`, ...args);
@@ -268,11 +281,11 @@ async function runMode(browser, mode) {
     result.validation = validationTable(st);
     log(mode, 'validation (deg):', JSON.stringify(result.validation));
 
-    result.live_chosen = await liveError(engine, 8, 7, st.screen || {});
+    result.live_chosen = await liveError(engine, 20, 7, st.screen || {});
     log(mode, `live, ${result.chosen}:`, JSON.stringify(result.live_chosen));
     if (result.validation.geometric !== undefined) {
       await postJson(`${engine.url}/api/model`, { pinned: 'geometric' });
-      result.live_geometric = await liveError(engine, 8, 11, st.screen || {});
+      result.live_geometric = await liveError(engine, 12, 11, st.screen || {});
       log(mode, 'live, geometric:', JSON.stringify(result.live_geometric));
       await postJson(`${engine.url}/api/model`, { pinned: '' });
     }
@@ -289,6 +302,12 @@ async function runMode(browser, mode) {
     st = await getJson(`${engine.url}/api/state`);
     result.validation_after_head_move = validationTable(st);
     log(mode, 'after head move (deg):', JSON.stringify(result.validation_after_head_move));
+    result.live_after_head_move = await liveError(engine, 12, 13, st.screen || {});
+    log(
+      mode,
+      `live after head move, ${result.chosen}:`,
+      JSON.stringify(result.live_after_head_move),
+    );
 
     // Calibrate again from three head positions, then validate at a fourth, unseen one.
     await postJson(`${engine.simUrl}/sim/head`, { position: hp, rotation: [0, 0, 0] });
@@ -310,6 +329,12 @@ async function runMode(browser, mode) {
       '3 positions, validated at a new one (deg):',
       JSON.stringify(result.validation_3_poses_new_position),
     );
+    result.live_3_poses_new_position = await liveError(engine, 12, 17, st.screen || {});
+    log(
+      mode,
+      `live at the new position, ${result.chosen_3_poses}:`,
+      JSON.stringify(result.live_3_poses_new_position),
+    );
     await context.close();
   } catch (err) {
     problems.push(`${mode}: ${err.message}`);
@@ -319,6 +344,18 @@ async function runMode(browser, mode) {
   }
 
   if (!problems.length) {
+    const reported = (result.validation || {})[result.chosen];
+    const live = (result.live_chosen || {}).mean_deg;
+    result.self_report_check = { reported_deg: reported, live_deg: live };
+    if (
+      typeof reported === 'number' &&
+      typeof live === 'number' &&
+      live > SELF_REPORT_FACTOR * reported + SELF_REPORT_SLACK_DEG
+    )
+      problems.push(
+        `${mode}: the engine reports ${reported} deg for ${result.chosen} but live gaze is ` +
+          `${live.toFixed(2)} deg from the truth`,
+      );
     for (const [section, key, bound] of BOUNDS[mode] || []) {
       const table = result[section] || {};
       const v = key === 'chosen' ? table[result.chosen] : table[key];

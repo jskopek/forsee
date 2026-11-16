@@ -16,7 +16,7 @@ the phone's own screen faces away from you when the back cameras point at your f
 ## Status
 
 - **Version 0.1 (capture, previews, recording) works on a real iPhone.**
-- **Version 0.2 adds a live stream for Phone Gaze** (`sidecars/phone-gaze`). It compiles in CI
+- **Version 0.2 (0.2.1: restarts its web server after the phone locks, reports camera interruptions) adds a live stream for Phone Gaze** (`sidecars/phone-gaze`). It compiles in CI
   (GitHub Actions, macOS) but has **not been run on a phone**. Recording is unchanged and still
   works while streaming.
 - **The controller page and `pull_session.py` are tested** end to end against `dev/mock_phone.py`.

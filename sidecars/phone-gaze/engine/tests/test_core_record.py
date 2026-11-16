@@ -96,7 +96,7 @@ def make_eye_capture_session(root: Path, arkit: bool) -> Path:
         cols = ["frame", "t", "lens_position", "iso", "exposure_s", "adjusting_focus", "adjusting_exposure"]
         rows = [[i, 100 + i / 30, 0.6, 200, 0.008, 0, 0] for i in range(n)]
     (root / f"{name}.frames.csv").write_text("\n".join([",".join(cols)] + [",".join(str(v) for v in r) for r in rows]) + "\n")
-    info = {"segment": name, "mode": "arkit" if arkit else "camera", "cameraId": "arkit-face" if arkit else "wide-id", "cameraName": "Back Camera", "position": "front" if arkit else "back", "width": w, "height": h, "zoom": 1 if arkit else 2.0, "intrinsics": {"fx": 1000.0, "fy": 1000.0, "cx": 80.0, "cy": 60.0, "width": w, "height": h}, "fieldOfView": 70.0, "gravityAtStart": [-1.0, 0.0, 0.0]}
+    info = {"segment": name, "mode": "arkit" if arkit else "camera", "cameraId": "arkit-face" if arkit else "wide-id", "cameraName": "Back Camera", "position": "front" if arkit else "back", "width": w, "height": h, "zoom": 1 if arkit else 2.0, "intrinsics": {"fx": 1000.0, "fy": 1000.0, "cx": 80.0, "cy": 60.0, "width": w, "height": h}, "fieldOfView": 9.15, "gravityAtStart": [-1.0, 0.0, 0.0]}
     (root / f"{name}.json").write_text(json.dumps(info))
     (root / f"{name}.motion.csv").write_text("t,gravity_x,gravity_y,gravity_z,rotation_x,rotation_y,rotation_z,accel_x,accel_y,accel_z\n" + "\n".join(f"{100 + i / 50},-1,0.01,0,0,0,0,0,0,0" for i in range(30)) + "\n")
     meta = {"eyesToPhoneCm": 60, "screen": {"width": 1512, "height": 982, "viewportWidth": 1512, "viewportHeight": 982, "devicePixelRatio": 2, "pixelsPerCm": 50.0}}

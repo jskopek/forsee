@@ -120,6 +120,7 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         var exposureSeconds = Double.nan
         var adjustingFocus = false
         var faceTracked = false
+        var interrupted = ""
         var recording = false
         var segment = ""
         var framesWritten = 0
@@ -178,6 +179,81 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         sources.append("vision")
         streamer.setSupportedRoiSources(sources)
         streamer.stateProvider = { [weak self] in self?.statusJSON() ?? [:] }
+
+        // Frames stop without any error when the camera is interrupted (the app went to
+        // the background, another app took the camera, the phone got too hot). Say so
+        // in the status, and restart the session after a runtime error.
+        let center = NotificationCenter.default
+        center.addObserver(
+            self, selector: #selector(captureRuntimeError(_:)),
+            name: .AVCaptureSessionRuntimeError, object: captureSession
+        )
+        center.addObserver(
+            self, selector: #selector(captureInterrupted(_:)),
+            name: .AVCaptureSessionWasInterrupted, object: captureSession
+        )
+        center.addObserver(
+            self, selector: #selector(captureInterruptionEnded(_:)),
+            name: .AVCaptureSessionInterruptionEnded, object: captureSession
+        )
+    }
+
+    // MARK: - Interruptions
+
+    private let restartQueue = DispatchQueue(label: "eyecapture.session-restart")
+
+    @objc private func captureRuntimeError(_ note: Notification) {
+        let error = note.userInfo?[AVCaptureSessionErrorKey] as? NSError
+        lock.lock()
+        state.lastError = "Camera error: \(error?.localizedDescription ?? "unknown")"
+        let mode = state.mode
+        lock.unlock()
+        guard mode == "camera" else { return }
+        restartQueue.async { [weak self] in
+            guard let self = self, !self.captureSession.isRunning else { return }
+            self.captureSession.startRunning()
+        }
+    }
+
+    @objc private func captureInterrupted(_ note: Notification) {
+        var reason = "interrupted"
+        if let raw = note.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int {
+            switch raw {
+            case AVCaptureSession.InterruptionReason.videoDeviceNotAvailableInBackground.rawValue:
+                reason = "the app is in the background"
+            case AVCaptureSession.InterruptionReason.videoDeviceInUseByAnotherClient.rawValue:
+                reason = "another app is using the camera"
+            case AVCaptureSession.InterruptionReason.videoDeviceNotAvailableDueToSystemPressure.rawValue:
+                reason = "the phone is too hot"
+            default:
+                reason = "interrupted (reason \(raw))"
+            }
+        }
+        lock.lock()
+        state.interrupted = reason
+        state.lastError = "Camera stopped: \(reason)"
+        lock.unlock()
+    }
+
+    @objc private func captureInterruptionEnded(_ note: Notification) {
+        lock.lock()
+        state.interrupted = ""
+        if state.lastError.hasPrefix("Camera stopped:") { state.lastError = "" }
+        lock.unlock()
+    }
+
+    func sessionWasInterrupted(_ session: ARSession) {
+        lock.lock()
+        state.interrupted = "ARKit was interrupted"
+        state.lastError = "Camera stopped: ARKit was interrupted"
+        lock.unlock()
+    }
+
+    func sessionInterruptionEnded(_ session: ARSession) {
+        lock.lock()
+        state.interrupted = ""
+        if state.lastError.hasPrefix("Camera stopped:") { state.lastError = "" }
+        lock.unlock()
     }
 
     // MARK: - Camera list
@@ -221,7 +297,7 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
                 entry["name"] = "\(device.localizedName) (experimental: wide camera with LiDAR depth)"
             }
             if let format = Self.pickFormat(device, maxWidth: 3840, fps: 30) {
-                entry["fieldOfView"] = Double(format.videoFieldOfView)
+                entry["fieldOfView"] = Self.reportedFieldOfView(device, format)
             }
             return entry
         }
@@ -432,11 +508,23 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         state.nativeZoomFactors = format.secondaryNativeResolutionZoomFactors.map { Double($0) }
         state.cameraType = Self.typeName(device.deviceType)
         state.depthSource = depthRunning ? "lidar" : ""
-        state.fieldOfView = Double(format.videoFieldOfView)
+        state.fieldOfView = Self.reportedFieldOfView(device, format)
         state.minFocusDistanceMM = device.minimumFocusDistance
         state.binned = format.isVideoBinned
         state.lastError = ""
         lock.unlock()
+    }
+
+    /// Horizontal field of view of the delivered buffer. With geometric distortion
+    /// correction on (the default where supported: the ultra wide and some front
+    /// cameras) the buffer is the corrected, narrower image, so report its field of
+    /// view rather than the uncorrected `videoFieldOfView`.
+    static func reportedFieldOfView(_ device: AVCaptureDevice, _ format: AVCaptureDevice.Format) -> Double {
+        if device.isGeometricDistortionCorrectionSupported && device.isGeometricDistortionCorrectionEnabled {
+            let corrected = Double(format.geometricDistortionCorrectedVideoFieldOfView)
+            if corrected > 0 { return corrected }
+        }
+        return Double(format.videoFieldOfView)
     }
 
     private func startARKit(maxWidth: Int, fps: Double) throws {
@@ -618,8 +706,11 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
     func setFocus(locked: Bool?, point: CGPoint?) throws {
         lock.lock()
         let device = self.device
+        let mode = state.mode
         lock.unlock()
-        guard let device = device else { return }
+        guard mode == "camera", let device = device else {
+            throw CaptureError.notRunningCamera("Focus")
+        }
 
         try device.lockForConfiguration()
         defer { device.unlockForConfiguration() }
@@ -749,6 +840,7 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
             "focusLocked": state.focusLocked,
             "adjustingFocus": state.adjustingFocus,
             "faceTracked": state.faceTracked,
+            "interrupted": state.interrupted,
             "recording": state.recording,
             "segment": state.segment,
             "framesWritten": state.framesWritten,
@@ -862,7 +954,9 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
                 "position": snapshot.position,
                 "type": snapshot.cameraType,
                 "zoom": device.map { Double($0.videoZoomFactor) } ?? snapshot.zoom,
-                "zoomStable": CACurrentMediaTime() - snapshot.zoomChangedAt > 0.15,
+                // Capture time, not delivery time: the ISP pipeline delay is close to the
+                // window, and a frame captured before the change must not count as stable.
+                "zoomStable": t - snapshot.zoomChangedAt > 0.25,
                 "width": CVPixelBufferGetWidth(pixelBuffer),
                 "height": CVPixelBufferGetHeight(pixelBuffer),
             ]

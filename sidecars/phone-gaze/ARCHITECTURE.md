@@ -147,8 +147,11 @@ No single method is trusted. Several are implemented, and calibration data decid
 3. **Reflection-based:** polynomial map from the iris-to-reflection vector.
 4. **Blends** of the above, and a learned residual on top of the geometric model.
 
-**Choosing:** after calibration every candidate model is scored by leave-one-dot-out error, and
-the best is used unless the user pins one. The UI shows the scores.
+**Choosing:** after calibration every candidate model is scored by leave-one-dot-out error and,
+when the grid was repeated from several head positions, by leave-one-head-position-out error (the
+worse of the two counts); the best is used unless the user pins one. From a single head position
+a regression model must win by a clear margin. The UI shows the scores. A calibration belongs to
+the camera and screen it was made with, and is saved per camera.
 
 **Calibration tiers:**
 

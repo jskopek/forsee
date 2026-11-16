@@ -439,6 +439,34 @@ def loo_predictions(model: BaseModel, samples: list[CalibSample], screen: Screen
     return out
 
 
+def pose_groups(samples: list[CalibSample]) -> list[int]:
+    """The distinct head-position rounds (``pose_group``) present in ``samples``."""
+    return sorted({int(s.pose_group or 0) for s in samples})
+
+
+def lopo_predictions(model: BaseModel, samples: list[CalibSample], screen: ScreenInfo) -> np.ndarray:
+    """Leave-one-POSE-out predictions (``N x 2``, raw, NaN where unavailable): for each head
+    position, a fresh clone fitted on the OTHER head positions predicts its samples. This is
+    what tells a model that generalises to a new head position from one that only interpolates
+    between the positions it saw. No warm start: each fold chooses its own hyperparameters."""
+    samples = fit_samples(samples)
+    out = np.full((len(samples), 2), np.nan)
+    pg = np.array([int(s.pose_group or 0) for s in samples])
+    for g in np.unique(pg):
+        train = [s for s, p in zip(samples, pg) if p != g]
+        if len(dot_groups(train)) < 3:
+            continue
+        m = model.clone()
+        try:
+            rep = m.fit(train, screen)
+        except Exception:  # noqa: BLE001 - a fold that cannot be fitted simply has no score
+            continue
+        if rep.ok:
+            idx = np.flatnonzero(pg == g)
+            out[idx] = m.predict_samples([samples[i] for i in idx], raw=True)
+    return out
+
+
 # ---------------------------------------------------------------------------------------------
 # Ridge
 # ---------------------------------------------------------------------------------------------

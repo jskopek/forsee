@@ -1,10 +1,11 @@
 """Geometric gaze model: per-eye rays intersected with a calibrated screen plane. Owner: Models.
 
 Each eye gives a ray from its eyeball rotation centre ``c`` (camera coordinates, from the
-estimators). When the observation has the iris centre pixel, the model re-derives the optical
-axis itself: the ray through that pixel meets a sphere of radius ``R`` around ``c`` (research
-note 01, method 2b: iris centre minus eyeball centre). Otherwise it uses the estimator's
-``gaze_dir`` (ARKit) with a gain. The optical axis becomes the visual axis with a per-eye
+estimators). In camera mode, with the iris centre pixel measured, the model re-derives the
+optical axis itself: the ray through that pixel meets a sphere of radius ``R`` around ``c``
+(research note 01, method 2b: iris centre minus eyeball centre). In ARKit mode it uses ARKit's
+``gaze_dir`` with a gain (:data:`ARKIT_USES_GAZE`). A soft prior keeps the eyes' solved distance
+to the screen near their measured distance to the camera (``distance_sd_m``). The optical axis becomes the visual axis with a per-eye
 angular offset (kappa: about 5 degrees nasal and 1.5 up), and the visual axis is intersected
 with the screen plane. Calibration solves, by robust non-linear least squares with priors as
 penalty terms:
@@ -16,7 +17,7 @@ screen rotation     3      rotation vector relative to "screen faces the user, u
 screen corner       3      top-left corner of the visible screen, camera coordinates, m
 kappa right / left  2 + 2  nasal and vertical offset of the visual axis, radians
 gain                2      multiplies eye-in-head yaw and pitch, for rows WITHOUT an iris
-                           pixel (ARKit); prior 1 +- 0.12
+                           pixel (ARKit); prior 1 +- 0.3 (ARKit is said to under-report)
 eye offset          3      added to both eyeball centres, head frame, m; only with several
                            head poses and ``eye_offset=True`` (off by default: in the test
                            simulator it made head-moved accuracy worse)
@@ -62,6 +63,26 @@ KAPPA_PRIOR = np.array([5.0 * DEG, -1.5 * DEG])
 
 RADIUS_PRIOR_M = F.EYE_IRIS_DISTANCE_M
 
+RADIUS_BOUNDS_M = (0.006, 0.025)
+"""Sanity limits on the fitted eye radius. Deliberately wide: with a biased head-pose estimate the
+fit often wants 15-20 mm (the prior is 10.2 +- 1 mm), and in the test simulator holding it to a
+human 8.5-13 mm made accuracy after a head move WORSE (2.0 -> 2.6 degrees with three poses). So
+the radius may absorb estimator bias; what must not happen is that the resulting implausible
+viewing distance flatters the reported accuracy, so :meth:`GeometricModel.degree_distance` falls
+back to the measured distance and the report says the solve is implausible."""
+
+ARKIT_USES_GAZE = True
+"""In ARKit mode, use ARKit's own eye direction (with the gain) rather than re-deriving the axis
+from the measured iris pixel. The re-derived axis turns every millimetre of eye-centre error into
+about 5.6 degrees, and ARKit's eye centres inherit the face tracker's jitter and bias; in the
+simulator with realistic face-tracking noise this took the geometric model from about 3.5 to
+0.5 degrees, and with ARKit's rotation under-reported (gain 0.7) from 5 to 1.5 degrees after a
+head move."""
+
+PLAUSIBLE_DISTANCE_RATIO = 0.2
+"""The solved viewing distance is trusted for degree conversions only within this fraction of the
+eye-to-camera distance the estimators measured."""
+
 
 def screen_rotation(rv: np.ndarray) -> np.ndarray:
     return R_BASE @ Rotation.from_rotvec(rv).as_matrix()
@@ -85,7 +106,12 @@ class EyeData:
             return False
         eye = obs.eye(name)
         ray = np.full(3, np.nan)
-        if eye.iris_center is not None and obs.intrinsics is not None:
+        # An iris centre that ARKit's estimator only projected from its own eye model (a seed for
+        # the iris edge estimator) is not a measurement; and in ARKit mode ARKit's own direction
+        # is preferred anyway (ARKIT_USES_GAZE). Both use the gaze direction with the gain.
+        seeded = (obs.provenance or {}).get(f"{name}.iris_center") == "arkit"
+        measured = not seeded and not (ARKIT_USES_GAZE and eye.extra.get("gaze_kind") == "arkit_eye_z")
+        if measured and eye.iris_center is not None and obs.intrinsics is not None:
             rx, ry = obs.intrinsics.ray(*eye.iris_center)
             ray = np.array([rx, ry, 1.0]) / math.sqrt(rx * rx + ry * ry + 1.0)
         r = F.as_rotation(obs.head_rotation)
@@ -221,13 +247,14 @@ class GeometricModel(BaseModel):
         eye_offset: bool = False,
         kappa_sd_deg: float = 2.5,
         single_pose_kappa_sd_deg: float = 1.0,
-        gain_sd: float = 0.12,
+        gain_sd: float = 0.3,
         eye_offset_sd_mm: float = 3.0,
         radius: bool = True,
         radius_sd_mm: float = 1.0,
         robust_deg: float = 2.0,
         smooth_centre_s: float = 0.3,
         sigma_deg: float = 1.0,
+        distance_sd_m: float = 0.1,
         **extra: Any,
     ) -> None:
         super().__init__(
@@ -242,11 +269,14 @@ class GeometricModel(BaseModel):
             robust_deg=robust_deg,
             smooth_centre_s=smooth_centre_s,
             sigma_deg=sigma_deg,
+            distance_sd_m=distance_sd_m,
             **extra,
         )
         self.params = self.default_params()
         self.multi_pose = False
         self.viewing_distance_m: float | None = None
+        self.measured_distance_m: float | None = None
+        self._screen_m: tuple[float, float] | None = None
         self.person_prior: np.ndarray | None = None
         self._warm: np.ndarray | None = None
         self._smooth: dict[str, tuple[float, np.ndarray]] = {}
@@ -308,6 +338,9 @@ class GeometricModel(BaseModel):
         p = p0.copy()
         cam_mu = float(self.options.get("camera_depth_m", -0.05))
         cam_sd = float(self.options.get("camera_depth_sd_m") or 0.0)
+        dist_sd = float(self.options.get("distance_sd_m") or 0.0)
+        screen_m = self._screen_m
+        measured = float(np.mean(np.linalg.norm(np.asarray(rows.c), axis=1))) if len(rows) else 0.0
 
         def residuals(x: np.ndarray) -> np.ndarray:
             q = p.copy()
@@ -321,11 +354,26 @@ class GeometricModel(BaseModel):
             if cam_sd and pose_prior is None:
                 cam = screen_rotation(q[I_ROT]).T @ (-q[I_T])
                 extra.append((cam[2] - cam_mu) / cam_sd)
+            if dist_sd and screen_m is not None and measured > 0 and pose_prior is None:
+                # The eyes' distance to the screen centre is close to their measured distance to
+                # the camera (the phone sits near the screen). Without this, a single head position
+                # cannot tell "the screen is farther" from "the eye turns less than it should".
+                centre = q[I_T] + screen_rotation(q[I_ROT]) @ np.array([screen_m[0] / 2, screen_m[1] / 2, 0.0])
+                d_model = float(np.mean(np.linalg.norm(cc_rows(q) - centre, axis=1)))
+                extra.append((d_model - measured) / dist_sd)
             return np.concatenate([r, pr, extra])
 
+        def cc_rows(q: np.ndarray) -> np.ndarray:
+            return np.asarray(rows.c) + np.einsum("mij,j->mi", rows.rh, q[I_OFF])
+
+        lo = np.full(N_PARAMS, -np.inf)
+        hi = np.full(N_PARAMS, np.inf)
+        lo[I_RAD], hi[I_RAD] = RADIUS_BOUNDS_M
+        p[I_RAD] = float(np.clip(p[I_RAD], RADIUS_BOUNDS_M[0] + 1e-6, RADIUS_BOUNDS_M[1] - 1e-6))
+        bounds = (lo[free], hi[free])
         cost = math.inf
         for it in range(max(1, irls)):
-            sol = least_squares(residuals, p[free], method="trf", x_scale="jac", max_nfev=max_nfev)
+            sol = least_squares(residuals, p[free], method="trf", x_scale="jac", max_nfev=max_nfev, bounds=bounds)
             p[free] = sol.x
             cost = float(sol.cost)
             if it == irls - 1:
@@ -373,6 +421,7 @@ class GeometricModel(BaseModel):
         init, self._warm = self._warm, None
         mm = self.mm_per_point
         screen_m = (screen.width * mm[0] / 1000.0, screen.height * mm[1] / 1000.0)
+        self._screen_m = screen_m
         rows = _Rows(samples, mm)
         n_dots = len(dot_groups(samples))
         if len(rows) < 4 or len(np.unique(rows.dot)) < 3:
@@ -393,9 +442,20 @@ class GeometricModel(BaseModel):
         self.params = p
         self.fitted = True
         self.viewing_distance_m = self._viewing_distance(rows, screen_m)
+        self.measured_distance_m = float(np.median(np.linalg.norm(np.asarray(rows.c), axis=1))) if len(rows) else None
         pred = self.predict_samples(samples, raw=True)
         msg = "several head positions: kappa and eye offset fitted" if self.multi_pose else "one head position: kappa held near its prior (repeat the grid from a second head position to fit it)"
-        return report_from_predictions(self.name, samples, pred, screen, self.viewing_distance_m, params=self.summary(), message=msg)
+        if not self.distance_plausible():
+            msg += (
+                f" The solved setup is implausible (viewing distance {self.viewing_distance_m:.2f} m, but the eyes were measured"
+                f" {self.measured_distance_m:.2f} m from the camera): an estimator is probably biased; degrees use the measured distance."
+            )
+        return report_from_predictions(self.name, samples, pred, screen, self.degree_distance(), params=self.summary(), message=msg)
+
+    def distance_plausible(self) -> bool:
+        """Whether the solved viewing distance agrees with the measured eye-to-camera distance."""
+        v, m = self.viewing_distance_m, self.measured_distance_m
+        return not (v and m and abs(v - m) > PLAUSIBLE_DISTANCE_RATIO * m)
 
     def _viewing_distance(self, rows: _Rows, screen_m: tuple[float, float]) -> float | None:
         if not len(rows):
@@ -511,6 +571,10 @@ class GeometricModel(BaseModel):
         return GazePoint(x=x, y=y, t=obs.t, confidence=conf, model=self.name, t_local=obs.t_local, left=pts.get("left"), right=pts.get("right"))
 
     def degree_distance(self) -> float | None:
+        """Eye-to-screen distance for degree conversions: the solved viewing distance, or the
+        measured eye-to-camera distance when the solve is implausible."""
+        if not self.distance_plausible():
+            return self.measured_distance_m
         return self.viewing_distance_m
 
     # --- description / persistence ------------------------------------------------------------
@@ -544,6 +608,8 @@ class GeometricModel(BaseModel):
             "camera_in_screen_mm": [round(v, 1) for v in pose["camera_in_screen_mm"]],
             "camera_tilt_deg": round(pose["camera_tilt_deg"], 1),
             "viewing_distance_m": self.viewing_distance_m,
+            "measured_distance_m": self.measured_distance_m,
+            "distance_plausible": self.distance_plausible(),
             "multi_pose": self.multi_pose,
         }
 
@@ -558,7 +624,7 @@ class GeometricModel(BaseModel):
         self.person_prior = self.params.copy()
 
     def _state(self) -> dict[str, Any]:
-        return {"params": self.params.tolist(), "multi_pose": self.multi_pose, "viewing_distance_m": self.viewing_distance_m, "summary": self.summary()}
+        return {"params": self.params.tolist(), "multi_pose": self.multi_pose, "viewing_distance_m": self.viewing_distance_m, "measured_distance_m": self.measured_distance_m, "summary": self.summary()}
 
     def _load_state(self, state: dict[str, Any]) -> None:
         params = np.asarray(state["params"], float)
@@ -567,3 +633,4 @@ class GeometricModel(BaseModel):
         self.params = params
         self.multi_pose = bool(state.get("multi_pose", False))
         self.viewing_distance_m = state.get("viewing_distance_m")
+        self.measured_distance_m = state.get("measured_distance_m")

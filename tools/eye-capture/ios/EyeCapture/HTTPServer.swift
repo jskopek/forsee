@@ -42,6 +42,9 @@ struct HTTPResponse {
     var body: Body = .data(Data())
 
     static func json(_ object: Any, status: Int = 200) -> HTTPResponse {
+        // NaN or infinity anywhere (an invalid CMTime, a camera mid-restart) would make
+        // the whole answer invalid JSON; send null for them, as the stream does.
+        let object = JSONSafe.clean(object)
         guard JSONSerialization.isValidJSONObject(object),
               let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         else {
@@ -70,8 +73,17 @@ final class HTTPServer {
     private let handler: Handler
     private var connections: [ObjectIdentifier: HTTPConnection] = [:]
 
-    /// Called on the server queue if the listener fails (for example, port in use).
+    /// Called on the server queue if the listener fails (for example, port in use, or
+    /// iOS reclaimed the socket while the app was suspended).
     var onFailure: ((String) -> Void)?
+    /// Called on the server queue when the listener is accepting connections.
+    var onReady: (() -> Void)?
+
+    /// Whether the listener is accepting connections.
+    var isListening: Bool {
+        if case .ready = listener.state { return true }
+        return false
+    }
 
     init(port: UInt16, handler: @escaping Handler) throws {
         let parameters = NWParameters.tcp
@@ -88,8 +100,13 @@ final class HTTPServer {
 
     func start() {
         listener.stateUpdateHandler = { [weak self] state in
-            if case .failed(let error) = state {
+            switch state {
+            case .failed(let error):
                 self?.onFailure?("\(error)")
+            case .ready:
+                self?.onReady?()
+            default:
+                break
             }
         }
         listener.newConnectionHandler = { [weak self] nwConnection in
@@ -104,6 +121,12 @@ final class HTTPServer {
             connection.start()
         }
         listener.start(queue: queue)
+    }
+
+    /// Stops accepting connections. Open connections finish on their own.
+    func stop() {
+        listener.stateUpdateHandler = nil
+        listener.cancel()
     }
 }
 

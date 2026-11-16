@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import dataclasses
 import json
 import logging
 import math
@@ -208,6 +209,9 @@ class Engine:
         self._sim_pose_group: int | None = None
         self._sim_head_base: list[float] | None = None
         self._phone_stop: asyncio.Event | None = None
+        self._connected_at = 0.0
+        self._last_restart = 0.0
+        self._restart_task: asyncio.Task | None = None
         self._phone_task: asyncio.Task | None = None
 
         # Frame loop
@@ -240,6 +244,10 @@ class Engine:
         self.models: dict[str, GazeModel] = {}
         self.reports: list[FitReport] = []
         self.chosen: str | None = None
+        self.models_setup: dict[str, Any] | None = None
+        """The camera and screen the models in use were fitted with (``None``: unknown, e.g. models
+        injected by a test). See :meth:`_check_setup`."""
+        self._setup_key: tuple | None = None
         self.validation: dict[str, Any] = {}
         self.active_run: calib.CalibrationRun | None = None
         self._run_counter = 0
@@ -340,8 +348,10 @@ class Engine:
         return _PassFilter()
 
     def _set_screen(self, screen: ScreenInfo | None) -> None:
-        """Use ``screen`` everywhere: gaze WebSocket and the filter (degrees need the screen)."""
+        """Use ``screen`` everywhere: gaze WebSocket and the filter (degrees need the screen).
+        The calibration is checked against it at the next frame (:meth:`_check_setup`)."""
         self.screen = screen
+        self._setup_key = None
         self.gaze_ws.screen = screen
         fn = getattr(self.filter, "set_screen", None)
         if fn is not None:
@@ -395,20 +405,94 @@ class Engine:
         self.broadcast({"type": "hotkey", "action": action})
 
     def _load_profile(self) -> None:
-        if self.profile_dir is None:
+        """Nothing to do at start: a calibration belongs to one camera and one screen, so the
+        profile for the camera in use is loaded when the first frame says which camera that is
+        (:meth:`_check_setup`)."""
+
+    @staticmethod
+    def _camera_slug(camera: dict[str, Any]) -> str:
+        """Profile sub-directory for a camera: ``arkit``, ``back-wide``, ``front-wide``, ..."""
+        if camera.get("type") == "arkit":
+            return "arkit"
+        return f"{camera.get('position') or 'unknown'}-{camera.get('type') or 'camera'}".replace("/", "_")
+
+    def _current_setup(self) -> dict[str, Any] | None:
+        """The camera (from the latest frame) and screen in use now, or ``None`` if unknown."""
+        frame = self.last_frame
+        if frame is None or self.screen is None:
+            return None
+        cam = frame.camera
+        return {
+            "camera": {"id": cam.id, "type": cam.type, "position": cam.position, "zoom": cam.zoom},
+            "screen": {"width": round(float(self.screen.width)), "height": round(float(self.screen.height)), "source": self.screen.source},
+        }
+
+    @staticmethod
+    def _setup_matches(saved: dict[str, Any] | None, now: dict[str, Any]) -> bool:
+        if not saved or not isinstance(saved.get("camera"), dict) or not isinstance(saved.get("screen"), dict):
+            return False
+        a, b = saved["camera"], now["camera"]
+        sa, sb = saved["screen"], now["screen"]
+        return a.get("id") == b["id"] and a.get("type") == b["type"] and round(float(sa.get("width", -1))) == sb["width"] and round(float(sa.get("height", -1))) == sb["height"]
+
+    @staticmethod
+    def _describe_setup(setup: dict[str, Any]) -> str:
+        cam, scr = setup.get("camera") or {}, setup.get("screen") or {}
+        name = "ARKit" if cam.get("type") == "arkit" else f"the {cam.get('position', '')} {cam.get('type', '')} camera".replace("  ", " ")
+        return f"{name} and a {scr.get('width')} x {scr.get('height')} pt screen"
+
+    def _check_setup(self) -> None:
+        """Use only a calibration made with the camera and screen in use now.
+
+        Called for every frame; does work only when the camera or screen changed. If the models
+        in use were fitted with another camera or screen they are put away, and the profile saved
+        for this camera is loaded if it was made with this camera and screen. Otherwise there is
+        no model (no gaze output) and the UI is told to calibrate."""
+        now = self._current_setup()
+        if now is None:
             return
+        key = (now["camera"]["id"], now["camera"]["type"], now["screen"]["width"], now["screen"]["height"])
+        if key == self._setup_key:
+            return
+        self._setup_key = key
+        if self.models and (self.models_setup is None or self._setup_matches(self.models_setup, now)):
+            if self.models_setup is None:
+                self.models_setup = now
+            return
+        old = self.models_setup if self.models else None
+        self.models, self.reports, self.chosen, self.validation, self.models_setup = {}, [], None, {}, None
+        self.filter_reset()
+        loaded = self._load_profile_for(now)
+        if not loaded and old is not None:
+            self.log("warning", f"The calibration in use was made with {self._describe_setup(old)}; this is {self._describe_setup(now)}. Calibrate again.")
+
+    def _profile_path(self, setup: dict[str, Any]) -> Path | None:
+        return None if self.profile_dir is None else self.profile_dir / self._camera_slug(setup["camera"])
+
+    def _load_profile_for(self, now: dict[str, Any]) -> bool:
+        path = self._profile_path(now)
+        if path is None or not path.exists():
+            return False
         try:
-            result = calib.Profile(self.profile_dir).load()
-        except NotImplementedError:
-            return
+            profile = calib.Profile(path)
+            setup = profile.setup() or {}
+            saved = {"camera": setup.get("camera"), "screen": setup.get("screen")}
+            if not self._setup_matches(saved, now):
+                if saved["camera"]:
+                    self.log("warning", f"The saved calibration for this camera was made with {self._describe_setup(saved)}; this is {self._describe_setup(now)}. Calibrate again.")
+                return False
+            result = profile.load()
         except Exception as exc:  # noqa: BLE001
-            log.warning("cannot load the calibration profile: %s", exc)
-            return
-        if result is not None:
-            self.models = dict(result.models)
-            self.reports = list(result.reports)
-            self.chosen = result.chosen
-            log.info("loaded calibration profile (%d models, chosen %s)", len(self.models), self.chosen)
+            log.warning("cannot load the calibration profile %s: %s", path, exc)
+            return False
+        if result is None or not result.models:
+            return False
+        self.models = dict(result.models)
+        self.reports = list(result.reports)
+        self.chosen = result.chosen
+        self.models_setup = now
+        self.log("info", f"Loaded the saved calibration for {self._describe_setup(now)} (model {self.chosen}).")
+        return True
 
     # ------------------------------------------------------------------------------------------
     # Phone connection
@@ -501,6 +585,8 @@ class Engine:
     def _on_phone_state(self, state: str, detail: str) -> None:
         if state != self.phone_state:
             log.info("phone %s: %s", state, detail)
+            if state == "connected":
+                self._connected_at = time.monotonic()
         self.phone_state = state
         self.phone_detail = detail
 
@@ -689,9 +775,16 @@ class Engine:
         if obs.t_local is None:
             obs.t_local = frame.t_received
         self._recent_obs.append(obs)
+        self._check_setup()
 
         zoom_stable = (frame.header.get("camera") or {}).get("zoomStable", True) if frame.header else True
-        if self.active_run is not None and zoom_stable is not False:
+        # Frames to hold on rather than estimate from: during a zoom change the image may still be
+        # at the old zoom while the header has the new one (distance and gaze off by the zoom
+        # ratio); in ARKit mode without a tracked face, only the image-based estimators ran, and
+        # models fitted on ARKit's eyes must not be fed their output.
+        arkit_lost = frame.camera.type == "arkit" and (frame.arkit is None or not frame.arkit.tracked)
+        hold = zoom_stable is False or arkit_lost
+        if self.active_run is not None and not hold:
             try:
                 self.active_run.add(obs)
             except Exception:  # noqa: BLE001
@@ -701,13 +794,14 @@ class Engine:
         if self._aim_samples is not None:
             self._aim_samples.append((dict(self.quality), frame.lens.adjusting_focus))
 
-        raw = self._predict(obs)
+        raw = None if hold else self._predict(obs)
         try:
             point = self.filter.update(raw, obs)
         except Exception:  # noqa: BLE001
             if _log_allowed("filter"):
                 log.exception("filter failed; passing the raw point")
             point = raw
+        point = self._off_screen_invalid(point)
         self.last_raw, self.last_gaze = raw, point
 
         if not self.paused:
@@ -735,6 +829,19 @@ class Engine:
         for k, v in timings.items():
             old = self.timings_ms.get(k)
             self.timings_ms[k] = v if old is None else 0.9 * old + 0.1 * v
+
+    OFF_SCREEN_FRACTION = 0.1
+    """Gaze further outside the screen than this fraction of its width or height is reported as
+    not valid (the cursor holds, ``/gaze`` repeats the last valid point)."""
+
+    def _off_screen_invalid(self, point: GazePoint | None) -> GazePoint | None:
+        scr = self.screen
+        if point is None or not point.valid or scr is None:
+            return point
+        mx, my = self.OFF_SCREEN_FRACTION * scr.width, self.OFF_SCREEN_FRACTION * scr.height
+        if -mx <= point.x <= scr.width + mx and -my <= point.y <= scr.height + my:
+            return point
+        return dataclasses.replace(point, valid=False)
 
     def active_model(self) -> GazeModel | None:
         pinned = self.config.models.pinned
@@ -988,7 +1095,9 @@ class Engine:
     # Calibration
     # ------------------------------------------------------------------------------------------
 
-    def start_calibration(self, kind: str) -> dict[str, Any]:
+    def start_calibration(self, kind: str, pose_rounds: int | None = None) -> dict[str, Any]:
+        """Start a run. ``pose_rounds`` (grid only) overrides ``calibration.pose_rounds`` for this
+        run, so the UI's choice applies even if its config change has not landed yet."""
         if kind not in ("grid", "pursuit", "refine", "validate"):
             raise ValueError(f"unknown calibration kind {kind!r}")
         if kind in ("refine", "validate") and not self.models:
@@ -1013,8 +1122,8 @@ class Engine:
             "targets": [t.to_dict() for t in targets],
             "settle_ms": c.settle_ms,
             "collect_ms": c.collect_ms,
-            "pose_rounds": c.pose_rounds if kind == "grid" else 1,
-            "screen": {"width": self.screen.width, "height": self.screen.height},
+            "pose_rounds": max(1, min(10, int(pose_rounds if pose_rounds is not None else c.pose_rounds))) if kind == "grid" else 1,
+            "screen": {"width": self.screen.width, "height": self.screen.height, "source": self.screen.source},
         }
         if self.recorder is not None:
             self.recorder.write_event({"type": "calib.start", **plan})
@@ -1112,7 +1221,12 @@ class Engine:
 
         self._sim_gaze_task = asyncio.create_task(go())
 
-    async def finish_calibration(self, run_id: str) -> dict[str, Any]:
+    async def finish_calibration(self, run_id: str, commit: bool = True) -> dict[str, Any]:
+        """Fit (grid, pursuit), refine or validate on the run's samples.
+
+        ``commit=False`` (grid and pursuit only) fits and reports but keeps the models in use and
+        the saved profile as they were: the full calibration's moving-dot phase uses it, so that
+        cancelling the grid that follows does not leave the moving-dot fit in charge."""
         run = self.active_run
         if run is None or run.run_id != run_id:
             raise ValueError(f"no active calibration run {run_id!r}")
@@ -1125,7 +1239,12 @@ class Engine:
         screen = self.screen
         samples = list(run.samples)
         answer: dict[str, Any] = {"run_id": run.run_id, "kind": run.kind, "reports": [], "chosen": self.chosen, "n_samples": len(samples)}
-        if run.kind in ("grid", "pursuit"):
+        if run.kind in ("grid", "pursuit") and not commit:
+            result = await asyncio.to_thread(calib.fit_all, samples, screen, self._new_models())
+            answer["reports"] = [r.to_dict() for r in result.reports]
+            answer["chosen"] = result.chosen
+            answer["committed"] = False
+        elif run.kind in ("grid", "pursuit"):
             candidates = self._new_models()
             result = await asyncio.to_thread(calib.fit_all, samples, screen, candidates)
             fitted = {name: m for name, m in result.models.items()}
@@ -1133,6 +1252,7 @@ class Engine:
             self.models = {k: v for k, v in fitted.items() if k in ok} or fitted
             self.reports = list(result.reports)
             self.chosen = result.chosen
+            self.models_setup = self._current_setup()
             self.validation = {}
             answer["reports"] = [r.to_dict() for r in result.reports]
             answer["chosen"] = result.chosen
@@ -1173,10 +1293,11 @@ class Engine:
                 self.recorder.write_event({"type": "calib.cancel", "run_id": run_id})
 
     def _save_profile(self, result: Any) -> None:
-        if self.profile_dir is None or self.screen is None:
+        setup = self._current_setup()
+        if self.profile_dir is None or self.screen is None or setup is None:
             return
         try:
-            calib.Profile(self.profile_dir).save(result, self.screen)
+            calib.Profile(self._profile_path(setup)).save(result, self.screen, camera=setup["camera"])
         except NotImplementedError:
             pass
         except Exception as exc:  # noqa: BLE001
@@ -1475,6 +1596,7 @@ class Engine:
         """Sends ``state`` to the UI when it changed, at most 5 times a second."""
         while self.running:
             await asyncio.sleep(0.2)
+            self._frame_watchdog()
             if not self._subscribers:
                 continue
             try:
@@ -1487,6 +1609,42 @@ class Engine:
             if text != self._last_state_json:
                 self._last_state_json = text
                 self.broadcast({"type": "state", "state": state})
+
+    NO_FRAMES_RESTART_S = 3.0
+    """With the phone connected and its camera supposedly running, this long without a frame
+    (the app was backgrounded, another app took the camera, the phone got too hot) makes the
+    engine ask the phone to start the camera again, at most every :data:`RESTART_EVERY_S`."""
+    RESTART_EVERY_S = 10.0
+
+    def _frame_watchdog(self) -> None:
+        if self.phone is None or self.replaying is not None or self.phone_state != "connected":
+            return
+        if self._aim_task is not None or self.aim.get("phase") == "trying":
+            return
+        state = (self.phone_status or {}).get("state") or {}
+        mode, camera_id = state.get("mode", "idle"), state.get("cameraId")
+        if mode == "idle" or not camera_id or (self._restart_task is not None and not self._restart_task.done()):
+            return
+        now = time.monotonic()
+        last = self.last_frame.t_received if self.last_frame is not None and self.last_frame.t_received else 0.0
+        if now - max(last, self._connected_at) < self.NO_FRAMES_RESTART_S or now - self._last_restart < self.RESTART_EVERY_S:
+            return
+        self._last_restart = now
+        phone = self.phone
+        lens = self.config.lens
+        zoom = 1.0 if mode == "arkit" else lens.zoom
+        detail = state.get("lastError") or "no reason given"
+        self.log("warning", f"No frames from the phone for {now - max(last, self._connected_at):.0f} s ({detail}); asking it to start the camera again.")
+
+        async def go() -> None:
+            try:
+                self.phone_status = await phone.configure(str(camera_id), lens.max_width, lens.fps, zoom)
+                self._camera_changed()
+            except PhoneError as exc:
+                if _log_allowed("restart-camera"):
+                    log.warning("restarting the phone camera failed: %s", exc)
+
+        self._restart_task = asyncio.ensure_future(go())
 
     # ------------------------------------------------------------------------------------------
     # Preview images

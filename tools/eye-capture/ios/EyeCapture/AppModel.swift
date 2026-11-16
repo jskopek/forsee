@@ -9,7 +9,7 @@ import UIKit
 /// through these routes; the phone's own screen only shows status.
 final class AppModel: ObservableObject {
     static let port: UInt16 = 8080
-    static let appVersion = "0.2"
+    static let appVersion = "0.2.1"
 
     @Published var addresses: [String] = []
     @Published var statusLine = "Starting…"
@@ -45,6 +45,26 @@ final class AppModel: ObservableObject {
         }
         capture.startMotion()
 
+        startServer()
+        // iOS takes listening sockets away from suspended apps (TN2277): after the phone
+        // locks or the app goes to the background the listener fails and must be made again.
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            if !(self.server?.isListening ?? false) { self.startServer() }
+        }
+
+        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            self?.refresh()
+        }
+        refresh()
+    }
+
+    /// Main thread. (Re)creates the web server on the same port.
+    private func startServer() {
+        server?.stop()
+        server = nil
         do {
             let server = try HTTPServer(port: Self.port) { [weak self] request, respond in
                 guard let self = self else {
@@ -55,7 +75,17 @@ final class AppModel: ObservableObject {
             }
             server.onFailure = { [weak self] message in
                 DispatchQueue.main.async {
-                    self?.lastError = "The web server stopped: \(message)"
+                    guard let self = self else { return }
+                    self.lastError = "The web server stopped (\(message)); restarting it."
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                        guard let self = self, UIApplication.shared.applicationState != .background else { return }
+                        if !(self.server?.isListening ?? false) { self.startServer() }
+                    }
+                }
+            }
+            server.onReady = { [weak self] in
+                DispatchQueue.main.async {
+                    if self?.lastError?.hasPrefix("The web server stopped") == true { self?.lastError = nil }
                 }
             }
             server.start()
@@ -63,11 +93,6 @@ final class AppModel: ObservableObject {
         } catch {
             lastError = "Could not start the web server: \(error.localizedDescription)"
         }
-
-        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            self?.refresh()
-        }
-        refresh()
     }
 
     /// Main thread. Updates the phone's own screen and the cached system facts.
@@ -111,7 +136,7 @@ final class AppModel: ObservableObject {
                 try capture.configure(cameraId: cameraId, maxWidth: maxWidth, fps: fps, zoom: zoom)
                 respond(.json(status()))
             } catch {
-                respond(.error(400, Self.describe(error)))
+                respond(.error(Self.statusCode(for: error), Self.describe(error)))
             }
 
         case ("POST", "/api/stop"):
@@ -134,7 +159,7 @@ final class AppModel: ObservableObject {
                 try capture.setFocus(locked: locked, point: point)
                 respond(.json(status()))
             } catch {
-                respond(.error(400, Self.describe(error)))
+                respond(.error(Self.statusCode(for: error), Self.describe(error)))
             }
 
         case ("GET", "/stream"):
@@ -339,8 +364,12 @@ final class AppModel: ObservableObject {
     }
 
     private static func statusCode(for error: Error) -> Int {
-        if let captureError = error as? CaptureError, case .notRunningCamera = captureError {
-            return 409
+        // 409 for "not now" (PROTOCOL.md), matching the simulator.
+        if let captureError = error as? CaptureError {
+            switch captureError {
+            case .notRunningCamera, .busyRecording: return 409
+            default: return 400
+            }
         }
         return 400
     }
