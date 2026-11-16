@@ -1,0 +1,23 @@
+# Virtual environment and Python caches
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+
+# Downloaded models (fetch with: python -m phonegaze.download). Anchored, so the
+# phonegaze/models/ package is not ignored.
+/models/
+
+# Anything recorded from a real camera: never commit faces or eyes
+/data/
+recordings/
+profiles/
+*.pgz
+*.pgz1
+*.mp4
+*.mov
+
+# Caches
+.cache/

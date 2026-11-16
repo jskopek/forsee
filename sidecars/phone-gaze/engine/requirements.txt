@@ -1,0 +1,16 @@
+# Phone Gaze engine. Install with:
+#   python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/pip install -e .
+#
+# OpenCV comes from opencv-contrib-python, which mediapipe already depends on. Do not add
+# opencv-python or opencv-python-headless: both install the same cv2 files, and removing one
+# later breaks the other.
+numpy>=1.26
+scipy>=1.11
+opencv-contrib-python>=4.9
+mediapipe>=0.10.14
+aiohttp>=3.9
+pillow>=10
+onnxruntime>=1.17
+pytest>=8
+pytest-asyncio>=0.23
+pynput>=1.7; sys_platform == "darwin"

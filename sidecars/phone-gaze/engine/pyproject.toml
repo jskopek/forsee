@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phonegaze"
+version = "0.1.0"
+description = "Phone Gaze: an eye tracker made from an iPhone camera and a Mac"
+requires-python = ">=3.10"
+# Kept in step with requirements.txt. OpenCV comes from opencv-contrib-python, which mediapipe
+# depends on; a second OpenCV wheel (opencv-python-headless) would overwrite the same cv2 files.
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "opencv-contrib-python>=4.9",
+    "mediapipe>=0.10.14",
+    "aiohttp>=3.9",
+    "pillow>=10",
+    "onnxruntime>=1.17",
+    "pynput>=1.7; sys_platform == 'darwin'",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+phonegaze = "phonegaze.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["phonegaze*"]
+
+[tool.setuptools.package-data]
+"phonegaze.web" = ["**/*.html", "**/*.css", "**/*.js", "**/*.json", "**/*.svg", "**/*.png"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "slow: takes more than a few seconds (end-to-end, model downloads)",
+    "macos: needs macOS (cursor, screen size, hotkeys)",
+]
