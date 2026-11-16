@@ -20,6 +20,7 @@ checked, and how:
 | Browser UI                                               | Driven in headless Chromium against the engine and simulator: connect, aim, calibrate, validate, refine, live, record.         |
 | Mac outputs (cursor, hotkeys, screen size)               | CI on a macOS runner imports them, reads the screen size from macOS and runs the engine for a few seconds. Cursor never moved. |
 | Forsee gaze source (`?gaze=phone`)                       | Unit tests against a fake server. Never connected to the real engine.                                                          |
+| Drift correction from selections (experiment, off)       | Unit tests, a simulated drifting phone (Models simulator), API tests with fake clients. Never with a real phone or person.     |
 
 Accuracy against the simulator, measured by
 [`engine/tests/ui/accuracy_e2e.cjs`](engine/tests/ui/accuracy_e2e.cjs): a 3×3 grid calibration
@@ -162,8 +163,52 @@ The Dashboard's model table lets you pin a model instead of the automatic choice
 Start the engine, calibrate, then open the Forsee web app with `?gaze=phone`, for example
 `http://localhost:5173/?gaze=phone` (`&gazePort=N` if you started the engine with `--port N`).
 Use full screen at 100 % browser zoom so positions line up. While this is on, the mouse does not
-drive selection; dwell selections are sent back to the engine as known look-points (used for
-drift correction if you turn it on under Experiments > calibration).
+drive selection; every selection is sent back to the engine as a known look-point (see the next
+section).
+
+### Drift correction from selections (experiment, off by default)
+
+**Unit-tested and tested against simulators only; never run on a real phone.**
+
+When you type in Forsee by dwell, each key you select is a place you were looking. The engine
+uses these to learn a small offset that undoes slow drift (you settling in your chair, the phone
+creeping on the desk) without a new calibration.
+
+- **What it does.** For each selection it takes the gaze estimate from the fixation just before
+  the key fired (not the sample when the message arrives; Forsee sends the selection's time on the
+  engine's clock), compares it with the key, and nudges the offset a little. A key only proves you
+  looked somewhere on it, so big keys count less than small ones, and one selection can move the
+  offset by at most 0.5°. A selection whose estimate was more than 2° outside the key is ignored
+  (a mistake or a stale sample). If you delete what you just selected (backspace or undo straight
+  away), that selection is taken back. The offset is forgotten after a calibration, a quick
+  refine, a camera or model change, or when a saved calibration is loaded; a zoom change keeps it
+  but lets the next selections move it more.
+- **Switch it on.** Experiments page, card **Drift correction from selections**, or the setting
+  `calibration.drift_correction`. `calibration.drift_rate` (degrees per minute, default 0.5) is
+  how fast it adapts. `calibration.drift_clicks` (off) also learns from mouse clicks, as weaker
+  evidence. With Forsee not connected and no selection for 2 minutes, the offset is not applied, so
+  the plain cursor is unaffected.
+- **Read the numbers.** The same card shows, over this session and the last 50 selections, the
+  median and mean distance from the gaze estimate to the centre of the selected key, **with
+  correction** and **without**, each measured before that selection updated anything. Both are
+  measured whether or not the correction is switched on, so you can type normally with it off and
+  see whether it would have helped. Distances include where on the key you looked, so they never
+  reach zero; compare the two columns, not the absolute numbers. Also `GET /api/drift`.
+- **Offline.** Recordings include the selections, so
+  `.venv/bin/python -m phonegaze.replay score <recording>` prints both numbers for the replayed
+  session, as if the correction had been on and as if it had been off (`--drift-rate` to try
+  another speed).
+- **Limits.** It corrects slow drift only: a shift of the whole picture, not a wrong scale, and not
+  a sudden bump (use Quick refine). Wrong selections that you do not delete pull it the wrong way.
+  Large keys give weak evidence, so it learns slowly from them. Drift bigger than about half a key
+  shows up as wrong keys, which you delete, so it is not learned from. Forsee reports undo by
+  watching the text (a backspace, delete-word or undo right after a selection), not by knowing
+  which key you meant.
+
+In the Models simulator (`tests/test_models_drift.py`: a ridge calibration, the phone sliding
+3 mm and tilting 0.3° a minute for 4 minutes, a selection every 1.5 s on 120 × 100 pt keys) the
+true error grows to about 2.8° without correction and stays at about 0.3° with it; with no drift
+both are about 0.25°.
 
 ### Record a session and send it back
 
@@ -206,7 +251,8 @@ Also known:
 - Frames during a zoom change are not used (the image can still be at the old zoom).
 - The appearance estimator is a stub; the moving-dot calibration phase is reported but its
   samples are not used for the fit (it is about 10° in the simulator).
-- Drift correction from Forsee look-points has never run against a real phone.
+- Drift correction from Forsee selections has never run against a real phone or a real Forsee
+  session; it is tested with unit tests, the Models simulator and fake clients.
 
 ## Troubleshooting
 

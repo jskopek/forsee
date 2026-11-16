@@ -127,7 +127,10 @@ as `{"error": "text"}` with 4xx/5xx. All coordinates in screen points.
 | `POST /api/record/stop`        |                                                                                                                                       | Recording summary.                                                                                                                                                                                                                                                                    |
 | `GET /api/recordings`          |                                                                                                                                       | `{"recordings": [summary]}`                                                                                                                                                                                                                                                           |
 | `POST /api/replay`             | `{"id", "estimators"?: [name], "models"?: [name]}`                                                                                    | `replay.score` result.                                                                                                                                                                                                                                                                |
-| `POST /api/lookpoint`          | `{"x", "y", "t"?}`                                                                                                                    | `{"ok": true}`. A known look-point (drift correction).                                                                                                                                                                                                                                |
+| `POST /api/lookpoint`          | `{"x", "y", "t"?, "id"?, "kind"?, "rect"?}` (as the `/gaze` message below)                                                            | `{"ok": true, "outcome"}`. A known look-point (drift correction); `outcome` says whether it was used and why not.                                                                                                                                                                     |
+| `POST /api/lookpoint/undo`     | `{"id"}`                                                                                                                              | `{"ok": true, "changed"}`. The look-point was undone in the app: its update and its score are taken back.                                                                                                                                                                             |
+| `GET /api/drift`               |                                                                                                                                       | Drift correction state (also `state.drift`): `enabled`, `applied`, `offset_pt`, `offset_deg`, `session` and `recent` (`n`, `corrected` and `uncorrected` `{median_deg, mean_deg}`), `rejected`, `undone`, `resets`, `last_reset_reason`.                                              |
+| `POST /api/drift/reset`        | `{"offset"?: true, "stats"?: false}`                                                                                                  | Forgets the learned offset and/or clears the numbers. Answer as `GET /api/drift`.                                                                                                                                                                                                     |
 
 Calibration plan:
 
@@ -167,12 +170,13 @@ Calibration plan:
   "screen": {},
   "outputs": { "cursor": false, "dwell_click": false, "websocket_clients": 1 },
   "recording": null,
-  "paused": false
+  "paused": false,
+  "drift": {}
 }
 ```
 
 `screen` is `ScreenInfo.to_dict()`; `reports` are `FitReport.to_dict()`; `recording` is `null` or
-`{"id", "path", "seconds"}`.
+`{"id", "path", "seconds"}`; `drift` is the `GET /api/drift` answer.
 
 ### UI WebSocket: `ws://127.0.0.1:8765/ws`
 
@@ -220,5 +224,22 @@ sample (at most `outputs.websocket_rate_hz`):
 
 `x`, `y` are screen points; `t` is seconds on the engine's monotonic clock; when `valid` is false
 `x`/`y` repeat the last valid point and must be ignored. Clients may send
-`{"type": "lookpoint", "x", "y", "t"?}` when the user selects something by dwell (a known
-look-point for drift correction). Unknown message types are ignored on both sides.
+
+```json
+{
+  "type": "lookpoint",
+  "x": 812.0,
+  "y": 433.0,
+  "t": 1234.5,
+  "id": "s12",
+  "kind": "dwell",
+  "rect": { "x": 772.0, "y": 403.0, "width": 80.0, "height": 60.0 }
+}
+```
+
+when the user selects something (a known look-point for drift correction): `x`, `y` the target's
+centre and `rect` its rectangle in screen points, `t` the engine time the selection completed
+(the client maps its own clock with the samples' `t`), `kind` `"dwell"` (default) or `"click"`
+(a mouse click or tap; used only with `calibration.drift_clicks`). Only `x` and `y` are required.
+`{"type": "lookpoint.undo", "id"}` takes a look-point back when the user removed what they had
+just selected. Unknown message types are ignored on both sides.
