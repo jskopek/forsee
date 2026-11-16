@@ -203,7 +203,7 @@ jobs:
         working-directory: sidecars/phone-gaze/engine
         env:
           PHONEGAZE_APP_URL: http://127.0.0.1:8080
-        run: .venv/bin/python -m pytest -v -rs tests/realapp_phone_app.py
+        run: .venv/bin/python -m pytest -v -s -rs tests/realapp_phone_app.py
       - name: Diagnostics
         if: always()
         run: |

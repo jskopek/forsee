@@ -196,37 +196,6 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		35DE5129CFA834FA8B47DB632FBA62C6 /* Release */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = DC49B429AA370FE9A4F053EA5528251C /* Base.xcconfig */;
-			buildSettings = {
-				CLANG_ENABLE_OBJC_WEAK = NO;
-				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_PREVIEWS = NO;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Eye Capture";
-				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Records video of your eyes while you look at targets on another screen.";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Lets your computer control the capture and download recordings over Wi-Fi.";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIFileSharingEnabled = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 0.2.1;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				VALIDATE_PRODUCT = YES;
-			};
-			name = Release;
-		};
 		426B09DE9081D2D3B6922E70D5C11378 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -288,7 +257,7 @@
 			};
 			name = Debug;
 		};
-		5682BCD144B44355A8AE9E7423BB6970 /* Debug */ = {
+		6F4B2C5A4A0E76BADF69355B90D63E0E /* Release */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = DC49B429AA370FE9A4F053EA5528251C /* Base.xcconfig */;
 			buildSettings = {
@@ -310,13 +279,14 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2.1;
+				MARKETING_VERSION = 0.2.2;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
 			};
-			name = Debug;
+			name = Release;
 		};
 		BF5E06059800E223E653076CF9957C50 /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -372,14 +342,44 @@
 			};
 			name = Release;
 		};
+		DD89D7DF22BD1A1F189939DE905F190E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = DC49B429AA370FE9A4F053EA5528251C /* Base.xcconfig */;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Eye Capture";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Records video of your eyes while you look at targets on another screen.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Lets your computer control the capture and download recordings over Wi-Fi.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIFileSharingEnabled = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.2.2;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
 		BC359FC6F13324455FF0BCA475E1B141 /* Build configuration list for PBXNativeTarget "EyeCapture" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				35DE5129CFA834FA8B47DB632FBA62C6 /* Release */,
-				5682BCD144B44355A8AE9E7423BB6970 /* Debug */,
+				6F4B2C5A4A0E76BADF69355B90D63E0E /* Release */,
+				DD89D7DF22BD1A1F189939DE905F190E /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

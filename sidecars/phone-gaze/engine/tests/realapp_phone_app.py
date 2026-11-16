@@ -624,13 +624,18 @@ async def test_engine_runs_on_the_app_stream(tmp_path, caplog) -> None:
     from phonegaze.pipeline import Engine
     from phonegaze.types import ScreenInfo
 
+    from phonegaze.pipeline import run_estimators
+
+    cfg = Config()
     phone = await client()
     try:
         await start_test_pattern(phone, max_width=1920, fps=30)
+        await reset_stream_config(phone)
+        msgs = await collect(phone, frames=1)
     finally:
         await phone.close()
+    decoded = DecodedFrame.from_frame(Frame.from_message(frames_of(msgs)[-1], time.monotonic()))
 
-    cfg = Config()
     cfg.recording.directory = str(tmp_path / "recordings")
     cfg.lens.camera_id = TEST_CAMERA
     cfg.lens.aim_on_start = False
@@ -639,11 +644,23 @@ async def test_engine_runs_on_the_app_stream(tmp_path, caplog) -> None:
     caplog.set_level(logging.WARNING)
     await engine.start(autoconnect=False)
     try:
+        # Warm up first, on the engine's own estimators and frame thread: the first run loads
+        # MediaPipe (and, on a fresh Mac, builds matplotlib's font cache), which can take tens of
+        # seconds. The engine's no-frames watchdog counts processed frames, so without this it
+        # restarts the phone's camera meanwhile.
+        started = time.monotonic()
+        await asyncio.get_running_loop().run_in_executor(engine._executor, run_estimators, engine.estimators, decoded)
+        print(f"first estimator run on a test-pattern frame: {time.monotonic() - started:.1f} s")
+        connected_at = time.monotonic()
         await engine.connect(APP_URL)
-        deadline = time.monotonic() + 30
+        deadline = connected_at + 60
+        first = None
         while engine.processed < 60 and time.monotonic() < deadline:
-            await asyncio.sleep(0.25)
+            if first is None and engine.processed > 0:
+                first = time.monotonic() - connected_at
+            await asyncio.sleep(0.1)
         state = engine.state()
+        print(f"engine: first frame processed after {first} s, {engine.processed} in {time.monotonic() - connected_at:.1f} s, pipeline {state['pipeline']}")
         assert engine.processed >= 60, json.dumps(state)[:2000]
         assert state["phone"]["connected"], state["phone"]
         assert state["camera"]["id"] == TEST_CAMERA, state["camera"]

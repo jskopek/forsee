@@ -6,7 +6,10 @@ already serves; nothing existing is removed or renamed.
 
 Status: the existing routes are implemented in Swift and work on a real phone. The new routes
 (`/api/zoom`, `/api/lens`, `/api/stream/config`, `/stream`) are implemented in the app (version
-0.2) and compile in CI, but have not been run on a phone. Facts marked **(verify on device)** are derived from documentation, not observed.
+0.2) and compile in CI, but have not been run on a phone. Since app 0.2.2 CI also runs the app in
+the iOS Simulator with its synthetic test-pattern camera and checks it with the engine's own
+phone client (`engine/tests/realapp_phone_app.py`); that covers the wire format, rectangles,
+zoom reporting, back-pressure and the ARKit block's layout, not the real camera or ARKit. Facts marked **(verify on device)** are derived from documentation, not observed.
 
 ## Transport
 
@@ -80,6 +83,8 @@ If faces come out upside down on the owner's phone, fix that table in one place,
 | `GET /files/<session>/<file>` |                                                     | The file.                                              |
 
 `cameraId` `"arkit-face"` selects the front TrueDepth camera through ARKit face tracking.
+`"test-pattern"` (camera mode) and `"test-pattern-arkit"` (ARKit mode with a synthetic face) select
+the app's synthetic camera, see [Test pattern](#test-pattern).
 
 The status object is `{"app": {"name", "version"}, "time", "system": {...}, "cameras": [...],
 "state": {...}}`. Each camera is `{"id", "name", "position": "front"|"back", "type":
@@ -91,15 +96,20 @@ The status object is `{"app": {"name", "version"}, "time", "system": {...}, "cam
 "framesDropped", "lastError", "fieldOfView"?, "lensPosition"?, "iso"?, "exposureSeconds"?,
 "intrinsics"?: {"fx", "fy", "cx", "cy", "width", "height"}, "gravity"?: [x, y, z]}`.
 
-Camera entries may add `"depthSource": "lidar"` (the back wide camera opened through the LiDAR
+Camera entries may add `"testPattern": true` (the synthetic camera; listed only where the device
+has no camera, such as the iOS Simulator, but selectable by id everywhere), `"depthSource": "lidar"` (the back wide camera opened through the LiDAR
 depth device; experimental, listed only on phones with LiDAR, `type` stays `"wide"`) or
 `"truedepth"` (the ARKit entry).
 
 New fields added to `state` by this protocol: `"zoomRange": [min, max]` (the running camera's
 allowed zoom), `"nativeZoomFactors"` (the active format's `secondaryNativeResolutionZoomFactors`),
 `"cameraType"`, `"depthSource"` (when a depth source runs), `"lens"` (the latest frame's `lens`
-block), `"lowLight"` (bool), and `"stream": {"clients", "sent", "dropped", "skipped", "bytes",
-"fps", "mbps", "lastFrameBytes", "connections", "lastError"?}`.
+block), `"lowLight"` (bool), `"testPattern": true` (while the test pattern runs), and `"stream":
+{"clients", "sent", "dropped", "skipped", "bytes", "fps", "mbps", "lastFrameBytes", "connections",
+"encodeMs", "encodeMsMax", "lastError"?}`. `encodeMs` is a running average of the time to build one
+frame message (crops, JPEG encoding, framing), `encodeMsMax` the largest in the last second;
+`lastError` names the last stream problem (a client dropped for not reading, a frame that could
+not be encoded).
 
 ## New routes
 
@@ -175,7 +185,8 @@ messages about once a second (and immediately after a configuration change).
 **Back-pressure.** The phone keeps at most one message being written and drops any newer frame
 while it is busy (it never queues frames). A frame is also dropped while the previous one is
 still being JPEG-encoded. `dropped` in the next frame header counts frames dropped since the
-previous sent frame. `status` messages are never dropped; they wait in a short queue, and a
+previous sent frame (frames dropped while a frame is being encoded count in the frame after it),
+so with no `maxFps` skipping, `seq − previous seq − 1 == dropped` for consecutive frames. `status` messages are never dropped; they wait in a short queue, and a
 client that lets 16 of them pile up is disconnected.
 
 **Heat.** When iOS reports the thermal state `serious`, `maxFps` is capped at 30; at `critical`,
@@ -259,6 +270,7 @@ regenerates both. Any implementation must decode the `.bin` to exactly those hea
 `"arkit"` otherwise); `depthSources` lists `"truedepth"` and/or `"lidar"`; `fps60` says whether
 any camera has a 60 fps format (ask for it with `/api/configure {"fps": 60}`; the app falls back
 to 30 if the chosen size cannot do it).
+`capabilities.testPattern` (app 0.2.2+) says the test pattern can be selected.
 `protocol` is 1 for this document; the engine refuses a larger major version.
 
 ### `frame` header
@@ -279,6 +291,7 @@ to 30 if the chosen size cannot do it).
 | `depth`         | object            | Only when `streamConfig.depth` is true and a depth source runs: `{"source": "truedepth" or "lidar", "t", "width", "height", "atRois": {name: metres or null}, "part"?: "depth"}`. `atRois` is the median depth in a 5×5 window at each cut ROI's centre. The `depth` part (`depth32`) is sent only when the map is new (TrueDepth is about 15 Hz).                                                                |
 | `roiSource`     | string            | The `roiSource` the ROIs in this frame came from.                                                                                                                                                                                                                                                                                                                                                                 |
 | `thermalCapFps` | number            | Present when heat limits the frame rate (see Back-pressure).                                                                                                                                                                                                                                                                                                                                                      |
+| `testPattern`   | object            | Test pattern only: what was drawn (below).                                                                                                                                                                                                                                                                                                                                                                        |
 | `sim`           | object            | Simulator only: ground truth (below).                                                                                                                                                                                                                                                                                                                                                                             |
 
 `camera`:
@@ -292,7 +305,7 @@ to 30 if the chosen size cannot do it).
 | `zoomStable`            | bool       | False for frames captured within 0.25 s of a zoom change (capture time, not delivery time); the engine holds its output and skips calibration for them.                                                                                                                                                                                                                                                                                                                         |
 | `width`, `height`       | integer    | Sensor buffer size in pixels.                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `fx`, `fy`, `cx`, `cy`  | number px  | Intrinsics for this frame in sensor pixels: the per-frame `kCMSampleBufferAttachmentKey_CameraIntrinsicMatrix` (camera mode) or `ARCamera.intrinsics` (ARKit). Omitted if unavailable.                                                                                                                                                                                                                                                                                          |
-| `intrinsicsSource`      | string     | `"attachment"`, `"arkit"` or `"sim"`.                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `intrinsicsSource`      | string     | `"attachment"`, `"arkit"`, `"sim"` or `"test"`.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `intrinsicsIncludeZoom` | bool       | `true` if `fx…cy` already describe the zoomed buffer. The app sends `false` for the attachment (the matrix is believed to describe the unzoomed sensor; **verify on device**) and `true` for ARKit. When `false` the engine compares both readings (as sent, and scaled about the image centre by `zoom`) with the intrinsics implied by `fieldOfView`, uses the one within 25 % and logs which; if neither matches it uses `fieldOfView`, and without `fieldOfView` it scales. |
 | `fieldOfView`           | number deg | Horizontal field of view of the active format at zoom 1.                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
@@ -308,6 +321,26 @@ to 30 if the chosen size cannot do it).
 | `lookAt`      | `[x, y, z]` m or `null`             | `lookAtPoint`, face space.                                                                                                                                    |
 | `blendShapes` | object name → 0–1                   | The 14 eye blend shapes, names as the app's CSV (`blink_left`, …). Empty when no face anchor exists.                                                          |
 | `eyePixels`   | `{"left": [u, v], "right": [u, v]}` | Eye centres projected into sensor pixels (`ARCamera.projectPoint` with `.landscapeRight` and the buffer size). Omitted when not tracked or behind the camera. |
+
+### Test pattern
+
+The app's synthetic camera (`tools/eye-capture/ios/EyeCapture/TestPattern.swift`) for the iOS
+Simulator and wire tests. Its frames take the same path as camera frames (crop, JPEG, framing,
+back-pressure, recording, previews). Sizes 1920×1440, 1280×960 or 640×480 (the largest within
+`maxWidth`), up to 60 fps, zoom 1 to 3, field of view 60°, intrinsics `fx = fy = (W/2) / tan 30°`,
+`cx = W/2`, `cy = H/2` sent unzoomed with `intrinsicsSource: "test"` and `intrinsicsIncludeZoom:
+false` (like the camera's attachment). Without motion data (the Simulator) gravity is `[-1, 0, 0]`,
+which makes the sensor image upright. Lens settings are validated as for a camera, remembered and
+reported in `lens`.
+
+The picture: light grey background (luma 180 with fixed noise of ±12), two flat dark discs (luma
+40), each with a bright spot (luma 250) up and to the right of its centre. Every frame carries
+`"testPattern": {"version": 1, "zoom", "discs": [{"name", "x", "y", "r", "spotX", "spotY",
+"spotR"}]}` in sensor pixels, so a receiver can check rectangles and coordinates by finding the
+discs. The disc on the image's right is `left_eye`. With `"test-pattern-arkit"` the frame also has
+an `arkit` block in the real layout: a face 0.45 m from the camera (camera transform identity)
+looking at it, eyes at the discs, `eyePixels` at the disc centres, blend shapes 0; `roiSource:
+"arkit"` places ROIs there. Phones without a camera list `"arkit"` in `roiSources` for it.
 
 ### `status` header
 

@@ -9,7 +9,7 @@ import UIKit
 /// through these routes; the phone's own screen only shows status.
 final class AppModel: ObservableObject {
     static let port: UInt16 = 8080
-    static let appVersion = "0.2.1"
+    static let appVersion = "0.2.2"
 
     @Published var addresses: [String] = []
     @Published var statusLine = "Starting…"
