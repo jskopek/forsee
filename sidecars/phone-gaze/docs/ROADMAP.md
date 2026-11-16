@@ -1,6 +1,7 @@
 # Phone Gaze roadmap: not done yet, or worth improving
 
-Everything here is either unverified on real hardware or not built. Each item says what it is,
+Everything here is either unverified on real hardware or not built. Tracked in GitHub issue
+[#33](https://github.com/jskopek/forsee/issues/33). Each item says what it is,
 why it might help, what it needs, how to tell whether it worked, and its status:
 
 - **idea**: nothing built.
