@@ -12,7 +12,9 @@ A recording is a folder (under ``recording.directory``, never in the repository)
 
 Events written by the Engine (``type``): ``calib.start`` (``run_id``, ``kind``, ``targets``),
 ``calib.dot`` (``run_id``, ``dot_id``, ``x``, ``y``, ``state``), ``calib.finish`` (``run_id``,
-the finish answer), ``calib.cancel``, ``lookpoint`` (``x``, ``y``), ``config`` (changes),
+the finish answer), ``calib.cancel``, ``lookpoint`` (``x``, ``y``, ``t`` engine time of the
+selection, ``rect``, ``kind``, ``id``, ``outcome`` from the drift corrector), ``lookpoint.undo``
+(``id``), ``config`` (changes),
 ``zoom`` / ``camera`` changes, ``pause``. ``t_local`` is ``time.monotonic()``, the same clock as
 ``recv``, so replay can line events up with frames.
 

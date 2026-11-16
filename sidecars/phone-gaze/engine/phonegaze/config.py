@@ -175,7 +175,9 @@ class CalibrationConfig:
     refine_points: int = setting(1, "Dots in a quick refine (1 = offset only, 3-5 = re-solve the screen position).", min=1, max=5)
     validate_points: int = setting(5, "Fresh dots used for validation.", min=3, max=16)
     outlier_mad: float = setting(3.0, "Drop samples further than this many MADs from their dot's median.", min=1, max=10)
-    drift_correction: bool = setting(False, "Slowly adapt to known look-points (dwell selections, clicks).")
+    drift_correction: bool = setting(False, "Drift correction from selections: shift the gaze output by a small offset learned from the keys you select in Forsee by dwell (each one is a place you looked). Off: the offset is still learned and scored (Experiments page, 'with / without' numbers) but not applied.")
+    drift_rate: float = setting(0.5, "Drift correction: how fast it adapts, as the drift speed it expects. Higher follows drift faster but lets each selection move it more.", min=0.05, max=5, unit="deg/min")
+    drift_clicks: bool = setting(False, "Drift correction: also learn from mouse clicks on targets (weaker evidence than a dwell selection).")
 
 
 @dataclass

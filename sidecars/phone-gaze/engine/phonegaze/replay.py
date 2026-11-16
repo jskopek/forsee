@@ -11,7 +11,7 @@ Two kinds of recording:
 
 Command line::
 
-    python -m phonegaze.replay score RECORDING_DIR [--estimators a,b] [--models a,b]
+    python -m phonegaze.replay score RECORDING_DIR [--estimators a,b] [--models a,b] [--drift-rate 0.5]
     python -m phonegaze.replay eye-capture SESSION_DIR [--every 2] [--segment NAME]
 
 Imported by: tests, the UI's experiment page (through ``server.py``), command line scripts.
@@ -213,10 +213,12 @@ def score(
     recording: Path,
     estimators: list[Estimator],
     models: list[GazeModel],
+    drift_rate: float = 0.5,
 ) -> dict[str, Any]:
     """Re-run a recording that contains calibration and validation events: refit every model on
     the calibration samples and report validation accuracy per model (``FitReport`` dicts plus
-    ``{"validation": {model: {"accuracy_deg", "precision_deg"}}}``)."""
+    ``{"validation": {model: {"accuracy_deg", "precision_deg"}}}``). When the recording has
+    look-points, ``"drift"`` holds :func:`drift_replay` for the chosen model."""
     from . import calibration as calib
 
     recording = Path(recording).expanduser()
@@ -249,7 +251,92 @@ def score(
                 out["validation"][name] = calib.validation_metrics(model, val_samples, screen)
             except Exception as exc:  # noqa: BLE001
                 out["validation"][name] = {"error": str(exc)}
+    model = result.models.get(result.chosen) if result.chosen else None
+    events = read_events(recording)
+    if model is not None and any(e.get("type") == "lookpoint" for e in events):
+        predictions = []
+        for frame, obs in pairs:
+            try:
+                p = model.predict(obs)
+            except Exception:  # noqa: BLE001
+                p = None
+            if p is not None and p.valid and frame.t_received is not None:
+                predictions.append((float(frame.t_received), float(p.x), float(p.y), obs.distance))
+        out["drift"] = drift_replay(predictions, events, screen, drift_rate=drift_rate)
     return _jsonable(out)
+
+
+DRIFT_RESET_EVENTS = {"camera": "camera changed", "calib.finish": "calibration"}
+
+
+def drift_replay(
+    predictions: list[tuple[float, float, float, float | None]],
+    events: list[dict[str, Any]],
+    screen: ScreenInfo,
+    drift_rate: float = 0.5,
+    clicks: bool = False,
+) -> dict[str, Any]:
+    """Replay the drift-correction experiment offline: ``predictions`` are the uncorrected
+    ``(t, x, y, distance)`` of one model in engine time, ``events`` a recording's events
+    (``lookpoint``, ``lookpoint.undo``, and the ones that reset the correction: a finished grid or
+    refine run, a camera change; a zoom change re-anchors it). Runs it twice: as if the correction
+    had been applied to the output (``on``: the outlier test looks at the corrected estimate) and
+    not (``off``). Each run scores both estimates before every update, so each holds a
+    ``with correction`` and a ``without`` number."""
+    from .models.drift import DriftCorrector, DriftSettings, points_per_degree
+
+    preds = sorted(predictions, key=lambda p: p[0])
+    timeline: list[tuple[float, int, dict[str, Any]]] = []
+    for i, ev in enumerate(events):
+        t = ev.get("t") if ev.get("type") == "lookpoint" and isinstance(ev.get("t"), (int, float)) else ev.get("t_local")
+        if isinstance(t, (int, float)):
+            timeline.append((float(t), i, ev))
+    timeline.sort(key=lambda e: (e[0], e[1]))
+    out: dict[str, Any] = {"n_lookpoints": sum(1 for e in events if e.get("type") == "lookpoint"), "drift_rate": drift_rate}
+    for label, applied in (("on", True), ("off", False)):
+        dc = DriftCorrector(DriftSettings(rate_deg_per_min=drift_rate))
+        k = 0
+        dist: float | None = None
+        for t, _, ev in timeline:
+            while k < len(preds) and preds[k][0] <= t:
+                dc.add_prediction(preds[k][0], preds[k][1], preds[k][2])
+                dist = preds[k][3] or dist
+                k += 1
+            kind = ev.get("type")
+            if kind == "lookpoint":
+                lk = "click" if ev.get("kind") == "click" else "dwell"
+                if lk == "click" and not clicks:
+                    continue
+                rect = ev.get("rect")
+                box = tuple(float(v) for v in rect) if isinstance(rect, list) and len(rect) == 4 else None
+                sid = ev.get("id")
+                dc.selection(float(ev["x"]), float(ev["y"]), t, points_per_degree(screen, dist), rect=box, kind=lk, sel_id=None if sid is None else str(sid), applied=applied)
+            elif kind == "lookpoint.undo" and ev.get("id") is not None:
+                dc.undo(str(ev["id"]), t)
+            elif kind == "zoom":
+                dc.reanchor("zoom changed")
+            elif kind == "camera" or (kind == "calib.finish" and ev.get("kind") in ("grid", "pursuit", "refine") and ev.get("committed", True)):
+                dc.reset(DRIFT_RESET_EVENTS.get(kind, kind))
+        st = dc.stats(points_per_degree(screen, dist))
+        out[label] = {"session": st["session"], "recent": st["recent"], "rejected": st["rejected"], "undone": st["undone"]}
+    return out
+
+
+def format_drift(drift: dict[str, Any]) -> str:
+    """One line per run: ``with correction X deg, without Y deg (median, n selections)``."""
+
+    def num(v: Any) -> str:
+        return "-" if v is None else f"{v:.2f} deg"
+
+    lines = [f"drift correction from {drift.get('n_lookpoints', 0)} look-point(s), rate {drift.get('drift_rate')} deg/min:"]
+    for label in ("on", "off"):
+        run = drift.get(label) or {}
+        s = run.get("session") or {}
+        lines.append(
+            f"  applied {label:>3}: with correction {num((s.get('corrected') or {}).get('median_deg'))} median, {num((s.get('corrected') or {}).get('mean_deg'))} mean; "
+            f"without {num((s.get('uncorrected') or {}).get('median_deg'))} median, {num((s.get('uncorrected') or {}).get('mean_deg'))} mean; n={s.get('n', 0)}"
+        )
+    return "\n".join(lines)
 
 
 def _session_screen(session: dict[str, Any]) -> ScreenInfo:
@@ -615,6 +702,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     p_score = sub.add_parser("score", help="refit and validate a Phone Gaze recording")
     p_score.add_argument("recording")
+    p_score.add_argument("--drift-rate", type=float, default=0.5, help="drift correction speed for the look-point replay, deg/min (default 0.5)")
     p_eye = sub.add_parser("eye-capture", help="accuracy per camera for a tools/eye-capture session")
     p_eye.add_argument("session")
     p_eye.add_argument("--every", type=int, default=2, help="use every Nth video frame (default 2)")
@@ -627,7 +715,10 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     estimators, models_factory = _build(args.estimators, args.models)
     if args.cmd == "score":
-        print(json.dumps(score(Path(args.recording), estimators, models_factory()), indent=2))
+        result = score(Path(args.recording), estimators, models_factory(), drift_rate=args.drift_rate)
+        print(json.dumps(result, indent=2))
+        if result.get("drift"):
+            print(format_drift(result["drift"]), file=sys.stderr)
         return 0
     result = score_eye_capture(Path(args.session), estimators, models_factory, every=args.every, segment=args.segment)
     print(json.dumps(result, indent=2) if args.json else format_eye_capture(result))

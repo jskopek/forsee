@@ -211,8 +211,26 @@ def create_app(engine: Engine) -> web.Application:
 
     async def lookpoint(request: web.Request) -> web.Response:
         body = await _body(request)
-        engine.lookpoint(float(body["x"]), float(body["y"]), body.get("t"))
-        return _json({"ok": True})
+        try:
+            outcome = engine.lookpoint(float(body["x"]), float(body["y"]), body.get("t"), rect=body.get("rect"), kind=str(body.get("kind") or "dwell"), sel_id=body.get("id"))
+        except (KeyError, TypeError, ValueError):
+            return _error("x and y (screen points) are required")
+        return _json({"ok": True, "outcome": outcome})
+
+    async def lookpoint_undo(request: web.Request) -> web.Response:
+        body = await _body(request)
+        return _json({"ok": True, "changed": engine.lookpoint_undo(body.get("id"))})
+
+    async def drift_get(request: web.Request) -> web.Response:
+        return _json(engine.drift_state())
+
+    async def drift_reset(request: web.Request) -> web.Response:
+        body = await _body(request)
+        if body.get("offset", True):
+            engine.drift.reset("reset from the UI")
+        if body.get("stats", False):
+            engine.drift.clear_stats()
+        return _json(engine.drift_state())
 
     async def ui_ws(request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse(heartbeat=20)
@@ -274,9 +292,9 @@ def create_app(engine: Engine) -> web.Application:
                     data = json.loads(msg.data)
                 except ValueError:
                     continue
-                if isinstance(data, dict) and data.get("type") == "lookpoint":
+                if isinstance(data, dict) and data.get("type") in ("lookpoint", "lookpoint.undo"):
                     try:
-                        engine.lookpoint(float(data["x"]), float(data["y"]), data.get("t"))
+                        engine.handle_gaze_client_message(data)
                     except (KeyError, TypeError, ValueError):
                         continue
         finally:
@@ -321,6 +339,9 @@ def create_app(engine: Engine) -> web.Application:
         ("GET", "/api/recordings", recordings),
         ("POST", "/api/replay", replay),
         ("POST", "/api/lookpoint", lookpoint),
+        ("POST", "/api/lookpoint/undo", lookpoint_undo),
+        ("GET", "/api/drift", drift_get),
+        ("POST", "/api/drift/reset", drift_reset),
     ]
     for method, path, handler in routes:
         r.add_route(method, path, _guard(handler))

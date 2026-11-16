@@ -14,8 +14,10 @@ Tiers (ARCHITECTURE.md):
 - **Quick refine** (:func:`refine`): one dot corrects an offset; three to five re-solve the
   screen pose (geometric) or fit an affine correction (others), keeping the person parameters.
 - **Validate** (:func:`validation_metrics`): accuracy and precision on fresh dots.
-- **Drift** (:func:`refine` with ``kind="drift"`` samples, :func:`drift_correct`): small,
-  capped offset updates from known look-points; ignores look-points far from the prediction.
+- **Drift** (:func:`refine` with ``kind="drift"`` samples, :func:`drift_correct`): a batch
+  helper that folds known look-points into the model's own correction. The running engine does
+  not use it: drift correction from selections lives in ``models/drift.py`` (a separate offset,
+  scored side by side, switchable, with undo).
 
 What is learned is saved by :class:`Profile` in three layers.
 

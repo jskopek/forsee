@@ -32,11 +32,11 @@ from . import calibration as calib
 from . import filters as filters_mod
 from . import lens as lens_mod
 from .config import Config, save_config, update
+from .models.drift import DriftCorrector, DriftSettings, points_per_degree
 from .phone import PhoneClient, PhoneError, run_with_reconnect
 from .protocol import Message
 from .recorder import Recorder, list_recordings, new_recording_id
 from .types import (
-    CalibSample,
     DecodedFrame,
     Estimator,
     FitReport,
@@ -253,7 +253,9 @@ class Engine:
         self._run_counter = 0
         self._pursuit_dot: int | None = None
         self._recent_obs: deque = deque(maxlen=90)
-        self._drift_samples: list[CalibSample] = []
+        self.drift = DriftCorrector(DriftSettings(rate_deg_per_min=config.calibration.drift_rate))
+        """Drift correction from selections (``models/drift.py``): always learned and scored from
+        look-points; added to the output only while :meth:`drift_applied`."""
         self._sim_gaze_task: asyncio.Task | None = None
 
         # Recording and UI
@@ -462,6 +464,7 @@ class Engine:
         old = self.models_setup if self.models else None
         self.models, self.reports, self.chosen, self.validation, self.models_setup = {}, [], None, {}, None
         self.filter_reset()
+        self._drift_reset("camera or screen changed")
         loaded = self._load_profile_for(now)
         if not loaded and old is not None:
             self.log("warning", f"The calibration in use was made with {self._describe_setup(old)}; this is {self._describe_setup(now)}. Calibrate again.")
@@ -491,6 +494,7 @@ class Engine:
         self.reports = list(result.reports)
         self.chosen = result.chosen
         self.models_setup = now
+        self._drift_reset("calibration profile loaded")
         self.log("info", f"Loaded the saved calibration for {self._describe_setup(now)} (model {self.chosen}).")
         return True
 
@@ -795,6 +799,11 @@ class Engine:
             self._aim_samples.append((dict(self.quality), frame.lens.adjusting_focus))
 
         raw = None if hold else self._predict(obs)
+        if raw is not None and raw.valid:
+            self.drift.add_prediction(self._gaze_time(raw), raw.x, raw.y)
+            if self.drift_applied(now):
+                cx, cy = self.drift.apply(raw.x, raw.y)
+                raw = dataclasses.replace(raw, x=cx, y=cy, extra={**raw.extra, "drift_pt": self.drift.offset.tolist()})
         try:
             point = self.filter.update(raw, obs)
         except Exception:  # noqa: BLE001
@@ -951,6 +960,7 @@ class Engine:
                 self.recorder.write_event({"type": "zoom", "zoom": zoom, "auto": auto})
             if auto:
                 log.info("auto zoom: %.2gx", zoom)
+            self.drift.reanchor("zoom changed")
         except PhoneError as exc:
             if _log_allowed("zoom"):
                 self.log("warning", f"Zoom change failed: {exc}")
@@ -978,6 +988,7 @@ class Engine:
             self.recorder.write_event({"type": "camera", "camera_id": camera_id, "zoom": lens.zoom})
 
     def _camera_changed(self) -> None:
+        self._drift_reset("camera changed")
         self.upright.reset()
         self.roi_placer.reset()
         self.zoom_ctl.note_switch(time.monotonic())
@@ -1257,6 +1268,7 @@ class Engine:
             answer["reports"] = [r.to_dict() for r in result.reports]
             answer["chosen"] = result.chosen
             self._save_profile(result)
+            self._drift_reset("new calibration")
         elif run.kind == "refine":
             reports = []
             for name, model in list(self.models.items()):
@@ -1267,6 +1279,7 @@ class Engine:
                 reports.append(rep)
             answer["reports"] = [r.to_dict() for r in reports]
             self._save_profile(calib.CalibrationResult(self.reports, self.chosen, self.models))
+            self._drift_reset("quick refine")
         elif run.kind == "validate":
             validation: dict[str, Any] = {}
             for name, model in list(self.models.items()):
@@ -1306,8 +1319,11 @@ class Engine:
     def pin_model(self, name: str) -> None:
         if name and name not in self.models and name not in (self.config.models.candidates or []):
             raise ValueError(f"unknown model {name!r}")
+        before = getattr(self.active_model(), "name", None)
         update(self.config, {"models.pinned": name})
         self._save_config()
+        if getattr(self.active_model(), "name", None) != before:
+            self._drift_reset("model changed")
 
     def filter_reset(self) -> None:
         try:
@@ -1315,37 +1331,102 @@ class Engine:
         except Exception:  # noqa: BLE001
             pass
 
-    def lookpoint(self, x: float, y: float, t: float | None = None) -> None:
-        """A known look-point (dwell selection, click). Used for drift correction when enabled."""
+    # ------------------------------------------------------------------------------------------
+    # Drift correction from selections (models/drift.py)
+    # ------------------------------------------------------------------------------------------
+
+    DRIFT_APPLY_S = 120.0
+    """Without a Forsee client on ``/gaze``, the drift offset is applied only this long after the
+    last look-point, so the standalone cursor is left alone when nothing teaches it."""
+
+    def _gaze_time(self, point: GazePoint) -> float:
+        """The engine time ``/gaze`` stamps on this point (what Forsee's ``t`` refers to)."""
+        t = None
+        try:
+            t = self._to_local(point.t)
+        except Exception:  # noqa: BLE001
+            t = None
+        if t is None:
+            t = point.t_local if point.t_local is not None else time.monotonic()
+        return float(t)
+
+    def drift_applied(self, now: float | None = None) -> bool:
+        """Whether the learned offset is added to the output now: the setting is on, it has
+        learned from a selection since the last reset, and selections are still coming (a Forsee
+        client is connected to ``/gaze``, or a look-point arrived recently)."""
+        if not self.config.calibration.drift_correction or self.drift.used_since_reset == 0:
+            return False
+        if self.gaze_ws.clients:
+            return True
+        now = time.monotonic() if now is None else now
+        last = self.drift.last_selection_t
+        return last is not None and now - last <= self.DRIFT_APPLY_S
+
+    def _drift_ppd(self) -> float:
+        dist = self.last_obs.distance if self.last_obs is not None else None
+        return points_per_degree(self.screen, dist, float(self.config.filters.points_per_degree))
+
+    def _drift_reset(self, reason: str) -> None:
+        if self.drift.used_since_reset or self.drift.offset.any():
+            log.info("drift correction reset: %s", reason)
+        self.drift.reset(reason)
+
+    def drift_state(self) -> dict[str, Any]:
+        st = self.drift.stats(self._drift_ppd())
+        st["enabled"] = bool(self.config.calibration.drift_correction)
+        st["applied"] = self.drift_applied()
+        st["clicks"] = bool(self.config.calibration.drift_clicks)
+        return _jsonable(st)
+
+    def lookpoint(
+        self,
+        x: float,
+        y: float,
+        t: float | None = None,
+        *,
+        rect: Any = None,
+        kind: str = "dwell",
+        sel_id: Any = None,
+    ) -> dict[str, Any]:
+        """A known look-point: a key selected in Forsee by dwell, a target on the Live page, or
+        (``kind="click"``) a mouse click. ``t`` is engine time of the selection (default: now);
+        ``rect`` the target's ``{x, y, width, height}`` in screen points, if known; ``sel_id`` lets
+        :meth:`lookpoint_undo` take it back. Always scored; learned from by the drift corrector
+        (clicks only when ``calibration.drift_clicks``). Returns the outcome."""
         now = time.monotonic()
+        kind = "click" if kind == "click" else "dwell"
+        box = _parse_rect(rect)
+        t_sel = float(t) if isinstance(t, (int, float)) and math.isfinite(t) else now
+        if t_sel > now + 1.0 or t_sel < now - 10.0:
+            t_sel = now  # a clock the engine does not share; the sample at hand is the best guess
+        sid = None if sel_id is None else str(sel_id)
+        if kind == "click" and not self.config.calibration.drift_clicks:
+            outcome: dict[str, Any] = {"used": False, "reason": "clicks are switched off"}
+        elif self.screen is None or self.active_model() is None:
+            outcome = {"used": False, "reason": "not calibrated"}
+        else:
+            outcome = self.drift.selection(float(x), float(y), t_sel, self._drift_ppd(), rect=box, kind=kind, sel_id=sid, applied=self.drift_applied(now))
         if self.recorder is not None:
-            self.recorder.write_event({"type": "lookpoint", "x": x, "y": y, "t": t})
-        if not self.config.calibration.drift_correction or not self.models or self.screen is None:
-            return
-        t_ref = now if t is None else float(t)
-        obs = [o for o in self._recent_obs if o.t_local is not None and 0.1 <= t_ref - o.t_local <= 0.4]
-        if not obs:
-            return
-        dot_id = 100000 + len(self._drift_samples)
-        self._drift_samples.extend(CalibSample(target=(float(x), float(y)), obs=o, kind="drift", dot_id=dot_id, run_id="drift", t_local=o.t_local) for o in obs)
-        dots = sorted({s.dot_id for s in self._drift_samples})
-        if len(dots) > 5:
-            keep = set(dots[-5:])
-            self._drift_samples = [s for s in self._drift_samples if s.dot_id in keep]
-        model = self.active_model()
-        if model is None:
-            return
-        samples = list(self._drift_samples)
-        screen = self.screen
+            self.recorder.write_event({"type": "lookpoint", "x": x, "y": y, "t": t_sel, "rect": list(box) if box else None, "kind": kind, "id": sid, "outcome": outcome})
+        return _jsonable(outcome)
 
-        async def go() -> None:
-            try:
-                await asyncio.to_thread(calib.refine, model, samples, screen)
-            except Exception as exc:  # noqa: BLE001
-                if _log_allowed("drift"):
-                    log.warning("drift correction failed: %s", exc)
+    def lookpoint_undo(self, sel_id: Any) -> bool:
+        """The look-point ``sel_id`` was undone in the app (backspace or undo straight after it)."""
+        if sel_id is None:
+            return False
+        sid = str(sel_id)
+        changed = self.drift.undo(sid, time.monotonic())
+        if self.recorder is not None:
+            self.recorder.write_event({"type": "lookpoint.undo", "id": sid, "changed": changed})
+        return changed
 
-        asyncio.ensure_future(go())
+    def handle_gaze_client_message(self, data: dict[str, Any]) -> None:
+        """A message from a ``/gaze`` client (Forsee): ``lookpoint`` and ``lookpoint.undo``."""
+        kind = data.get("type")
+        if kind == "lookpoint":
+            self.lookpoint(float(data["x"]), float(data["y"]), data.get("t"), rect=data.get("rect"), kind=str(data.get("kind") or "dwell"), sel_id=data.get("id"))
+        elif kind == "lookpoint.undo":
+            self.lookpoint_undo(data.get("id"))
 
     # ------------------------------------------------------------------------------------------
     # UI messages, config, pause, recording
@@ -1435,6 +1516,8 @@ class Engine:
         if self.recorder is not None:
             self.recorder.write_event({"type": "config", "changes": {p: changes[p] for p in applied}})
         sections = {p.split(".", 1)[0] for p in applied}
+        if "calibration.drift_rate" in applied:
+            self.drift.settings.rate_deg_per_min = float(self.config.calibration.drift_rate)
         try:
             if "stream" in sections:
                 s = self.config.stream
@@ -1563,6 +1646,7 @@ class Engine:
                 },
                 "recording": {"id": self.recorder.id, "path": str(self.recorder.directory), "seconds": round(self.recorder.seconds, 1)} if self.recorder else None,
                 "paused": self.paused,
+                "drift": self.drift_state(),
                 "hints": self.hints,
                 "quality": self.quality,
                 "aim": self.aim,
@@ -1665,6 +1749,23 @@ class Engine:
             draw_overlay(pixels, im, obs)
         ok, buf = cv2.imencode(".jpg", pixels, [cv2.IMWRITE_JPEG_QUALITY, int(quality)])
         return bytes(buf) if ok else None
+
+
+def _parse_rect(rect: Any) -> tuple[float, float, float, float] | None:
+    """``{x, y, width, height}`` (or a 4-list) in screen points, or ``None`` when absent or bad."""
+    try:
+        if isinstance(rect, dict):
+            vals = (rect["x"], rect["y"], rect["width"], rect["height"])
+        elif isinstance(rect, (list, tuple)) and len(rect) == 4:
+            vals = tuple(rect)
+        else:
+            return None
+        x, y, w, h = (float(v) for v in vals)
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not all(math.isfinite(v) for v in (x, y, w, h)) or w < 0 or h < 0:
+        return None
+    return x, y, w, h
 
 
 def draw_overlay(pixels: np.ndarray, im: Any, obs: Observation) -> None:

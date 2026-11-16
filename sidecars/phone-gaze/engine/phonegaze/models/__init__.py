@@ -8,6 +8,8 @@ Modules (each defines one or more classes satisfying ``phonegaze.types.GazeModel
 - ``blend.py``: ``BlendModel``, ``ResidualModel``.
 - ``base.py``: shared machinery (output correction for quick refine and drift, ridge,
   leave-one-dot-out); ``features.py``: zoom-invariant features from an ``Observation``.
+- ``drift.py``: ``DriftCorrector``, drift correction from selections (known look-points) with
+  side-by-side scoring; not a model, used on top of the active one by ``pipeline.py``.
 
 ``REGISTRY`` maps the names used in ``config.models.candidates`` to classes; each class has a
 ``from_dict(data)`` classmethod that rebuilds a fitted model.
