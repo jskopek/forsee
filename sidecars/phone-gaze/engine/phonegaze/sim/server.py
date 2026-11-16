@@ -309,6 +309,9 @@ class SimPhone:
         r.add_post("/sim/noise", self.h_sim_noise)
         r.add_post("/sim/flash", self.h_sim_flash)
         r.add_get("/sim/scene", self.h_sim_scene)
+        from .webcam import install as install_webcam  # second camera (experimental)
+
+        install_webcam(r, self)
         return app
 
     # -- descriptions ----------------------------------------------------------------------------
@@ -601,7 +604,7 @@ class SimPhone:
             "camera": sc.camera_header(cap),
             "lens": self.lens_block(cap),
             "gravity": cap.gravity,
-            "rotationRate": [0.0, 0.0, 0.0],
+            "rotationRate": list(getattr(sc, "rotation_rate", None) or [0.0, 0.0, 0.0]),  # set while /sim/phone/move runs
             "parts": [d for d, *_ in jobs],
         }
         if self.mode == "arkit" and self.stream_config.get("arkit", True) and cap.arkit is not None:

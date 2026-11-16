@@ -9,8 +9,9 @@ import aim from './aim.js';
 import live from './live.js';
 import experiments, { trackPresetResults } from './experiments.js';
 import recordings from './recordings.js';
+import secondCamera from './second-camera.js'; // second camera (experimental)
 
-const VIEWS = [dashboard, aim, live, experiments, recordings];
+const VIEWS = [dashboard, aim, live, experiments, recordings, secondCamera];
 
 const ctx = {
   api,

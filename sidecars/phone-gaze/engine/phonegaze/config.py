@@ -23,6 +23,7 @@ calibration     Models
 filters         Models
 sim             Simulator
 ui              UI
+second_camera   second camera (experimental, ``phonegaze/second_camera``)
 ==============  ==========================================================================
 
 Use :func:`setting` to declare a field. Supported value types: ``bool``, ``int``, ``float``,
@@ -238,6 +239,35 @@ class UIConfig:
     show_debug: bool = setting(True, "Show raw observations and estimator overlays.")
 
 
+# --- second camera (experimental; owner: phonegaze/second_camera, docs/SECOND_CAMERA.md) -------
+@dataclass
+class SecondCameraConfig:
+    enabled: bool = setting(False, "Second camera (experimental): use the Mac's built-in camera as a position anchor next to the phone. Off: nothing below has any effect and the webcam is never opened.")
+    source: str = setting("auto", "Where webcam frames come from: the Mac's camera ('opencv'), the simulator's second camera ('sim'), a video file or image folder ('file'), or 'auto' (the simulator's when the phone is simulated, else the Mac's).", choices=["auto", "opencv", "sim", "file"])
+    camera_index: int = setting(0, "Webcam index for OpenCV (0 is usually the built-in FaceTime camera).", min=0, max=9)
+    file_path: str = setting("", "Video file or image folder for source 'file' (synthetic test footage only; never commit real faces).")
+    width: int = setting(1280, "Webcam frame width to request.", min=320, max=3840, unit="px")
+    height: int = setting(720, "Webcam frame height to request.", min=240, max=2160, unit="px")
+    fps: float = setting(15.0, "Webcam frame rate to request (the face landmarks run at this rate on their own thread).", min=1, max=60, unit="fps")
+    hfov_deg: float = setting(68.0, "Assumed horizontal field of view of the webcam (its intrinsics are unknown). The self-check compares webcam and phone distances; a consistent ratio means this is off.", min=30, max=120, unit="deg")
+    offset_mm: float = setting(8.0, "Webcam lens centre above the top edge of the visible screen area, in the screen's plane.", min=-20, max=60, unit="mm")
+    tilt_deg: float = setting(0.0, "Webcam optical axis tilt from the screen normal (positive: looks further down).", min=-20, max=20, unit="deg")
+    solve_method: str = setting("poses", "Phone-pose solve: compose the two head poses per frame ('poses'), align eye positions over time without head rotations ('points'), or points once the head has moved enough and poses until then ('hybrid').", choices=["poses", "points", "hybrid"])
+    window_s: float = setting(20.0, "Phone-pose solve: seconds of paired frames averaged (robustly) into one pose.", min=2, max=300, unit="s")
+    min_pairs: int = setting(20, "Phone-pose solve: paired frames needed before the pose is reported as anchored.", min=3, max=1000)
+    max_skew_ms: float = setting(80.0, "Phone-pose solve: largest time gap to a webcam frame on each side for interpolating it to the phone frame's time.", min=10, max=500, unit="ms")
+    move_rotation_dps: float = setting(6.0, "Phone moved: rotation rate (from the phone's gyro) above which the phone counts as moving.", min=0.5, max=90, unit="deg/s")
+    move_gravity_deg: float = setting(1.5, "Phone moved: change of the phone's gravity direction since the pose was anchored that counts as a move.", min=0.2, max=20, unit="deg")
+    move_vision: bool = setting(True, "Phone moved: also re-anchor when recent paired frames consistently disagree with the anchored pose (catches moves the gyro missed).")
+    screen_pose: str = setting("off", "Geometric model 'geometric_2cam': take the screen pose from the phone-pose solve ('fixed': calibration learns only the person, so fewer dots do), use it as a prior for the calibration's own solve ('prior'), or do not add the model ('off').", choices=["off", "fixed", "prior"])
+    track_phone: bool = setting(False, "After calibration, apply changes of the solved phone pose to every observation, so the calibration survives the phone being moved (all models).")
+    distance_source: str = setting("phone", "Eye distance and eyeball positions fed to the models: the phone's own estimate, or triangulated from both cameras.", choices=["phone", "triangulated"])
+    head_pose_source: str = setting("phone", "Head rotation and position fed to the models: the phone's, the webcam's (moved into phone coordinates), or a fused average.", choices=["phone", "webcam", "fused"])
+    wide_head_box: bool = setting(False, "When the phone loses the eyes, steer its eye crops (and zoom out) to where the webcam says the eyes are, and keep a coarse webcam gaze flowing marked low confidence.")
+    webcam_model: bool = setting(False, "Also fit 'webcam': webcam-only gaze with the screen pose known from the display geometry, a baseline to measure the phone against on the same calibration.")
+    head_ray_correction: bool = setting(True, "Phone-pose solve and head pose source: turn MediaPipe's head rotation (relative to the line of sight to the face) into camera coordinates. Off: use it as the landmarks estimator reports it.")
+
+
 @dataclass
 class Config:
     """The whole tree. Sections are fixed; add new sections only through Foundation."""
@@ -255,6 +285,7 @@ class Config:
     recording: RecordingConfig = field(default_factory=RecordingConfig)
     sim: SimConfig = field(default_factory=SimConfig)
     ui: UIConfig = field(default_factory=UIConfig)
+    second_camera: SecondCameraConfig = field(default_factory=SecondCameraConfig)  # experimental, see SecondCameraConfig
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

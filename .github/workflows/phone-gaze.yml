@@ -57,12 +57,20 @@ jobs:
           PG_PYTHON: python
           PG_RESULTS: ${{ runner.temp }}/accuracy.json
         run: node tests/ui/accuracy_e2e.cjs arkit camera
+      - name: Second camera end-to-end against the simulator (experimental)
+        env:
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+          PG_PYTHON: python
+          PG_RESULTS: ${{ runner.temp }}/second-camera.json
+        run: node tests/ui/second_camera_e2e.cjs
       - name: Keep the accuracy numbers
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: phone-gaze-accuracy
-          path: ${{ runner.temp }}/accuracy.json
+          path: |
+            ${{ runner.temp }}/accuracy.json
+            ${{ runner.temp }}/second-camera.json
           if-no-files-found: ignore
 
   engine-macos:

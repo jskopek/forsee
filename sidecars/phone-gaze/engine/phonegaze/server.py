@@ -20,6 +20,7 @@ from aiohttp import WSMsgType, web
 from .config import settings
 from .phone import PhoneError
 from .pipeline import Engine
+from .second_camera import routes as second_camera_routes  # second camera (experimental)
 
 log = logging.getLogger(__name__)
 
@@ -343,6 +344,7 @@ def create_app(engine: Engine) -> web.Application:
         ("GET", "/api/drift", drift_get),
         ("POST", "/api/drift/reset", drift_reset),
     ]
+    routes.extend(second_camera_routes(engine))  # second camera (experimental)
     for method, path, handler in routes:
         r.add_route(method, path, _guard(handler))
     r.add_get("/ws", ui_ws)
