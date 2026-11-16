@@ -420,12 +420,13 @@ def fit_all(samples: list[CalibSample], screen: ScreenInfo, models: list[GazeMod
                 sp = error_stats(train, lopo[name], screen, dist)
                 lp_cov = sp["n_valid"] / max(sp["n"], 1)
                 rep.params = {**rep.params, "lopo_error_deg": sp["error_of_mean_deg"], "lopo_error_pt": sp["error_of_mean_pt"], "lopo_coverage": lp_cov}
-                if sp["error_of_mean_deg"] is not None and score_deg is not None:
-                    score_deg = max(score_deg, sp["error_of_mean_deg"])
-                if sp["error_of_mean_pt"] is not None and score_pt is not None:
-                    score_pt = max(score_pt, sp["error_of_mean_pt"])
-                coverage = min(coverage, lp_cov)
-                rep.params["loo_coverage"] = coverage
+                # A head position whose fold could not be fitted (too few dots left) says nothing
+                # about the model: the leave-one-pose-out score counts only when it covers enough.
+                if lp_cov >= MIN_LOO_COVERAGE:
+                    if sp["error_of_mean_deg"] is not None and score_deg is not None:
+                        score_deg = max(score_deg, sp["error_of_mean_deg"])
+                    if sp["error_of_mean_pt"] is not None and score_pt is not None:
+                        score_pt = max(score_pt, sp["error_of_mean_pt"])
             rep.params = {**rep.params, "selection_error_deg": score_deg, "selection_error_pt": score_pt}
             if coverage < MIN_LOO_COVERAGE:
                 rep.message = (rep.message + " " if rep.message else "") + f"Predicted only {coverage:.0%} of held-out samples; not eligible for automatic choice."

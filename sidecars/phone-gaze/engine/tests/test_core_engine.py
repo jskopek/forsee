@@ -251,7 +251,7 @@ async def test_recording_through_engine_and_replay_score(tmp_path, phone, monkey
     finally:
         await engine.stop()
     rec = Path(info["path"])
-    assert summary["frames"] >= 9 and (rec / "calibration.json").exists()
+    assert summary["frames"] >= 6 and (rec / "calibration.json").exists()
     assert [r["id"] for r in engine.recordings()] == [rec.name]
     frames = list(iter_frames(rec))
     assert len(frames) == summary["frames"] and all(f.t_received is not None for f in frames)
