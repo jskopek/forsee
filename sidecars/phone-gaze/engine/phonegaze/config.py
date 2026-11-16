@@ -159,6 +159,9 @@ class ModelsConfig:
     )
     pinned: str = setting("", "Always use this model. Empty: use the best leave-one-dot-out score.")
     ridge_alpha: float = setting(1.0, "Ridge regression regularisation.", min=0, max=1000)
+    auto_alpha: bool = setting(True, "Choose the ridge regularisation by leave-one-dot-out (ignores ridge_alpha).")
+    kappa_prior_sd_deg: float = setting(2.5, "Geometric model: how far each eye's kappa may move from 5 deg nasal, 1.5 up, when several head positions were calibrated.", min=0.1, max=10, unit="deg")
+    smooth_centre_s: float = setting(0.3, "Geometric model: time constant for smoothing eyeball-centre jitter (0 = off).", min=0, max=2, unit="s")
 
 
 @dataclass
@@ -182,6 +185,9 @@ class FiltersConfig:
     beta: float = setting(0.01, "One-euro speed coefficient.", min=0, max=1)
     blink_hold_ms: int = setting(150, "Hold the last point this long during a blink before reporting invalid.", min=0, max=1000, unit="ms")
     fixation_deg: float = setting(1.5, "Dispersion threshold for fixations.", min=0.1, max=5, unit="deg")
+    saccade_deg: float = setting(2.5, "A jump this large (confirmed by the next sample) is a saccade: the smoother resets and the output snaps.", min=0.5, max=10, unit="deg")
+    fixation_tau_ms: int = setting(250, "Time constant of the fixation centre ('fixation' filter).", min=20, max=2000, unit="ms")
+    points_per_degree: float = setting(45.0, "Screen points per degree of gaze when the screen size or distance is unknown.", min=5, max=200, unit="pt")
 
 
 @dataclass
@@ -217,6 +223,11 @@ class SimConfig:
     seed: int = setting(1, "Random seed for the simulated person and noise.")
     camera: str = setting("wide", "Which simulated camera to start with.", choices=["wide", "ultrawide", "front", "arkit"])
     fps: float = setting(30.0, "Simulated frame rate.", min=1, max=120, unit="fps")
+    orientation: int = setting(180, "Degrees the engine must turn the simulated sensor image clockwise to make it upright (gravity is set to match).", choices=[0, 90, 180, 270])
+    script: str = setting("still", "Simulated head and eye motion.", choices=["still", "drift", "sway", "move", "look_around"])
+    human_look: bool = setting(True, "The simulated person reacts to /sim/gaze with a human delay and saccade (off: the eyes jump instantly).")
+    render_workers: int = setting(-1, "Processes that render simulated frames (-1: automatic, 0: render in a thread).", min=-1, max=16)
+    noise: float = setting(2.0, "Simulated sensor noise (standard deviation, 0-255 levels).", min=0, max=50)
 
 
 @dataclass
