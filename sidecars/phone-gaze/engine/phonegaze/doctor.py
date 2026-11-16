@@ -545,6 +545,11 @@ def stream_checks(engine: Any, seconds: float) -> list[Check]:
         thermal = (engine.last_frame.header or {}).get("thermalCapFps") if engine.last_frame is not None else None
         if thermal:
             st, fix = "warn", f"The phone is limiting itself to {thermal} fps because it is warm: take it out of its case, out of the sun, or lower lens.fps."
+        hello = (getattr(phone, "hello", None) or {}) if phone is not None else {}
+        simulated = isinstance(hello.get("sim"), dict) or bool(getattr(engine, "simulated", False))
+        if simulated and st == "fail":
+            # The simulated phone renders its frames on this computer: a low rate says nothing about a real phone.
+            st, fix = "warn", "The simulated phone renders on this computer, so its frame rate depends on this machine's speed; a real phone is not affected."
         checks.append(Check("stream_fps", "Frame rate", st, f"{fps:.1f} fps arriving (asked for {want:g})", fix, g, {"stats": ps}))
     frames = int(ps.get("frames") or 0)
     gaps = int(ps.get("seq_gaps") or 0)
