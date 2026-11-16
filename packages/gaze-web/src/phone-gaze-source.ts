@@ -6,6 +6,7 @@ import type {
   GazeSource,
   GazeSourceCapabilities,
   Point,
+  Rect,
   SourceError,
   TargetDescriptor,
 } from '@forsee/plugin-api';
@@ -23,8 +24,12 @@ import type {
  *   with `x`/`y` in main-display points (origin top left) and `t` in seconds
  *   on the engine's monotonic clock.
  * - app -> server, on every selection:
- *   `{type: "lookpoint", x, y, t?}` (screen points; `t` engine seconds) so the
- *   engine can correct drift.
+ *   `{type: "lookpoint", x, y, t?, id?, kind?, rect?}` (screen points; `t`
+ *   engine seconds; `kind` `"dwell"` or `"click"`; `rect` the selected
+ *   target's `{x, y, width, height}`) so the engine can correct drift. Only
+ *   `x` and `y` are required; older engines ignore the rest.
+ * - app -> server, when a selection was taken back straight away (backspace
+ *   or undo): `{type: "lookpoint.undo", id}`.
  *
  * Unknown message types and extra fields are ignored.
  */
@@ -279,6 +284,16 @@ export interface PhoneGazeSourceOptions {
   readonly staleMs?: number;
 }
 
+/** What else is known about a look-point (all optional; viewport CSS pixels). */
+export interface LookPointDetails {
+  /** The selected target's rectangle: the user looked somewhere on it. */
+  readonly rect?: Rect;
+  /** `dwell` (default): selected by gaze. `click`: a mouse click or tap, weaker evidence. */
+  readonly kind?: 'dwell' | 'click';
+  /** Lets `reportUndo` take this look-point back. */
+  readonly id?: string;
+}
+
 /** The phone gaze source: a `GazeSource` that can also report selections back. */
 export interface PhoneGazeSource extends GazeSource {
   readonly status: PhoneGazeStatus;
@@ -289,7 +304,13 @@ export interface PhoneGazeSource extends GazeSource {
    * pixels), for drift correction. `t` is host ms (default now). Returns
    * false when not connected.
    */
-  reportLookPoint(point: Point, t?: number): boolean;
+  reportLookPoint(point: Point, t?: number, details?: LookPointDetails): boolean;
+  /**
+   * Takes back the look-point reported with `details.id` (the user removed
+   * what they had just selected, so it was probably not where they meant to
+   * look). Returns false when not connected.
+   */
+  reportUndo(id: string): boolean;
 }
 
 /** True for `ws:`/`wss:` URLs whose host is loopback. */
@@ -399,18 +420,41 @@ class PhoneGazeSourceImpl implements PhoneGazeSource {
     connection?.close();
   }
 
-  reportLookPoint(point: Point, t?: number): boolean {
+  reportLookPoint(point: Point, t?: number, details?: LookPointDetails): boolean {
     if (!this.connection || this.status !== 'connected') return false;
     if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return false;
-    const screenPoint = viewportToScreen(point, this.placement(this.screen));
+    const placement = this.placement(this.screen);
+    const screenPoint = viewportToScreen(point, placement);
     const engineT = this.mapper.toEngine(t ?? this.clock.now());
-    const message: Record<string, number | string> = {
+    const message: Record<string, unknown> = {
       type: 'lookpoint',
       x: screenPoint.x,
       y: screenPoint.y,
     };
     if (engineT !== null) message.t = engineT;
+    if (details?.id !== undefined) message.id = details.id;
+    if (details?.kind !== undefined) message.kind = details.kind;
+    const rect = details?.rect;
+    if (
+      rect &&
+      [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) &&
+      rect.width >= 0 &&
+      rect.height >= 0
+    ) {
+      const corner = viewportToScreen({ x: rect.x, y: rect.y }, placement);
+      message.rect = {
+        x: corner.x,
+        y: corner.y,
+        width: rect.width * placement.pointsPerCssPx,
+        height: rect.height * placement.pointsPerCssPx,
+      };
+    }
     return this.connection.send(JSON.stringify(message));
+  }
+
+  reportUndo(id: string): boolean {
+    if (!this.connection || this.status !== 'connected') return false;
+    return this.connection.send(JSON.stringify({ type: 'lookpoint.undo', id }));
   }
 
   // ---------------------------------------------------------------- connection
@@ -572,20 +616,99 @@ export interface TargetLookup {
 }
 
 /**
- * Sends every activation back to the engine as a look-point: the centre of
- * the activated target (where the user meant to look), or the activation
- * point when the target is gone.
+ * Composition changes, as `kernel.composition.events` emits them; only the
+ * reason is read.
+ */
+export interface CompositionChangeFeed {
+  on(type: 'changed', listener: (change: { readonly reason: string }) => void): Disposable;
+}
+
+/** Options of `reportSelections`. */
+export interface ReportSelectionsOptions {
+  /**
+   * The composition's changes. With it, a selection that the user removes
+   * straight away (backspace or undo) is taken back with `reportUndo`.
+   */
+  readonly edits?: CompositionChangeFeed;
+  /** Host clock (the one activation times use); required with `edits`. */
+  readonly clock?: Pick<Clock, 'now'>;
+  /** A removal later than this after a selection does not take it back (default 5000 ms). */
+  readonly undoWindowMs?: number;
+}
+
+/** Composition change reasons that take back what was just typed. */
+const REMOVAL_REASONS: ReadonlySet<string> = new Set(['delete-grapheme', 'delete-word', 'undo']);
+/**
+ * An activation this close (ms) to a removal is the removal's own key
+ * (backspace): kept as a look-point, never taken back. Covers the gap
+ * between the gaze sample that completed a dwell and the command it ran.
+ */
+const SAME_ACTION_MS = 250;
+const KEEP_RECENT = 20;
+
+/**
+ * Sends every activation back to the engine as a look-point: the centre and
+ * rectangle of the activated target (the user looked somewhere on it), or
+ * the activation point when the target is gone; `kind` is `click` for direct
+ * presses (mouse, touch) and `dwell` otherwise. With `options.edits`, a
+ * removal (backspace, delete word, undo) takes back the latest selection made
+ * before it, other than the removal's own key, if it is recent (each further
+ * removal takes back the one before).
  */
 export function reportSelections(
   feed: SelectionFeed,
   targets: TargetLookup,
-  source: Pick<PhoneGazeSource, 'reportLookPoint'>,
+  source: Pick<PhoneGazeSource, 'reportLookPoint'> & Partial<Pick<PhoneGazeSource, 'reportUndo'>>,
+  options: ReportSelectionsOptions = {},
 ): Disposable {
-  return feed.onActivate((event) => {
+  const undoWindowMs = options.undoWindowMs ?? 5000;
+  const clock = options.clock;
+  if (options.edits && !clock) throw new Error('reportSelections: `edits` needs `clock`');
+  let counter = 0;
+  /** Recent selections: `removal` marks the key that caused a removal. */
+  const recent: { id: string; t: number; removal: boolean; retracted: boolean }[] = [];
+  let lastRemoval: number | null = null;
+
+  const activation = feed.onActivate((event) => {
     const rect = targets.get(event.targetId)?.rect;
     const point = rect ? { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 } : event.point;
-    source.reportLookPoint(point, event.t);
+    const id = `s${++counter}`;
+    const kind = event.method === 'direct' ? 'click' : 'dwell';
+    source.reportLookPoint(point, event.t, rect ? { id, kind, rect } : { id, kind });
+    // The removal may have run before this listener (the pipeline executes a
+    // target's command first): then this is the removal's own key.
+    const removal = lastRemoval !== null && lastRemoval >= event.t - SAME_ACTION_MS;
+    recent.push({ id, t: event.t, removal, retracted: false });
+    if (recent.length > KEEP_RECENT) recent.shift();
   });
+  const edits = options.edits;
+  if (!edits || !clock || !source.reportUndo) return activation;
+  const reportUndo = source.reportUndo.bind(source);
+
+  const editing = edits.on('changed', (change) => {
+    if (!REMOVAL_REASONS.has(change.reason)) return;
+    const now = clock.now();
+    lastRemoval = now;
+    for (let i = recent.length - 1; i >= 0; i--) {
+      const s = recent[i];
+      if (!s) continue;
+      if (s.t >= now - SAME_ACTION_MS) {
+        s.removal = true; // The removal's own key.
+        continue;
+      }
+      if (now - s.t > undoWindowMs) break;
+      if (s.removal || s.retracted) continue;
+      s.retracted = true;
+      reportUndo(s.id);
+      break;
+    }
+  });
+  return {
+    dispose: () => {
+      activation.dispose();
+      editing.dispose();
+    },
+  };
 }
 
 /**

@@ -1,11 +1,18 @@
-import { FakeClock } from '@forsee/core';
+import { CompositionBuffer, FakeClock } from '@forsee/core';
 import {
   DEFAULT_DWELL_CONFIG,
   createGazePipeline,
   createTargetRegistry,
   type GazePipeline,
 } from '@forsee/gaze';
-import type { GazeSample, SourceError } from '@forsee/plugin-api';
+import type {
+  ActivateEvent,
+  Disposable,
+  GazeSample,
+  SelectionMethodId,
+  SourceError,
+  TargetDescriptor,
+} from '@forsee/plugin-api';
 import { describe, expect, it, vi } from 'vitest';
 import {
   EngineClockMapper,
@@ -262,6 +269,50 @@ describe('phone gaze source', () => {
     ]);
   });
 
+  it('sends the target rectangle, kind and id in screen points, additively', () => {
+    const { clock, server, source, start, setPlacement } = setup();
+    start();
+    server.last.acceptWithHello();
+    server.last.gaze(400, 300, 500, { latency_ms: 0 });
+    setPlacement({ left: 100, top: 50, pointsPerCssPx: 2 });
+    clock.advance(100);
+    expect(
+      source.reportLookPoint({ x: 20, y: 30 }, undefined, {
+        id: 's7',
+        kind: 'dwell',
+        rect: { x: 10, y: 20, width: 20, height: 20 },
+      }),
+    ).toBe(true);
+    // A bad rectangle is left out; the look-point still goes.
+    expect(
+      source.reportLookPoint({ x: 20, y: 30 }, undefined, {
+        kind: 'click',
+        rect: { x: 10, y: 20, width: Number.NaN, height: 20 },
+      }),
+    ).toBe(true);
+    expect(server.last.sent).toEqual([
+      {
+        type: 'lookpoint',
+        x: 140,
+        y: 110,
+        t: 500.1,
+        id: 's7',
+        kind: 'dwell',
+        rect: { x: 120, y: 90, width: 40, height: 40 },
+      },
+      { type: 'lookpoint', x: 140, y: 110, t: 500.1, kind: 'click' },
+    ]);
+  });
+
+  it('takes a look-point back with lookpoint.undo, only when connected', () => {
+    const { server, source, start } = setup();
+    expect(source.reportUndo('s1')).toBe(false);
+    start();
+    server.last.acceptWithHello();
+    expect(source.reportUndo('s1')).toBe(true);
+    expect(server.last.sent).toEqual([{ type: 'lookpoint.undo', id: 's1' }]);
+  });
+
   it('feeds a real gaze pipeline: dwell on a key fires it, and the selection goes back', async () => {
     const clock = new FakeClock({ now: 10_000 });
     const server = new FakePhoneGazeServer();
@@ -298,10 +349,144 @@ describe('phone gaze source', () => {
     }
     for (let i = 0; i < 10; i++) await Promise.resolve();
     expect(execute).toHaveBeenCalled();
-    expect(server.last.sent[0]).toMatchObject({ type: 'lookpoint', x: 230, y: 180 });
+    expect(server.last.sent[0]).toMatchObject({
+      type: 'lookpoint',
+      x: 230,
+      y: 180,
+      id: 's1',
+      kind: 'dwell',
+      rect: { x: 200, y: 150, width: 60, height: 60 },
+    });
     sub.dispose();
     pipeline.dispose();
     expect(server.liveCount).toBe(0);
+  });
+});
+
+/** A selection feed and target lookup driven by hand, plus what was reported. */
+function selectionRig() {
+  const clock = new FakeClock({ now: 1000 });
+  const listeners = new Set<(event: ActivateEvent) => void>();
+  const feed = {
+    onActivate(listener: (event: ActivateEvent) => void): Disposable {
+      listeners.add(listener);
+      return { dispose: () => void listeners.delete(listener) };
+    },
+  };
+  const rects: Record<string, TargetDescriptor> = {
+    a: { id: 'a', rect: { x: 0, y: 0, width: 50, height: 40 }, dwellClass: 'letter' },
+    b: { id: 'b', rect: { x: 60, y: 0, width: 50, height: 40 }, dwellClass: 'letter' },
+    back: { id: 'back', rect: { x: 200, y: 0, width: 90, height: 40 }, dwellClass: 'function' },
+  };
+  const targets = { get: (id: string) => rects[id] };
+  const reported: { type: string; id?: string; kind?: string; rect?: unknown }[] = [];
+  const source = {
+    reportLookPoint: (_point: unknown, _t?: number, details?: { id?: string; kind?: string }) => {
+      reported.push({ type: 'lookpoint', ...details });
+      return true;
+    },
+    reportUndo: (id: string) => {
+      reported.push({ type: 'undo', id });
+      return true;
+    },
+  };
+  const composition = new CompositionBuffer();
+  const activate = (targetId: string, method: SelectionMethodId = 'dwell'): void => {
+    const event: ActivateEvent = {
+      type: 'activate',
+      targetId,
+      method,
+      repeatIndex: 0,
+      point: { x: 0, y: 0 },
+      distribution: { entries: [] },
+      t: clock.now(),
+    };
+    for (const listener of [...listeners]) listener(event);
+  };
+  const sub = reportSelections(feed, targets, source, { edits: composition.events, clock });
+  const undos = () => reported.filter((r) => r.type === 'undo').map((r) => r.id);
+  return { clock, activate, composition, reported, undos, sub, listeners };
+}
+
+describe('reportSelections', () => {
+  it('reports rect, kind and an id per selection', () => {
+    const { activate, reported } = selectionRig();
+    activate('a');
+    activate('b', 'direct');
+    expect(reported).toEqual([
+      {
+        type: 'lookpoint',
+        id: 's1',
+        kind: 'dwell',
+        rect: { x: 0, y: 0, width: 50, height: 40 },
+      },
+      {
+        type: 'lookpoint',
+        id: 's2',
+        kind: 'click',
+        rect: { x: 60, y: 0, width: 50, height: 40 },
+      },
+    ]);
+  });
+
+  it('a backspace straight after a selection takes it back, not the backspace itself', () => {
+    const { clock, activate, composition, undos } = selectionRig();
+    activate('a');
+    composition.insert('a');
+    clock.advance(900);
+    activate('back'); // listener before the command ran
+    clock.advance(20);
+    composition.deleteGrapheme();
+    expect(undos()).toEqual(['s1']);
+  });
+
+  it('works when the command runs before the activation is reported', () => {
+    const { clock, activate, composition, undos } = selectionRig();
+    activate('a');
+    composition.insert('a');
+    clock.advance(900);
+    composition.insert('b');
+    activate('b');
+    clock.advance(900);
+    composition.deleteGrapheme(); // the backspace's command first ...
+    activate('back'); // ... then its activation
+    clock.advance(900);
+    composition.deleteGrapheme(); // a second backspace takes back the selection before
+    activate('back');
+    expect(undos()).toEqual(['s2', 's1']);
+  });
+
+  it('typing, clearing and late removals take nothing back', () => {
+    const { clock, activate, composition, undos } = selectionRig();
+    activate('a');
+    composition.insert('a');
+    clock.advance(900);
+    activate('b');
+    composition.insert('b');
+    composition.clear();
+    expect(undos()).toEqual([]);
+    clock.advance(6000);
+    composition.insert('c');
+    composition.undo();
+    expect(undos()).toEqual([]);
+  });
+
+  it('needs a clock with edits, and disposes both subscriptions', () => {
+    const feed = { onActivate: () => ({ dispose: () => undefined }) };
+    const source = { reportLookPoint: () => true, reportUndo: () => true };
+    expect(() =>
+      reportSelections(feed, { get: () => undefined }, source, {
+        edits: new CompositionBuffer().events,
+      }),
+    ).toThrow(/clock/);
+    const { sub, listeners, composition, activate, clock, undos } = selectionRig();
+    sub.dispose();
+    expect(listeners.size).toBe(0);
+    activate('a');
+    clock.advance(900);
+    composition.insert('x');
+    composition.deleteGrapheme();
+    expect(undos()).toEqual([]);
   });
 });
 
