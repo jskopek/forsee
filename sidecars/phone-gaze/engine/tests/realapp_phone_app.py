@@ -677,6 +677,13 @@ async def test_engine_runs_on_the_app_stream(tmp_path, caplog) -> None:
         assert summary is not None, info
     finally:
         await engine.stop()
+        # MediaPipe's landmarker must be closed explicitly: left to interpreter shutdown, the
+        # process hung on macOS after the tests had passed (CI, 15 minutes).
+        for est in engine.estimators:
+            for value in list(vars(est).values()):
+                if type(value).__module__.startswith("mediapipe") and hasattr(value, "close"):
+                    with suppress(Exception):
+                        value.close()
         phone = await client()
         try:
             await phone.request("POST", "/api/stop")

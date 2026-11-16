@@ -203,7 +203,8 @@ jobs:
         working-directory: sidecars/phone-gaze/engine
         env:
           PHONEGAZE_APP_URL: http://127.0.0.1:8080
-        run: .venv/bin/python -m pytest -v -s -rs tests/realapp_phone_app.py
+        # perl's alarm: macOS has no timeout(1); a hang fails in 10 minutes, not at the job limit.
+        run: perl -e 'alarm shift; exec @ARGV' 600 .venv/bin/python -m pytest -v -s -rs tests/realapp_phone_app.py
       - name: Diagnostics
         if: always()
         run: |
