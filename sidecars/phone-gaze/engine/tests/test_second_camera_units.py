@@ -292,3 +292,63 @@ def test_file_source_and_clear_errors() -> None:
 def test_no_camera_is_a_clear_message() -> None:
     with pytest.raises(WebcamError, match="Could not open camera 7"):
         OpenCVWebcam(7).open()
+
+
+def _wait(cond, timeout: float = 5.0) -> bool:
+    import time
+
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if cond():
+            return True
+        time.sleep(0.02)
+    return cond()
+
+
+@pytest.mark.skipif(sys.platform == "darwin", reason="a Mac may really have camera 7")
+def test_switching_on_and_off_live_with_no_camera_and_permission_denied(monkeypatch) -> None:
+    """The master switch opens and closes the webcam while the engine runs; "no camera" and
+    "permission denied" end up as a message in the state, never as an exception."""
+    from phonegaze.pipeline import Engine
+    from phonegaze.second_camera import manager as manager_mod
+    from phonegaze.second_camera.webcam import PERMISSION_HELP
+
+    eng = Engine(Config(), hotkeys=False, estimators=[], sinks=[], profile_dir=None)
+    sc = eng.second_camera
+    c = eng.config.second_camera
+    c.source, c.camera_index = "opencv", 7
+    sc.sync()
+    assert sc.thread is None and sc.state() == {"enabled": False}  # off: never opened
+
+    c.enabled = True  # on, but there is no camera 7
+    sc.sync()
+    assert sc.thread is not None
+    assert _wait(lambda: not sc.thread.running)
+    st = sc.state()
+    assert st["enabled"] is True and st["running"] is False and "Could not open camera 7" in st["error"]
+    sc.sync()  # unchanged settings: the error stays, no retry loop
+    assert "Could not open camera 7" in sc.state()["error"]
+
+    c.enabled = False  # off again, live
+    sc.sync()
+    assert sc.thread is None and sc.state() == {"enabled": False}
+
+    class Denied:
+        name = "opencv"
+
+        def read(self):
+            raise WebcamError("Camera 0 opened but delivers no frames. " + PERMISSION_HELP)
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(manager_mod, "make_source", lambda cfg, url: Denied())
+    c.enabled, c.camera_index = True, 0
+    sc.sync()
+    assert _wait(lambda: not sc.thread.running)
+    err = sc.state()["error"]
+    assert "Privacy & Security > Camera" in err
+    c.enabled = False
+    sc.sync()
+    assert sc.thread is None
+    eng.second_camera.stop()
