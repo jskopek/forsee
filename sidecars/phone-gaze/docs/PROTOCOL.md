@@ -5,8 +5,8 @@ The exact contract between the iPhone app (`tools/eye-capture/ios`), the simulat
 already serves; nothing existing is removed or renamed.
 
 Status: the existing routes are implemented in Swift and work on a real phone. The new routes
-(`/api/zoom`, `/api/stream/config`, `/stream`) are specified here and not yet implemented
-anywhere. Facts marked **(verify on device)** are derived from documentation, not observed.
+(`/api/zoom`, `/api/lens`, `/api/stream/config`, `/stream`) are implemented in the app (version
+0.2) and compile in CI, but have not been run on a phone. Facts marked **(verify on device)** are derived from documentation, not observed.
 
 ## Transport
 
@@ -91,8 +91,15 @@ The status object is `{"app": {"name", "version"}, "time", "system": {...}, "cam
 "framesDropped", "lastError", "fieldOfView"?, "lensPosition"?, "iso"?, "exposureSeconds"?,
 "intrinsics"?: {"fx", "fy", "cx", "cy", "width", "height"}, "gravity"?: [x, y, z]}`.
 
+Camera entries may add `"depthSource": "lidar"` (the back wide camera opened through the LiDAR
+depth device; experimental, listed only on phones with LiDAR, `type` stays `"wide"`) or
+`"truedepth"` (the ARKit entry).
+
 New fields added to `state` by this protocol: `"zoomRange": [min, max]` (the running camera's
-allowed zoom), `"stream": {"clients", "sent", "dropped"}`.
+allowed zoom), `"nativeZoomFactors"` (the active format's `secondaryNativeResolutionZoomFactors`),
+`"cameraType"`, `"depthSource"` (when a depth source runs), `"lens"` (the latest frame's `lens`
+block), `"lowLight"` (bool), and `"stream": {"clients", "sent", "dropped", "skipped", "bytes",
+"fps", "mbps", "lastFrameBytes", "connections", "lastError"?}`.
 
 ## New routes
 
@@ -101,6 +108,19 @@ allowed zoom), `"stream": {"clients", "sent", "dropped"}`.
 Body `{"zoom": number}`. Sets `videoZoomFactor` on the running camera without restarting it
 (clamped to the device's range). Answer: status. 409 in ARKit mode or when idle. Takes effect
 within a frame or two; frames carry the zoom they were captured with.
+
+### `POST /api/lens`
+
+Body: any subset of `{"focusLocked", "exposureLocked", "whiteBalanceLocked",
+"faceDrivenAutoFocus"}` (bools), `"exposureBias"` (EV, clamped to the device's range) and
+`"maxExposureS"` (seconds: caps the shutter time automatic exposure may choose, which reduces
+motion blur at the cost of noise; `null` removes the cap; needs automatic exposure, else 400).
+Answer: status. 409 in ARKit mode or when idle; unknown keys or wrong types are 400. Every
+`frame` reports the result in `lens`.
+
+### `GET /api/stream/config`
+
+Answer: the full effective stream config.
 
 ### `POST /api/stream/config`
 
@@ -126,7 +146,7 @@ can send just `{"rois": [...]}` at frame rate). Answer: the full effective confi
 | `wide.enabled` | bool                                    | Send the downscaled whole frame.                                                                                                                                                                                                               |
 | `wide.width`   | integer px                              | Width of the downscaled frame; height keeps the aspect ratio. Never upscaled.                                                                                                                                                                  |
 | `wide.quality` | number 0–1                              | JPEG quality.                                                                                                                                                                                                                                  |
-| `wide.every`   | integer ≥ 1                             | Send the wide part on every Nth sent frame (`seq % every == 0`); ROIs go on every frame.                                                                                                                                                       |
+| `wide.every`   | integer ≥ 1                             | Send the wide part on every Nth frame accepted for sending (counted from the first after a client connects, not from `seq`); ROIs go on every frame.                                                                                           |
 | `rois`         | array of `{"name", "x", "y", "w", "h"}` | Used when `roiSource` is `"mac"`. Normalised sensor rectangles, at most 4, names unique, `[A-Za-z0-9_]{1,32}`. Cut at the delivered buffer's full resolution.                                                                                  |
 | `roiQuality`   | number 0–1                              | JPEG quality of ROI parts.                                                                                                                                                                                                                     |
 | `roiSource`    | `"mac"`, `"arkit"`, `"vision"`          | `"arkit"`: two ROIs named `left_eye` and `right_eye` of size `roiSize` centred on ARKit's eye positions (ARKit mode only; no ROIs while the face is not tracked). `"vision"`: the same, centred by on-phone face landmarks (optional feature). |
@@ -135,7 +155,10 @@ can send just `{"rois": [...]}` at frame rate). Answer: the full effective confi
 | `depth`        | bool                                    | Include a depth part when a depth source runs (optional feature).                                                                                                                                                                              |
 
 The phone clamps each ROI to the frame and rounds it outwards to even integer pixels; the `rect`
-in each part says what was actually cut. Invalid bodies get 400 and change nothing.
+in each part says what was actually cut. Invalid bodies, including unknown keys, get 400 and
+change nothing. `"vision"` runs Apple's face landmarks at most 5 times a second (once a second
+while no face is found) and reuses the last answer for up to 1 s; it tries all four image
+orientations, and names the eyes by their position in the upright picture.
 `capabilities.roiSources` in `hello` lists what the phone supports; asking for anything else is a 400.
 
 ### `GET /stream`
@@ -150,8 +173,13 @@ The first message is always `hello`. Then `frame` messages as frames are capture
 messages about once a second (and immediately after a configuration change).
 
 **Back-pressure.** The phone keeps at most one message being written and drops any newer frame
-while it is busy (it never queues frames). `dropped` in the next frame header counts frames
-dropped since the previous sent frame. `status` messages are never dropped.
+while it is busy (it never queues frames). A frame is also dropped while the previous one is
+still being JPEG-encoded. `dropped` in the next frame header counts frames dropped since the
+previous sent frame. `status` messages are never dropped; they wait in a short queue, and a
+client that lets 16 of them pile up is disconnected.
+
+**Heat.** When iOS reports the thermal state `serious`, `maxFps` is capped at 30; at `critical`,
+at 15, and the wide part is not sent. Frames sent under a cap carry `"thermalCapFps"`.
 
 When no camera is running the stream stays open and sends only `status`.
 
@@ -213,7 +241,12 @@ regenerates both. Any implementation must decode the `.bin` to exactly those hea
     "depth": false,
     "roiSources": ["mac", "arkit"],
     "formats": ["jpeg"],
-    "maxRois": 4
+    "maxRois": 4,
+    "depthSources": [],
+    "depthFormats": ["depth32"],
+    "fps60": true,
+    "zoom": true,
+    "lensControl": true
   },
   "cameras": [],
   "streamConfig": {},
@@ -222,25 +255,31 @@ regenerates both. Any implementation must decode the `.bin` to exactly those hea
 ```
 
 `cameras` and `state` are as in `/api/status`; `streamConfig` is the effective stream config.
+`capabilities.roiSources` is `["mac", "arkit", "vision"]` on phones with TrueDepth (no
+`"arkit"` otherwise); `depthSources` lists `"truedepth"` and/or `"lidar"`; `fps60` says whether
+any camera has a 60 fps format (ask for it with `/api/configure {"fps": 60}`; the app falls back
+to 30 if the chosen size cannot do it).
 `protocol` is 1 for this document; the engine refuses a larger major version.
 
 ### `frame` header
 
-| Field          | Type              | Meaning                                                                                                                                       |
-| -------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `seq`          | integer           | Increments for every captured frame (skipped and dropped frames included), so gaps are visible.                                               |
-| `t`            | number s          | Capture timestamp, phone clock.                                                                                                               |
-| `tSent`        | number s          | Phone clock when the message was handed to the network.                                                                                       |
-| `mode`         | string            | `"camera"` or `"arkit"`.                                                                                                                      |
-| `dropped`      | integer           | Frames dropped for back-pressure since the previous sent frame.                                                                               |
-| `camera`       | object            | Below.                                                                                                                                        |
-| `lens`         | object            | `position` (lensPosition 0–1), `adjustingFocus`, `adjustingExposure`, `iso`, `exposureS` (s), `focusLocked`. Any may be omitted (ARKit mode). |
-| `gravity`      | `[x, y, z]` g     | Latest device-motion gravity.                                                                                                                 |
-| `rotationRate` | `[x, y, z]` rad/s | Latest device-motion rotation rate.                                                                                                           |
-| `parts`        | array             | Part descriptors.                                                                                                                             |
-| `arkit`        | object            | ARKit mode only (and `streamConfig.arkit`): below.                                                                                            |
-| `depth`        | object            | Optional: `{"part": "depth", "source": "truedepth" or "lidar"}`.                                                                              |
-| `sim`          | object            | Simulator only: ground truth (below).                                                                                                         |
+| Field           | Type              | Meaning                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `seq`           | integer           | Increments for every captured frame (skipped and dropped frames included), so gaps are visible.                                                                                                                                                                                                                                                                                                                   |
+| `t`             | number s          | Capture timestamp, phone clock.                                                                                                                                                                                                                                                                                                                                                                                   |
+| `tSent`         | number s          | Phone clock when the message was finished (after JPEG encoding), just before it is handed to the network.                                                                                                                                                                                                                                                                                                         |
+| `mode`          | string            | `"camera"` or `"arkit"`.                                                                                                                                                                                                                                                                                                                                                                                          |
+| `dropped`       | integer           | Frames dropped for back-pressure since the previous sent frame.                                                                                                                                                                                                                                                                                                                                                   |
+| `camera`        | object            | Below.                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `lens`          | object            | `position` (lensPosition 0–1), `adjustingFocus`, `adjustingExposure`, `iso`, `exposureS` (s), `focusLocked`, `exposureBias` (EV), `exposureOffset` (EV, metered minus target), `exposureLocked`, `whiteBalanceLocked`, `faceDrivenAutoFocus`, `maxExposureS` (when capped), `lowLight` (ISO within 5 % of the maximum and still more than 1 EV too dark). ARKit mode sends only `exposureS` and `exposureOffset`. |
+| `gravity`       | `[x, y, z]` g     | Latest device-motion gravity.                                                                                                                                                                                                                                                                                                                                                                                     |
+| `rotationRate`  | `[x, y, z]` rad/s | Latest device-motion rotation rate.                                                                                                                                                                                                                                                                                                                                                                               |
+| `parts`         | array             | Part descriptors.                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `arkit`         | object            | ARKit mode only (and `streamConfig.arkit`): below.                                                                                                                                                                                                                                                                                                                                                                |
+| `depth`         | object            | Only when `streamConfig.depth` is true and a depth source runs: `{"source": "truedepth" or "lidar", "t", "width", "height", "atRois": {name: metres or null}, "part"?: "depth"}`. `atRois` is the median depth in a 5×5 window at each cut ROI's centre. The `depth` part (`depth32`) is sent only when the map is new (TrueDepth is about 15 Hz).                                                                |
+| `roiSource`     | string            | The `roiSource` the ROIs in this frame came from.                                                                                                                                                                                                                                                                                                                                                                 |
+| `thermalCapFps` | number            | Present when heat limits the frame rate (see Back-pressure).                                                                                                                                                                                                                                                                                                                                                      |
+| `sim`           | object            | Simulator only: ground truth (below).                                                                                                                                                                                                                                                                                                                                                                             |
 
 `camera`:
 
@@ -249,7 +288,8 @@ regenerates both. Any implementation must decode the `.bin` to exactly those hea
 | `id`                    | string     | Camera id as in `/api/status` (`"arkit-face"` in ARKit mode).                                                                                                                                                                                                        |
 | `position`              | string     | `"front"` or `"back"`.                                                                                                                                                                                                                                               |
 | `type`                  | string     | `"wide"`, `"ultrawide"`, `"tele"`, `"arkit"`.                                                                                                                                                                                                                        |
-| `zoom`                  | number     | `videoZoomFactor` the frame was captured with (1 in ARKit mode).                                                                                                                                                                                                     |
+| `zoom`                  | number     | `videoZoomFactor` read when the frame was delivered (1 in ARKit mode). After `/api/zoom` the image can lag this by a frame or two.                                                                                                                                   |
+| `zoomStable`            | bool       | False for frames delivered within 0.15 s of a zoom change; the engine should not trust their zoom.                                                                                                                                                                   |
 | `width`, `height`       | integer    | Sensor buffer size in pixels.                                                                                                                                                                                                                                        |
 | `fx`, `fy`, `cx`, `cy`  | number px  | Intrinsics for this frame in sensor pixels: the per-frame `kCMSampleBufferAttachmentKey_CameraIntrinsicMatrix` (camera mode) or `ARCamera.intrinsics` (ARKit). Omitted if unavailable.                                                                               |
 | `intrinsicsSource`      | string     | `"attachment"`, `"arkit"` or `"sim"`.                                                                                                                                                                                                                                |
@@ -258,16 +298,16 @@ regenerates both. Any implementation must decode the `.bin` to exactly those hea
 
 `arkit`:
 
-| Field         | Type                                | Meaning                                                                                                                                  |
-| ------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `tracked`     | bool                                | `ARFaceAnchor.isTracked`. Matrices may be stale when false.                                                                              |
-| `face`        | 16 numbers or `null`                | Face → world, column-major.                                                                                                              |
-| `leftEye`     | 16 numbers or `null`                | Person's left eye → face.                                                                                                                |
-| `rightEye`    | 16 numbers or `null`                | Person's right eye → face.                                                                                                               |
-| `camera`      | 16 numbers                          | `ARCamera.transform`, camera → world.                                                                                                    |
-| `lookAt`      | `[x, y, z]` m or `null`             | `lookAtPoint`, face space.                                                                                                               |
-| `blendShapes` | object name → 0–1                   | The 14 eye blend shapes, names as the app's CSV (`blink_left`, …).                                                                       |
-| `eyePixels`   | `{"left": [u, v], "right": [u, v]}` | Eye centres projected into sensor pixels (`ARCamera.projectPoint` with `.landscapeRight` and the buffer size). Omitted when not tracked. |
+| Field         | Type                                | Meaning                                                                                                                                                       |
+| ------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tracked`     | bool                                | `ARFaceAnchor.isTracked`. Matrices may be stale when false.                                                                                                   |
+| `face`        | 16 numbers or `null`                | Face → world, column-major.                                                                                                                                   |
+| `leftEye`     | 16 numbers or `null`                | Person's left eye → face.                                                                                                                                     |
+| `rightEye`    | 16 numbers or `null`                | Person's right eye → face.                                                                                                                                    |
+| `camera`      | 16 numbers                          | `ARCamera.transform`, camera → world.                                                                                                                         |
+| `lookAt`      | `[x, y, z]` m or `null`             | `lookAtPoint`, face space.                                                                                                                                    |
+| `blendShapes` | object name → 0–1                   | The 14 eye blend shapes, names as the app's CSV (`blink_left`, …). Empty when no face anchor exists.                                                          |
+| `eyePixels`   | `{"left": [u, v], "right": [u, v]}` | Eye centres projected into sensor pixels (`ARCamera.projectPoint` with `.landscapeRight` and the buffer size). Omitted when not tracked or behind the camera. |
 
 ### `status` header
 

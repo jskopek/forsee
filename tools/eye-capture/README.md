@@ -15,19 +15,43 @@ the phone's own screen faces away from you when the back cameras point at your f
 
 ## Status
 
-- **The iOS app has not been compiled or run yet.** It was written without access to Xcode, so
-  expect a few compile errors on the first build. The Swift files pass a syntax check only.
+- **Version 0.1 (capture, previews, recording) works on a real iPhone.**
+- **Version 0.2 adds a live stream for Phone Gaze** (`sidecars/phone-gaze`). It compiles in CI
+  (GitHub Actions, macOS) but has **not been run on a phone**. Recording is unchanged and still
+  works while streaming.
 - **The controller page and `pull_session.py` are tested** end to end against `dev/mock_phone.py`.
 
 ## Build and install
 
 You need a Mac with Xcode 15 or later and an iPhone or iPad on iOS 16 or later.
 
-1. Open `ios/EyeCapture.xcodeproj` in Xcode.
-2. Select the EyeCapture target, open Signing & Capabilities, and choose your team. If Xcode says
-   the bundle identifier is taken, change it to anything unique.
+1. Set up signing once (below).
+2. Open `ios/EyeCapture.xcodeproj` in Xcode.
 3. Plug in the phone, choose it as the run destination, and press Run.
 4. Allow camera access when the app asks.
+
+### Signing
+
+Your team and bundle identifier live in `ios/Local.xcconfig`, which git ignores, so they survive
+`git pull` and `generate_project.rb`. `ios/Base.xcconfig` (committed) includes it when it exists.
+
+```sh
+cp tools/eye-capture/ios/Local.xcconfig.example tools/eye-capture/ios/Local.xcconfig
+```
+
+Then put your 10-character Team ID and a bundle identifier in it.
+
+**If you already chose a team in Xcode** (as for version 0.1), Xcode wrote it into
+`project.pbxproj`. Move it across:
+
+1. Find the ID: `grep DEVELOPMENT_TEAM tools/eye-capture/ios/EyeCapture.xcodeproj/project.pbxproj`
+   (before pulling), or Xcode > Settings > Accounts. Note the bundle identifier you used too.
+2. Discard your local change to the project, then pull:
+   `git checkout -- tools/eye-capture/ios/EyeCapture.xcodeproj && git pull`.
+3. Write both into `Local.xcconfig`. Leave the team empty in the Signing & Capabilities tab from
+   now on; choosing it there writes it back into `project.pbxproj`, which overrides the file.
+
+Keep the same bundle identifier as before, or the phone installs a second copy of the app.
 
 The app shows an address such as `http://192.168.1.23:8080`. Open it in a browser on the computer
 whose screen you will look at. Both devices must be on the same Wi-Fi network.
@@ -90,6 +114,45 @@ Notes for analysis:
   for converting to centimetres.
 - **ARKit recordings** add columns for the face, left eye, right eye and camera transforms (16
   numbers each, column by column), the look-at point, and the eye blend shapes.
+
+## Live stream for Phone Gaze
+
+Version 0.2 serves a live stream that the Phone Gaze engine reads. The exact wire format is in
+[`sidecars/phone-gaze/docs/PROTOCOL.md`](../../sidecars/phone-gaze/docs/PROTOCOL.md). In short:
+
+| Route                     | What it does                                                                        |
+| ------------------------- | ----------------------------------------------------------------------------------- |
+| `GET /stream`             | Long-lived PGZ1 messages: `hello`, then `frame` per captured frame, `status` each s |
+| `POST /api/stream/config` | Downscaled whole frame, eye rectangles and where they come from, frame rate cap     |
+| `POST /api/zoom`          | Zoom the running camera without restarting it                                       |
+| `POST /api/lens`          | Lock focus, exposure or white balance; exposure bias; cap the shutter time          |
+
+Each frame carries the camera intrinsics, zoom, lens state, gravity and rotation rate, a small
+JPEG of the whole frame and full-resolution JPEG crops of the eyes. In ARKit mode it adds Apple's
+face and eye transforms, blend shapes and the eyes' pixel positions, and the phone can place the
+eye crops itself (`roiSource: "arkit"`). One client at a time; a slow client loses frames rather
+than falling behind. The phone's own screen shows the stream's frame rate, bandwidth and dropped
+frames.
+
+Experimental and off unless asked for: depth (TrueDepth in ARKit mode, or the LiDAR entry in the
+camera list on phones that have one), eye crops placed by on-phone Vision face landmarks
+(`roiSource: "vision"`), and 60 fps formats (`/api/configure` with `"fps": 60`).
+
+### First smoke test
+
+With the app open on the phone, from the computer:
+
+```sh
+python3 tools/eye-capture/dev/stream_stats.py http://192.168.1.23:8080 --camera back-wide --zoom 2 --test-rois
+python3 tools/eye-capture/dev/stream_stats.py http://192.168.1.23:8080 --camera arkit --roi-source arkit
+```
+
+It needs only Python 3.8 or later (no packages) and prints one line a second: frames per second,
+Mbit/s, frames dropped by the phone, time spent on the phone between capture and sending, zoom,
+focal length, ISO and shutter, whether ARKit tracks a face, and the size of each part. Ctrl+C
+stops it. Things worth checking: the frame rate stays near 30, dropped stays near 0 on good
+Wi-Fi, `fx` changes when the zoom changes (if it does not, the intrinsics do not include zoom;
+see PROTOCOL.md), and "face tracked" counts up in ARKit mode.
 
 ## Develop without a phone
 
