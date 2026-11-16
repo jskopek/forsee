@@ -182,6 +182,13 @@ export function key(page: Page, name: string): Locator {
   return keyboard(page).getByRole('button', { name, exact: true });
 }
 
+/** The Speak button in the control bar (keyboards have no Speak key). */
+export function speakButton(page: Page): Locator {
+  return page
+    .getByRole('complementary', { name: 'Controls' })
+    .getByRole('button', { name: 'Speak', exact: true });
+}
+
 /** The message being written (the composition bar's text, without the placeholder). */
 export function message(page: Page): Locator {
   return page.locator('[data-forsee-measure="composition"] output');
@@ -247,14 +254,20 @@ export async function dwellType(page: Page, target: Locator, maxMs = 3000): Prom
 }
 
 /**
- * Shortens dwell with the app's own Faster control (clicked, as a carer
- * would), `times` steps of 100 ms; returns the letter dwell shown.
+ * Shortens dwell with the Faster control in Settings → Input (clicked, as a
+ * carer would), `times` steps of 100 ms; closes Settings and returns the
+ * letter dwell shown.
  */
 export async function faster(page: Page, times: number): Promise<number> {
-  const button = page.getByRole('button', { name: 'Faster', exact: true });
+  await page.getByRole('button', { name: /^Settings/ }).click();
+  const sheet = page.getByRole('dialog', { name: 'Settings' });
+  await sheet.getByRole('button', { name: 'Input', exact: true }).click();
+  const button = sheet.getByRole('button', { name: 'Faster', exact: true });
   for (let i = 0; i < times; i += 1) await button.click();
+  const shown = await sheet.locator('[aria-label="Dwell speed"] output').textContent();
+  await sheet.getByRole('button', { name: 'Close' }).click();
+  await expect(sheet).toHaveCount(0);
   await rest(page);
-  const shown = await page.locator('[aria-label="Dwell speed"] output').textContent();
   const seconds = Number(/([\d.]+) s/.exec(shown ?? '')?.[1]);
   return Math.round(seconds * 1000);
 }

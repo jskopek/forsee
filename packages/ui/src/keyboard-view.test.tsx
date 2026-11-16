@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { DEFAULT_DWELL_CONFIG } from '@forsee/gaze';
-import { BUILTIN_LAYOUTS, getBuiltinLayout, isSpacer, targetId } from '@forsee/layouts';
+import { getBuiltinLayout, isSpacer, targetId } from '@forsee/layouts';
 import type { Rect, TargetDescriptor } from '@forsee/plugin-api';
 import { act, cleanup, fireEvent, screen } from '@testing-library/react';
 import { Profiler } from 'react';
@@ -108,10 +108,12 @@ describe('KeyboardView with QWERTY', () => {
     const { host } = setup('forsee/en-qwerty');
     let notifications = 0;
     host.registry.onDidChange(() => (notifications += 1));
+    fireEvent.click(screen.getByRole('button', { name: '?123' }));
+    await host.advance(0);
     fireEvent.click(screen.getByRole('button', { name: 'Shift' }));
     await host.advance(0);
     expect(host.runtime.view.pageId).toBe('upper');
-    expect(notifications).toBe(1);
+    expect(notifications).toBe(2);
     expect(keyTargets(host).every((t) => t.id.startsWith('forsee/en-qwerty/upper/'))).toBe(true);
 
     fireEvent.click(screen.getByRole('button', { name: 'H' }));
@@ -183,7 +185,7 @@ describe('KeyboardView with QWERTY', () => {
 describe('KeyboardView with the coarse layout', () => {
   it('opens a group, types a letter and returns, by click without a pipeline', async () => {
     const { host } = setup('forsee/en-coarse-groups', { gaze: false });
-    expect(screen.getAllByRole('button')).toHaveLength(12);
+    expect(screen.getAllByRole('button')).toHaveLength(11);
     fireEvent.click(screen.getByRole('button', { name: 'ABCDE' }));
     expect(host.runtime.view.openGroup?.id).toBe('grp-abcde');
     expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual([
@@ -198,12 +200,12 @@ describe('KeyboardView with the coarse layout', () => {
     await host.advance(0);
     expect(host.kernel.composition.text).toBe('c');
     expect(host.runtime.view.openGroup).toBeNull();
-    expect(screen.getAllByRole('button')).toHaveLength(12);
+    expect(screen.getAllByRole('button')).toHaveLength(11);
   });
 
   it('registers the group view as targets that tile the box', async () => {
     const { host } = setup('forsee/en-coarse-groups');
-    expect(keyTargets(host)).toHaveLength(12);
+    expect(keyTargets(host)).toHaveLength(11);
     expectTiling(keyTargets(host), BOX);
     await host.dwellAt(
       host.centreOf(targetId('forsee/en-coarse-groups', 'main', 'grp-klmn')),
@@ -217,7 +219,7 @@ describe('KeyboardView with the coarse layout', () => {
       PLAIN_DWELL.classMs.function + 100,
     );
     expect(host.runtime.view.openGroup).toBeNull();
-    expect(keyTargets(host)).toHaveLength(12);
+    expect(keyTargets(host)).toHaveLength(11);
     expect(host.kernel.composition.text).toBe('');
   });
 });
@@ -250,16 +252,10 @@ describe('fitFontPx', () => {
 });
 
 describe('keyAppearance', () => {
-  it('colours the Speak key (composition.speak) as the primary speak action', () => {
-    for (const layout of BUILTIN_LAYOUTS) {
-      const speakKeys = layout.pages.flatMap((page) =>
-        page.rows.flatMap((row) =>
-          row.keys.filter((key) => 'action' in key && key.action.command === 'composition.speak'),
-        ),
-      );
-      expect(speakKeys.length, layout.id).toBeGreaterThan(0);
-      for (const key of speakKeys) expect(keyAppearance(key)).toBe('speak');
-    }
+  it('colours a Speak key (composition.speak) as the primary speak action', () => {
+    expect(
+      keyAppearance({ id: 's', label: 'Speak', action: { command: 'composition.speak' } }),
+    ).toBe('speak');
     expect(keyAppearance({ id: 's', label: 'Say', action: { command: 'speech.speak' } })).toBe(
       'speak',
     );

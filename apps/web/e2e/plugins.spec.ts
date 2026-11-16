@@ -89,6 +89,19 @@ test('core plugins: turn one off and on, change its options, and they survive a 
   ).toHaveAttribute('aria-pressed', 'true');
 });
 
+test('word prediction credits its English model (CC BY) in full on its options page', async ({
+  page,
+}) => {
+  await openApp(page);
+  const sheet = await openPlugins(page);
+  await sheet.getByRole('button', { name: 'Word prediction options' }).click();
+  await expect(
+    sheet.getByText('English model built from Tatoeba sentences (tatoeba.org), CC BY 2.0 FR.', {
+      exact: false,
+    }),
+  ).toBeVisible();
+});
+
 test('keyboards: hidden in the plugin options, they leave the keyboard list', async ({ page }) => {
   await openApp(page);
   const sheet = await openPlugins(page);

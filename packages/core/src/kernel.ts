@@ -84,6 +84,11 @@ export interface KernelOptions {
   readonly reportError?: ErrorReporter;
   /** Composition undo depth. Default 100. */
   readonly compositionHistoryLimit?: number;
+  /**
+   * Default for `app.general/autoCapitalise`. Default false, so text is kept
+   * exactly as typed; the app turns it on.
+   */
+  readonly defaultAutoCapitalise?: boolean;
   /** Default locale for `app.general/locale`. Default `"en-GB"`. */
   readonly defaultLocale?: LocaleTag;
 }
@@ -261,9 +266,33 @@ export function createKernel(options: KernelOptions): Kernel {
         description: 'Language used for prediction, layouts and voices (BCP 47 tag).',
         default: options.defaultLocale ?? 'en-GB',
       },
+      {
+        key: 'autoCapitalise',
+        label: 'Automatic capitals',
+        type: 'boolean',
+        description:
+          'A capital letter at the start of each sentence, and "I" on its own in English.',
+        default: options.defaultAutoCapitalise ?? false,
+        category: 'Input and selection',
+        order: 30,
+        tags: ['capital', 'uppercase', 'shift', 'case', 'typing'],
+      },
     ]),
   );
   const getLocale = (): LocaleTag => String(settings.get(GENERAL_SETTINGS_NAMESPACE, 'locale'));
+
+  // Automatic capitals follow the setting and, for the pronoun "I", the language.
+  const applyAutoCapitalise = (): void => {
+    const on = settings.get(GENERAL_SETTINGS_NAMESPACE, 'autoCapitalise') !== false;
+    const english = getLocale().toLowerCase().startsWith('en');
+    composition.autoCapitalise = !on ? 'off' : english ? 'sentences-and-i' : 'sentences';
+  };
+  applyAutoCapitalise();
+  disposables.add(
+    settings.events.on('changed', (change) => {
+      if (change.namespace === GENERAL_SETTINGS_NAMESPACE) applyAutoCapitalise();
+    }),
+  );
 
   // Crash recovery: save the composition on every change, coalescing bursts.
   const compositionPersistence = options.persistence?.composition;

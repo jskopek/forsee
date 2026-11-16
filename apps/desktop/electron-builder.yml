@@ -1,0 +1,66 @@
+# Packaging for macOS and Windows. See docs/RELEASING.md.
+#
+# appId must never change once 0.2.0 is out: installed copies would stop
+# updating.
+appId: works.empathy.forsee
+productName: Forsee
+copyright: Copyright © 2025-2026 Empathy Works Inc. (MIT)
+
+directories:
+  output: release
+  buildResources: build
+
+# The main process is one bundled file (scripts/bundle.mjs); nothing else
+# from node_modules is needed at run time.
+files:
+  - out/**/*
+  - package.json
+  - '!**/*.map'
+extraResources:
+  - from: ../web/dist
+    to: web
+asar: true
+
+publish:
+  provider: github
+  owner: jskopek
+  repo: forsee
+  releaseType: release
+
+mac:
+  # Apple silicon (M1 and later) only, which halves the download. Intel Macs
+  # can be added back with `arch: [arm64, x64]` (two downloads) or
+  # `universal` (one download, twice the size).
+  target:
+    - target: dmg
+      arch: arm64
+    - target: zip # used by the updater
+      arch: arm64
+  category: public.app-category.productivity
+  icon: build/icon.png
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
+  extendInfo:
+    NSCameraUsageDescription: Forsee can use the camera to follow your eyes.
+    NSMicrophoneUsageDescription: Forsee can use the microphone to hear the person you are talking to.
+
+dmg:
+  artifactName: Forsee.dmg
+  title: Forsee
+
+win:
+  target:
+    - target: nsis
+      arch: x64
+  icon: build/icon.png
+  artifactName: Forsee-Setup.exe
+
+nsis:
+  oneClick: true
+  perMachine: false # per user: no administrator password needed
+  deleteAppDataOnUninstall: false # never lose someone's words and settings
+  shortcutName: Forsee
+  createDesktopShortcut: always
+  createStartMenuShortcut: true

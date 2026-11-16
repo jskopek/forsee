@@ -328,3 +328,82 @@ describe('nextUndoReason', () => {
     expect(b.nextUndoReason).toBe('insert');
   });
 });
+
+describe('automatic capitals', () => {
+  const typeEach = (b: CompositionBuffer, text: string): void => {
+    for (const ch of Array.from(text)) b.insert(ch);
+  };
+
+  it('is off by default', () => {
+    const b = buffer();
+    typeEach(b, 'hi. i am');
+    expect(b.text).toBe('hi. i am');
+  });
+
+  it('capitalises the start of the text and of each sentence', () => {
+    const b = buffer('', { autoCapitalise: 'sentences' });
+    typeEach(b, 'hi. how are you? fine! ok');
+    expect(b.text).toBe('Hi. How are you? Fine! Ok');
+  });
+
+  it('waits for the space after a full stop (3.5, e.g.)', () => {
+    const b = buffer('', { autoCapitalise: 'sentences' });
+    typeEach(b, 'it is 3.5 or e.g. x');
+    expect(b.text).toBe('It is 3.5 or e.g. X');
+  });
+
+  it('leaves capitals and non-letters alone, and only touches the first letter', () => {
+    const b = buffer('', { autoCapitalise: 'sentences' });
+    b.insert('NASA');
+    expect(b.text).toBe('NASA');
+    const c = buffer('', { autoCapitalise: 'sentences' });
+    c.insert('3');
+    c.insert(' ');
+    c.insert('cats');
+    expect(c.text).toBe('3 cats');
+  });
+
+  it('makes a lone "i" a capital once the word ends, only with sentences-and-i', () => {
+    const b = buffer('', { autoCapitalise: 'sentences-and-i' });
+    typeEach(b, 'so i think i');
+    expect(b.text).toBe('So I think i');
+    b.insert("'");
+    typeEach(b, 'm in');
+    expect(b.text).toBe("So I think I'm in");
+    const plain = buffer('', { autoCapitalise: 'sentences' });
+    typeEach(plain, 'so i think');
+    expect(plain.text).toBe('So i think');
+  });
+
+  it('capitalises an accepted prediction that starts a sentence', () => {
+    const b = buffer('', { autoCapitalise: 'sentences' });
+    b.acceptPrediction('hello');
+    expect(b.text).toBe('Hello ');
+    b.insert('.');
+    b.acceptPrediction('how');
+    expect(b.text).toBe('Hello. How ');
+  });
+
+  it('fixes a lone "i" when punctuation attaches after an accepted prediction', () => {
+    const b = buffer('', { autoCapitalise: 'sentences-and-i' });
+    b.insert('so ');
+    b.acceptPrediction('i');
+    b.insert('?');
+    expect(b.text).toBe('So I? ');
+  });
+
+  it('is part of the same undo step as the letter typed', () => {
+    const b = buffer('', { autoCapitalise: 'sentences' });
+    b.insert('h');
+    expect(b.text).toBe('H');
+    b.undo();
+    expect(b.text).toBe('');
+  });
+
+  it('can be switched off later', () => {
+    const b = buffer('', { autoCapitalise: 'sentences' });
+    b.autoCapitalise = 'off';
+    b.insert('hi');
+    expect(b.text).toBe('hi');
+  });
+});

@@ -152,7 +152,7 @@ Not verified, anywhere:
 - Any real input: no eye tracker, webcam or person has driven the gaze engine. Its tests use synthetic gaze.
 - Any real output: no audio has been produced. The speech provider is tested against a scripted stand-in for the browser API.
 - Real browser storage. The file systems are tested against fakes.
-- Prediction quality. The seed corpus is 963 sentences written for the project; the reported 67.8% keystroke saving is on held-out sentences in the same style and is optimistic.
+- Prediction quality with real users. The shipped English model is built from Tatoeba example sentences; its 57% keystroke saving is on held-out Tatoeba sentences, not on conversation.
 - Any default value (dwell times, filter parameters, hit-test margins, watchdog budgets). They come from the literature, not from tuning.
 - A community code plugin running. Without the sandbox they are listed as blocked.
 

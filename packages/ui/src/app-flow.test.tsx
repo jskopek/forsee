@@ -78,7 +78,7 @@ describe('the whole path: pointer, gaze pipeline, keyboard, composition, predict
       expect(step.distribution?.entries[0]?.text).toBe(step.text);
     }
 
-    // The strip shows completions of "he" from the seed model, as targets.
+    // The strip shows completions of "he" from the English model, as targets.
     const strip = screen.getByRole('group', { name: 'Word predictions' });
     const words = within(strip)
       .getAllByRole('button')

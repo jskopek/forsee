@@ -4,7 +4,7 @@ Written 2026-11-13. This plan covers v1 only: a free, open-source, fully offline
 
 Revised the same day after a deep dive into on-device AI. The full findings, with evidence tags, are in [`reports/On device AI for speech keyboard.md`](../reports/On%20device%20AI%20for%20speech%20keyboard.md).
 
-The app is called **Forsee** (package scope `@forsee/*`). The README still uses the older names EyeSpeak and EyeSight in places and will be corrected when it is rewritten for release.
+The app is called **Forsee** (package scope `@forsee/*`).
 
 ## Contents
 
@@ -467,7 +467,7 @@ A two-speed predictor behind one interface.
 - **Interface:** a prediction request returns the instant answer synchronously and may be followed by a refined answer; the UI replaces candidates without moving the one the user is already dwelling on. Requests carry the typed context and, where available, the per-key probabilities from the input pipeline.
 - **Outputs:** word completions, next-word candidates, per-letter probabilities (which drive adaptive dwell and, later, the swipe decoder), and whole-phrase suggestions recalled from the user's history. One constrained search over the neural model can produce the first three together.
 - **Evaluation harness:** built before any model. It simulates typing real conversational text letter by letter and reports keystroke savings, top-three accuracy and latency percentiles, with variants for gaze noise and for the time cost of reading candidates. Every prediction change is measured with it.
-- **Data:** a build tool turns any text corpus into a model file. Shipped models must come from text whose licence allows redistribution, shipped as separately licensed data files. Candidates to verify: Tatoeba (CC BY), public-domain text, and the permissive set another project trained on (FineWeb, WildChat, OpenAssistant, Ubuntu IRC). DailyDialog is non-commercial and must not be used. Until that is settled, development uses a small seed vocabulary written for this project.
+- **Data:** a build tool turns any text corpus into a model file. Shipped models must come from text whose licence allows redistribution, shipped as separately licensed data files. Candidates to verify: Tatoeba (CC BY), public-domain text, and the permissive set another project trained on (FineWeb, WildChat, OpenAssistant, Ubuntu IRC). DailyDialog is non-commercial and must not be used. The app ships an English model built from Tatoeba (`packages/prediction/data/en-tatoeba`); the licence audit is still to do.
 - **Our own model:** training a purpose-built conversational keyboard model is realistic (under an hour per run on a laptop graphics card) and is the most valuable custom-engineering project identified. It needs a machine with a graphics card, so it is stage D work.
 - **Larger models as providers:** general on-device or cloud LLMs plug in as additional prediction providers for sentence-level work in v2. Operating-system models are optional providers only, because of their content filters. Nothing in v1 depends on one.
 
@@ -637,7 +637,7 @@ Everything in stage B depends only on A2.
 
 | Decision | Recommendation |
 |---|---|
-| Where legacy code lives | Leave in place for now; move Django and `keyboard-ui/` into `legacy/` once v1 runs |
+| Where legacy code lives | Moved into `legacy/` for 0.2 (the SUBTLEX word lists were removed) |
 | Plain files vs SQLite | Plain files for v1, behind an interface; add a derived index when v2 retrieval needs one |
 | Whether the neural keyboard model is in the first release | Build the interface, harness and desktop inference service now; turn the model on per device class only after measurement |
 | Asynchronous messaging (texting a reply) as part of "speech" | Out of v1 core; possible as an output-sink plugin |

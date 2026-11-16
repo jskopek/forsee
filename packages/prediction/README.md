@@ -12,10 +12,10 @@ import {
   createPhraseRecall,
   createPredictionEngine,
   createUserModel,
-  loadSeedModel,
 } from '@forsee/prediction';
+import { loadEnglishModel } from '@forsee/prediction/english';
 
-const base = loadSeedModel(); // or loadLanguageModel(bytesOfModelFile)
+const base = loadEnglishModel(); // or loadLanguageModel(bytesOfModelFile)
 const user = createUserModel({ clock });
 user.load(savedJson); // from lm/user-counts.json, if any
 const phrases = createPhraseRecall({ clock }); // feed with phrases.add(text, createdAt) from history
@@ -43,24 +43,24 @@ session.pin(dwellingOnText); // keep that candidate in its slot
 
 ## Pieces
 
-| Module           | What it does                                                                                                                                                  |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tokeniser.ts`   | Word, number and emoji tokens; lower-cased model keys with surface forms kept for display; sentence boundaries; locale seam (`LANGUAGE_RULES`).               |
-| `builder.ts`     | `ModelBuilder`: two streaming passes over text, interpolated Kneser–Ney estimation, pruning, quantisation, file writing. Used by `tools/lm-build`.            |
-| `ngram-model.ts` | `NgramLanguageModel` / `loadLanguageModel(bytes)`: the runtime (`LanguageModel`).                                                                             |
-| `char-model.ts`  | Character n-gram model (order 5, Witten–Bell) for next-letter probabilities in unknown words.                                                                 |
-| `user-model.ts`  | `AdaptiveUserModel`: recency-weighted counts of the user's words, bigrams and trigrams (`UserModel`), JSON persistence, "my words" listing.                   |
-| `phrases.ts`     | `PhraseStore`: phrase recall from the user's utterances (`PhraseRecall`), prefix plus frecency.                                                               |
-| `noisy.ts`       | Noisy-channel decoding of the typed prefix from per-key distributions.                                                                                        |
-| `provider.ts`    | `createNgramProvider`: the `forsee.ngram` `PredictionProvider` combining all of the above.                                                                    |
-| `engine.ts`      | `createPredictionEngine`: request ids, provider calls, merging, refinement, cancellation, timeouts, failure isolation, stabilisation (`stabiliseCandidates`). |
-| `seed.ts`        | `loadSeedModel()`: the prebuilt model from [`data/seed/`](data/seed/README.md) (original MIT text, development only).                                         |
+| Module             | What it does                                                                                                                                                                                                                                                                                                                |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tokeniser.ts`     | Word, number and emoji tokens; lower-cased model keys with surface forms kept for display; sentence boundaries; locale seam (`LANGUAGE_RULES`).                                                                                                                                                                             |
+| `builder.ts`       | `ModelBuilder`: two streaming passes over text, interpolated Kneser–Ney estimation, pruning, quantisation, file writing. Used by `tools/lm-build`.                                                                                                                                                                          |
+| `ngram-model.ts`   | `NgramLanguageModel` / `loadLanguageModel(bytes)`: the runtime (`LanguageModel`).                                                                                                                                                                                                                                           |
+| `char-model.ts`    | Character n-gram model (order 5, Witten–Bell) for next-letter probabilities in unknown words.                                                                                                                                                                                                                               |
+| `user-model.ts`    | `AdaptiveUserModel`: recency-weighted counts of the user's words, bigrams and trigrams (`UserModel`), JSON persistence, "my words" listing.                                                                                                                                                                                 |
+| `phrases.ts`       | `PhraseStore`: phrase recall from the user's utterances (`PhraseRecall`), prefix plus frecency.                                                                                                                                                                                                                             |
+| `noisy.ts`         | Noisy-channel decoding of the typed prefix from per-key distributions.                                                                                                                                                                                                                                                      |
+| `provider.ts`      | `createNgramProvider`: the `forsee.ngram` `PredictionProvider` combining all of the above.                                                                                                                                                                                                                                  |
+| `engine.ts`        | `createPredictionEngine`: request ids, provider calls, merging, refinement, cancellation, timeouts, failure isolation, stabilisation (`stabiliseCandidates`).                                                                                                                                                               |
+| `data/en-tatoeba/` | The shipped English model, built from Tatoeba sentences (**CC BY 2.0 FR**, not MIT; see [its README](data/en-tatoeba/README.md)). Embedded as base64 in `src/en-tatoeba/model.generated.ts` and loaded with `loadEnglishModel()` from the separate entry point `@forsee/prediction/english`, so the main entry stays small. |
 
 ## Design decisions
 
 **Tokenisation.** Model keys are lower-cased (locale-aware) NFC strings with `’` folded to `'` and Unicode hyphens to `-`. Words keep in-word apostrophes and hyphens; numbers (`3:30`, `1,000`) and emoji (including ZWJ sequences and flags) are single tokens. `.`, `!`, `?`, `…` and line breaks end a sentence, except after known abbreviations (`Dr.`). Commas and other punctuation are dropped without breaking the context. The display form of each word (`I`, `I'm`, `Sarah`) is learned from mid-sentence casing, with a per-language default (English capitalises `I`). Other languages get generic rules; languages without spaces need a `LanguageRules` entry that segments with `Intl.Segmenter`.
 
-**Smoothing: interpolated Kneser–Ney, stored in backoff form.** The builder estimates an interpolated KN model (one discount per order, `D = n1/(n1 + 2 n2)`), then writes it ARPA-style: each stored n-gram keeps its interpolated probability, each context a backoff weight recomputed after pruning so every conditional distribution sums to 1. KN was chosen over stupid backoff because the runtime needs real probabilities: letter probabilities must form a sub-distribution, completions are normalised over the typed prefix, and the base model is linearly interpolated with the user layer. Stupid-backoff scores do not sum to 1. KN's continuation counts also favour words that follow many contexts, which suits next-word prediction. The unigram level can mix in a Zipf prior over a word list (the seed vocabulary).
+**Smoothing: interpolated Kneser–Ney, stored in backoff form.** The builder estimates an interpolated KN model (one discount per order, `D = n1/(n1 + 2 n2)`), then writes it ARPA-style: each stored n-gram keeps its interpolated probability, each context a backoff weight recomputed after pruning so every conditional distribution sums to 1. KN was chosen over stupid backoff because the runtime needs real probabilities: letter probabilities must form a sub-distribution, completions are normalised over the typed prefix, and the base model is linearly interpolated with the user layer. Stupid-backoff scores do not sum to 1. KN's continuation counts also favour words that follow many contexts, which suits next-word prediction. The unigram level can mix in a Zipf prior over a word list.
 
 **Runtime.** Word ids follow the alphabetical order of the keys, so the words starting with a prefix form one id range and every successor list (sorted by id) has a contiguous sub-range for it. Completions are therefore exact top-k searches: trigram successors in range, bigram successors in range, then the best unigrams in range (scanned for small ranges, walked from a probability-sorted list for large ones), all scored with the full backoff formula. The probability mass of a prefix range is computed in closed form from unigram prefix sums plus the in-range successors, which gives letter distributions: the range is split by next grapheme and each part's mass divided by the whole. The character model (weight 0.1, or 1 when no known word has the prefix) covers unknown words.
 
@@ -96,7 +96,6 @@ Build models with `tools/lm-build` (see its README).
 
 ## Measurements
 
-From the tiny seed data only (about 950 training sentences, 2,700-word list), so they say little about a real model:
+The shipped English model's figures (keystroke savings 57% top 3 on 2,000 held-out Tatoeba sentences) are in [`data/en-tatoeba/README.md`](data/en-tatoeba/README.md#measurements).
 
-- Seed model: 157 KiB; keystroke savings on the 40 held-out sentences with top-3 candidates: about 68% (in-domain, same author: optimistic).
-- `predict` latency on a laptop-class container: seed model p50 ≈ 0.15 ms; synthetic 50 000-word model (237k bigrams, 292k trigrams, 3.9 MiB) p50 ≈ 0.05 ms, p95 ≈ 0.22 ms. See `tools/lm-build/src/bench.test.ts`.
+- `predict` latency on a laptop-class container: English model p50 ≈ 0.05 ms, p95 ≈ 0.6 ms; synthetic 50 000-word model (237k bigrams, 292k trigrams, 3.9 MiB) p50 ≈ 0.05 ms, p95 ≈ 0.22 ms. See `tools/lm-build/src/bench.test.ts`.

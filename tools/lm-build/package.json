@@ -12,8 +12,7 @@
     "lm-build": "./dist/cli.js"
   },
   "scripts": {
-    "build": "vite build",
-    "seed": "vite build && node dist/cli.js seed"
+    "build": "vite build"
   },
   "dependencies": {
     "@forsee/core": "workspace:*",

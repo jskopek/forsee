@@ -26,8 +26,8 @@ export default defineConfig({
   },
   build: {
     // The app is one bundle on purpose (it must work offline once loaded);
-    // most of it is the built-in word-prediction model.
-    chunkSizeWarningLimit: 1200,
+    // most of it is the built-in English word-prediction model (about 8 MB).
+    chunkSizeWarningLimit: 10_000,
   },
   preview: {
     // LAN IP addresses are always allowed. This name is what the end-to-end

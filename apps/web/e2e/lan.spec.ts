@@ -40,9 +40,9 @@ test('over plain HTTP on a LAN address: IndexedDB keeps the profile, speech stil
   await expect(page.getByText('Nothing is being saved')).toHaveCount(0);
   // ... and the message survives a reload.
   await page.keyboard.type('over the LAN');
-  await expect(message(page)).toHaveText('over the LAN');
+  await expect(message(page)).toHaveText('Over the LAN');
   await page.waitForTimeout(500);
   await page.reload();
   await expect(key(page, 'h')).toBeVisible();
-  await expect(message(page)).toHaveText('over the LAN');
+  await expect(message(page)).toHaveText('Over the LAN');
 });

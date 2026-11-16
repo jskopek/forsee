@@ -613,3 +613,20 @@ describe('createKernel', () => {
     await expect(kernel.start()).rejects.toMatchObject({ code: 'disposed' });
   });
 });
+
+describe('automatic capitals setting', () => {
+  it('is off unless the host turns it on, and "I" only in English', async () => {
+    expect(setup().kernel.composition.autoCapitalise).toBe('off');
+
+    const { kernel } = setup({ defaultAutoCapitalise: true });
+    expect(kernel.composition.autoCapitalise).toBe('sentences-and-i');
+    await kernel.commands.execute('composition.insert', { text: 'i' });
+    await kernel.commands.execute('composition.insert', { text: ' ' });
+    expect(kernel.composition.text).toBe('I ');
+
+    kernel.settings.set(GENERAL_SETTINGS_NAMESPACE, 'locale', 'de-DE');
+    expect(kernel.composition.autoCapitalise).toBe('sentences');
+    kernel.settings.set(GENERAL_SETTINGS_NAMESPACE, 'autoCapitalise', false);
+    expect(kernel.composition.autoCapitalise).toBe('off');
+  });
+});

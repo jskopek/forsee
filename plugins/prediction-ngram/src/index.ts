@@ -14,6 +14,9 @@
  *   recent utterances (`api.history.listRecent`). Without it the plugin
  *   still predicts words; it just starts with no phrases.
  *
+ * Base model: the English model built from Tatoeba sentences, embedded in
+ * the bundle (`@forsee/prediction/english`), unless `baseModel` says otherwise.
+ *
  * Persistence: the user's learned words (the adaptive user model) are kept in
  * the plugin's private storage (`api.storage`, `plugins/<id>/data.json`),
  * because `ForseeApi` has no way to reach the profile's
@@ -41,9 +44,9 @@ import {
   createNgramProvider,
   createPhraseRecall,
   createUserModel,
-  loadSeedModel,
   type LanguageModel,
 } from '@forsee/prediction';
+import { loadEnglishModel } from '@forsee/prediction/english';
 import manifestJson from '../manifest.json';
 
 /** The plugin's manifest (validated by the plugin host when it loads). */
@@ -93,7 +96,11 @@ export interface NgramPredictionPluginOptions {
    * sandboxed build would use the sandbox's.
    */
   readonly clock: Clock;
-  /** The base language model. Default: the seed model shipped with `@forsee/prediction`. */
+  /**
+   * The base language model. Default: the English model built from Tatoeba
+   * sentences (`@forsee/prediction/english`; CC BY 2.0 FR, credited in the
+   * manifest description).
+   */
   readonly baseModel?: () => LanguageModel;
   /** Locale of the user layer and phrase recall. Default `"en"`. */
   readonly locale?: string;
@@ -153,7 +160,7 @@ export function createNgramPredictionPlugin(
         if (change.key === NEXT_WORDS_SETTING) settings.nextWords = change.value !== false;
       });
 
-      base ??= options.baseModel ? options.baseModel() : loadSeedModel();
+      base ??= options.baseModel ? options.baseModel() : loadEnglishModel();
       const user = createUserModel({ clock, locale });
       const model = await api.storage.get(USER_MODEL_KEY);
       if (model !== undefined && !user.load(model)) {

@@ -324,12 +324,15 @@ describe('LayoutRuntime key behaviours', () => {
     const layout = getBuiltinLayout('forsee/en-qwerty');
     if (!layout) throw new Error('missing');
     const runtime = createLayoutRuntime(layout);
-    runtime.activate('k-shift', 0);
+    // Shift is on the numbers page (a speech keyboard rarely needs capitals).
+    runtime.activate('k-numbers', 0);
+    runtime.activate('n-shift', 0);
     expect(runtime.view.pageId).toBe('upper');
     expect(runtime.activate('u-q', 0)).toEqual(insert('Q'));
     expect(runtime.view.pageId).toBe('letters');
 
-    runtime.activate('k-shift', 0);
+    runtime.activate('k-numbers', 0);
+    runtime.activate('n-shift', 0);
     runtime.activate('u-caps', 0);
     expect(runtime.view.pageId).toBe('caps');
     expect(runtime.activate('c-q', 0)).toEqual(insert('Q'));

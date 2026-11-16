@@ -44,18 +44,16 @@ describe('generateTargets', () => {
   it('sets text for character keys only', () => {
     expect(byKey('k-q')?.text).toBe('q');
     expect(byKey('k-space')?.text).toBe(' ');
-    expect(byKey('k-comma')?.text).toBe(',');
-    expect(byKey('k-speak')?.text).toBeUndefined();
+    expect(byKey('k-dot')?.text).toBe('.');
+    expect(byKey('k-question')?.text).toBe('?');
     expect(byKey('k-backspace')?.text).toBeUndefined();
-    expect(byKey('k-shift')?.text).toBeUndefined();
+    expect(byKey('k-numbers')?.text).toBeUndefined();
   });
 
   it('classifies keys by what they do', () => {
     expect(byKey('k-q')?.dwellClass).toBe('letter');
     expect(byKey('k-space')?.dwellClass).toBe('letter');
-    expect(byKey('k-clear')?.dwellClass).toBe('destructive');
-    expect(byKey('k-speak')?.dwellClass).toBe('function');
-    expect(byKey('k-shift')?.dwellClass).toBe('function');
+    expect(byKey('k-numbers')?.dwellClass).toBe('function');
     expect(byKey('k-undo')?.dwellClass).toBe('function');
     expect(byKey('k-backspace')?.dwellClass).toBe('function');
   });

@@ -3,6 +3,7 @@ import { GAZE_SETTING_FIELDS, GAZE_SETTINGS_NAMESPACE } from '@forsee/gaze';
 import { formatVoiceId, type SpeakMode, type Voice } from '@forsee/plugin-api';
 import {
   ChoiceGroup,
+  DwellSpeedControls,
   GazeTarget,
   Icon,
   Sheet,
@@ -15,7 +16,14 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AllSettingsSection } from './AllSettingsSection';
 import { useActiveLayout, useKeyboardCatalogue, type Problems } from './hooks';
 import { PluginsSection } from './PluginsSection';
-import { SPEECH_SETTING_FIELDS, type ForseeRuntime } from './runtime';
+import { useSettingsPosition } from './settings-position';
+import {
+  DWELL_FASTER_COMMAND,
+  DWELL_SLOWER_COMMAND,
+  SPEECH_SETTING_FIELDS,
+  type ForseeRuntime,
+} from './runtime';
+import { controlBarSettingOf, type ControlBarSetting } from './runtime/settings';
 import { resetSettings, SettingsTrialBanner, useSettingsTrial } from './SettingControls';
 
 type Tab = 'keyboard' | 'voice' | 'speech' | 'input' | 'all' | 'plugins' | 'problems';
@@ -53,7 +61,7 @@ export function SettingsSheet({
   readonly portrait: boolean;
   readonly onClose: () => void;
 }): ReactNode {
-  const [tab, setTab] = useState<Tab>('keyboard');
+  const [tab, setTab] = useSettingsPosition<Tab>('tab', 'keyboard');
   const trialPending = useSettingsTrial(runtime) !== null;
   const problemCount = problems.issues.length + problems.errors.length;
   const tabs: Choice<Tab>[] = [
@@ -108,13 +116,24 @@ export function SettingsSheet({
 
 const SECTION = 'flex h-full min-h-0 flex-col gap-[clamp(1rem,3vh,2rem)]';
 
+/** Where the control bar (Speak, Pause, Settings) can go. */
+const CONTROL_BAR_POSITIONS: Choice<ControlBarSetting>[] = [
+  { value: 'auto', label: 'Automatic' },
+  { value: 'right', label: 'Right' },
+  { value: 'left', label: 'Left' },
+  { value: 'top', label: 'Top' },
+  { value: 'bottom', label: 'Bottom' },
+];
+
 /** Keyboards per page (the active one is marked). */
 const KEYBOARDS_PER_PAGE = 6;
 
 function KeyboardSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
   const active = useActiveLayout(runtime).definition;
   const catalogue = useKeyboardCatalogue(runtime);
-  const [page, setPage] = useState(0);
+  const ui = runtime.settings.namespaces.ui;
+  const controlBar = controlBarSettingOf(useSetting(ui, 'controlBar'));
+  const [page, setPage] = useSettingsPosition('keyboard/page', 0);
   const pages = Math.max(1, Math.ceil(catalogue.length / KEYBOARDS_PER_PAGE));
   const current = Math.min(page, pages - 1);
   const choices = catalogue
@@ -144,6 +163,15 @@ function KeyboardSection({ runtime }: { readonly runtime: ForseeRuntime }): Reac
           className="max-h-[24rem] flex-[3]"
         />
       )}
+      <ChoiceGroup
+        label="Control bar (Speak, Pause, Settings)"
+        idPrefix="settings/control-bar"
+        choices={CONTROL_BAR_POSITIONS}
+        value={controlBar}
+        onChoose={(value) => runtime.settings.set(ui, 'controlBar', value)}
+        columns={5}
+        className="max-h-[8rem] flex-1"
+      />
       <p className="text-[clamp(0.9rem,2.2vh,1.15rem)] text-ink-muted">
         Keyboards come from plugins. Choose which standard keyboards are listed in Settings →
         Plugins → Standard keyboards.
@@ -219,7 +247,7 @@ function useVoices(runtime: ForseeRuntime): readonly Voice[] | null {
 function VoiceSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNode {
   const voices = useVoices(runtime);
   const voiceId = String(useSetting(runtime.settings.namespaces.speech, 'voiceId') ?? '');
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useSettingsPosition('voice/page', 0);
   const choices = useMemo<Choice<string>[]>(() => {
     const list = sortVoices(voices ?? [], runtime.kernel.locale);
     return [
@@ -232,7 +260,9 @@ function VoiceSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNo
     ];
   }, [voices, runtime]);
   const pages = Math.max(1, Math.ceil(choices.length / VOICES_PER_PAGE));
-  const shown = choices.slice(page * VOICES_PER_PAGE, (page + 1) * VOICES_PER_PAGE);
+  // A remembered page can be past the end while voices load or after they change.
+  const current = Math.min(page, pages - 1);
+  const shown = choices.slice(current * VOICES_PER_PAGE, (current + 1) * VOICES_PER_PAGE);
 
   const testVoice = (): void => {
     runtime.speech.unlock();
@@ -250,7 +280,7 @@ function VoiceSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNo
         </p>
       )}
       <ChoiceGroup
-        label={pages > 1 ? `Offline voices (page ${page + 1} of ${pages})` : 'Offline voices'}
+        label={pages > 1 ? `Offline voices (page ${current + 1} of ${pages})` : 'Offline voices'}
         idPrefix="settings/voice"
         choices={shown}
         value={voiceId}
@@ -264,8 +294,8 @@ function VoiceSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNo
           dwellClass="function"
           label="Previous voices"
           appearance="neutral"
-          disabled={page === 0}
-          onActivate={() => setPage((p) => Math.max(0, p - 1))}
+          disabled={current === 0}
+          onActivate={() => setPage(Math.max(0, current - 1))}
           className={TAB_BUTTON}
         >
           <Icon name="previous" size={26} />
@@ -276,8 +306,8 @@ function VoiceSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNo
           dwellClass="function"
           label="More voices"
           appearance="neutral"
-          disabled={page >= pages - 1}
-          onActivate={() => setPage((p) => Math.min(pages - 1, p + 1))}
+          disabled={current >= pages - 1}
+          onActivate={() => setPage(Math.min(pages - 1, current + 1))}
           className={TAB_BUTTON}
         >
           <Icon name="next" size={26} />
@@ -343,7 +373,8 @@ function InputSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNo
   const ui = runtime.settings.namespaces.ui;
   const clickSound = useSetting(ui, 'clickSound') === true;
   const physicalKeyboard = useSetting(ui, 'physicalKeyboard') === true;
-  const letterMs = Number(useSetting(GAZE_SETTINGS_NAMESPACE, 'dwell.letterMs') ?? 0);
+  const general = runtime.settings.namespaces.general;
+  const autoCapitalise = useSetting(general, 'autoCapitalise') !== false;
   // One step, with "Keep these settings?" (the defaults may be faster than this user can manage).
   const reset = (): void =>
     resetSettings(
@@ -356,7 +387,7 @@ function InputSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNo
     );
   return (
     <div className={SECTION}>
-      <div className="grid max-h-[10rem] min-h-0 flex-1 grid-cols-2 gap-[clamp(0.75rem,2vh,1.25rem)]">
+      <div className="grid max-h-[10rem] min-h-0 flex-1 grid-cols-3 gap-[clamp(0.75rem,2vh,1.25rem)]">
         <ToggleTarget
           id="settings/click-sound"
           label="Click sound"
@@ -369,21 +400,38 @@ function InputSection({ runtime }: { readonly runtime: ForseeRuntime }): ReactNo
           value={physicalKeyboard}
           onChange={(value) => runtime.settings.set(ui, 'physicalKeyboard', value)}
         />
+        <ToggleTarget
+          id="settings/auto-capitalise"
+          label="Automatic capitals"
+          value={autoCapitalise}
+          onChange={(value) => runtime.settings.set(general, 'autoCapitalise', value)}
+        />
       </div>
-      <div className="flex max-h-[10rem] min-h-0 flex-1 flex-col gap-2">
+      <div className="flex max-h-[12rem] min-h-0 flex-1 flex-col gap-2">
         <h3 className="text-[clamp(0.95rem,2.2vh,1.2rem)] font-semibold text-ink-muted">
-          Dwell times (letters now {(letterMs / 1000).toFixed(1)} s)
+          Dwell speed
         </h3>
-        <GazeTarget
-          id="settings/reset-dwell"
-          dwellClass="destructive"
-          label="Reset dwell times"
-          appearance="neutral"
-          onActivate={reset}
-          className={`${TAB_BUTTON} flex-1`}
-        >
-          <span>Reset dwell times</span>
-        </GazeTarget>
+        <div className="flex min-h-0 flex-1 gap-[clamp(0.75rem,2vh,1.25rem)]">
+          <DwellSpeedControls
+            horizontal
+            idPrefix="settings/dwell"
+            commands={{
+              faster: { command: DWELL_FASTER_COMMAND },
+              slower: { command: DWELL_SLOWER_COMMAND },
+            }}
+            className="flex-[3]"
+          />
+          <GazeTarget
+            id="settings/reset-dwell"
+            dwellClass="destructive"
+            label="Reset dwell times"
+            appearance="neutral"
+            onActivate={reset}
+            className={`${TAB_BUTTON} flex-1`}
+          >
+            <span>Reset</span>
+          </GazeTarget>
+        </div>
       </div>
     </div>
   );

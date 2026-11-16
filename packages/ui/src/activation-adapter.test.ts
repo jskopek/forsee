@@ -114,13 +114,13 @@ describe('createActivationAdapter', () => {
 
   it('switches pages, and a one-shot page returns after a letter', async () => {
     const { adapter, calls, runtime, idOf } = setup();
-    expect((await adapter.handle(activation(idOf('k-shift')), OWNER)).kind).toBe('view-changed');
+    expect((await adapter.handle(activation(idOf('k-numbers')), OWNER)).kind).toBe('view-changed');
+    expect(runtime.view.pageId).toBe('numbers');
+    await adapter.handle(activation(idOf('n-shift')), OWNER);
     expect(runtime.view.pageId).toBe('upper');
     await adapter.handle(activation(idOf('u-h')), OWNER);
     expect(calls[0]?.args?.text).toBe('H');
     expect(runtime.view.pageId).toBe('letters');
-    await adapter.handle(activation(idOf('k-numbers')), OWNER);
-    expect(runtime.view.pageId).toBe('numbers');
   });
 
   it('ignores stale, foreign and pipeline-executed activations', async () => {
