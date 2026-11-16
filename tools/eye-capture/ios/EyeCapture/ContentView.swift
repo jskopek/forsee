@@ -26,6 +26,12 @@ struct ContentView: View {
                 .font(.callout)
                 .foregroundColor(.secondary)
 
+            if !model.streamLine.isEmpty {
+                Text(model.streamLine)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+
             if model.isRecording {
                 Label("Recording", systemImage: "record.circle.fill")
                     .foregroundColor(.red)

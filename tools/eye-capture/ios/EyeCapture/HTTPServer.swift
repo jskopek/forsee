@@ -16,6 +16,14 @@ struct HTTPRequest {
         else { return [:] }
         return dictionary
     }
+
+    /// The body as a JSON object; an empty body is an empty object. Nil when
+    /// the body is something else, so routes can answer 400.
+    var jsonObject: [String: Any]? {
+        guard !body.isEmpty else { return [:] }
+        guard let object = try? JSONSerialization.jsonObject(with: body) else { return nil }
+        return object as? [String: Any]
+    }
 }
 
 struct HTTPResponse {
@@ -23,6 +31,10 @@ struct HTTPResponse {
         case data(Data)
         /// Streamed from disk in chunks, so large videos never sit in memory.
         case file(URL)
+        /// A long-lived response with no length: the headers are sent, then
+        /// the handler gets a writer that sends messages until either side
+        /// closes. Called on the server queue; it must not block.
+        case stream((StreamWriter) -> Void)
     }
 
     var status: Int = 200
@@ -106,6 +118,7 @@ private final class HTTPConnection {
     private var isHandlingRequest = false
     private var closeAfterResponse = false
     private var isClosed = false
+    private var streamWriter: StreamWriter?
 
     private static let headerTerminator = Data("\r\n\r\n".utf8)
     private static let maxHeaderBytes = 64 * 1024
@@ -142,10 +155,17 @@ private final class HTTPConnection {
             [weak self] data, _, isComplete, error in
             guard let self = self, !self.isClosed else { return }
             if let data = data, !data.isEmpty {
-                self.buffer.append(data)
-                self.processBuffer()
+                if self.streamWriter == nil {
+                    self.buffer.append(data)
+                    self.processBuffer()
+                }
+                // While streaming, anything the client sends is ignored.
             }
             if error != nil {
+                self.close()
+                return
+            }
+            if isComplete, self.streamWriter != nil {
                 self.close()
                 return
             }
@@ -228,6 +248,9 @@ private final class HTTPConnection {
         var inlineBody = Data()
         var fileHandle: FileHandle?
         switch response.body {
+        case .stream(let opener):
+            sendStream(response, opener: opener)
+            return
         case .data(let data):
             inlineBody = data
             length = data.count
@@ -266,6 +289,28 @@ private final class HTTPConnection {
             } else {
                 self.responseFinished()
             }
+        })
+    }
+
+    /// Sends the headers of a streamed response, then hands the connection to
+    /// a `StreamWriter`. The connection never serves another request.
+    private func sendStream(_ response: HTTPResponse, opener: @escaping (StreamWriter) -> Void) {
+        var head = "HTTP/1.1 \(response.status) \(Self.reason(response.status))\r\n"
+        head += "Content-Type: \(response.contentType)\r\n"
+        head += "Cache-Control: no-store\r\n"
+        head += "Connection: close\r\n"
+        head += "\r\n"
+        buffer.removeAll()
+        let writer = StreamWriter(connection: connection)
+        streamWriter = writer
+        connection.send(content: Data(head.utf8), completion: .contentProcessed { [weak self] error in
+            guard let self = self else { return }
+            if error != nil {
+                self.close()
+                return
+            }
+            guard !self.isClosed else { return }
+            opener(writer)
         })
     }
 
@@ -312,6 +357,7 @@ private final class HTTPConnection {
     private func didClose() {
         guard !isClosed else { return }
         isClosed = true
+        streamWriter?.connectionDidClose()
         onClose(ObjectIdentifier(self))
     }
 
@@ -324,5 +370,140 @@ private final class HTTPConnection {
         case 503: return "Service Unavailable"
         default: return "Error"
         }
+    }
+}
+
+/// Writes framed messages to one streaming client. Thread-safe: messages can
+/// be sent from any queue.
+///
+/// Back-pressure: at most one message is being written at a time. A droppable
+/// message (a video frame) is refused while another is in flight, so frames
+/// are never queued. Reliable messages (hello, status) wait their turn in a
+/// short queue; a client that lets that queue fill up is disconnected.
+final class StreamWriter {
+    private let connection: NWConnection
+    private let lock = NSLock()
+    private static let maxPending = 16
+
+    // Guarded by `lock`.
+    private var writing = false
+    private var pending: [Data] = []
+    private var closed = false
+    private var closeHandlers: [() -> Void] = []
+
+    fileprivate init(connection: NWConnection) {
+        self.connection = connection
+    }
+
+    /// True while a message is being written, or after the client went away.
+    var isBusy: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return writing || closed
+    }
+
+    var isOpen: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return !closed
+    }
+
+    /// Runs once when the stream ends, whichever side ends it. Runs at once if
+    /// it has already ended.
+    func onClose(_ handler: @escaping () -> Void) {
+        lock.lock()
+        if closed {
+            lock.unlock()
+            handler()
+            return
+        }
+        closeHandlers.append(handler)
+        lock.unlock()
+    }
+
+    /// Sends the message unless another is still being written. Returns
+    /// whether it was accepted.
+    @discardableResult
+    func sendDroppable(_ data: Data) -> Bool {
+        lock.lock()
+        guard !closed, !writing else {
+            lock.unlock()
+            return false
+        }
+        writing = true
+        lock.unlock()
+        write(data)
+        return true
+    }
+
+    /// Sends the message after any in flight. Never dropped.
+    func sendReliable(_ data: Data) {
+        lock.lock()
+        guard !closed else {
+            lock.unlock()
+            return
+        }
+        if writing {
+            if pending.count >= Self.maxPending {
+                lock.unlock()
+                close()
+                return
+            }
+            pending.append(data)
+            lock.unlock()
+            return
+        }
+        writing = true
+        lock.unlock()
+        write(data)
+    }
+
+    /// Ends the stream and closes the connection.
+    func close() {
+        finish()
+        connection.cancel()
+    }
+
+    fileprivate func connectionDidClose() {
+        finish()
+    }
+
+    private func finish() {
+        lock.lock()
+        guard !closed else {
+            lock.unlock()
+            return
+        }
+        closed = true
+        pending.removeAll()
+        let handlers = closeHandlers
+        closeHandlers.removeAll()
+        lock.unlock()
+        for handler in handlers {
+            handler()
+        }
+    }
+
+    private func write(_ data: Data) {
+        connection.send(content: data, completion: .contentProcessed { [weak self] error in
+            guard let self = self else { return }
+            if error != nil {
+                self.close()
+                return
+            }
+            self.lock.lock()
+            if self.closed {
+                self.lock.unlock()
+                return
+            }
+            if self.pending.isEmpty {
+                self.writing = false
+                self.lock.unlock()
+                return
+            }
+            let next = self.pending.removeFirst()
+            self.lock.unlock()
+            self.write(next)
+        })
     }
 }

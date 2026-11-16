@@ -1,0 +1,10 @@
+// Copy to Local.xcconfig (git ignores it) and fill in your own values.
+//
+// DEVELOPMENT_TEAM is the 10-character Team ID. Find it in Xcode under
+// Settings > Accounts > (your Apple ID) > the team, or at
+// developer.apple.com/account under Membership details.
+
+DEVELOPMENT_TEAM = ABCDE12345
+
+// A personal team needs a bundle identifier nobody else has registered.
+PRODUCT_BUNDLE_IDENTIFIER = com.example.yourname.EyeCapture

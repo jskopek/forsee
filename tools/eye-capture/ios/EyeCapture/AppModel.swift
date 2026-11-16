@@ -9,10 +9,11 @@ import UIKit
 /// through these routes; the phone's own screen only shows status.
 final class AppModel: ObservableObject {
     static let port: UInt16 = 8080
-    static let appVersion = "0.1"
+    static let appVersion = "0.2"
 
     @Published var addresses: [String] = []
     @Published var statusLine = "Starting…"
+    @Published var streamLine = ""
     @Published var isRecording = false
     @Published var preview: UIImage?
     @Published var lastError: String?
@@ -73,6 +74,7 @@ final class AppModel: ObservableObject {
     private func refresh() {
         addresses = DeviceInfo.ipv4Addresses().map { "http://\($0):\(Self.port)" }
         statusLine = capture.summaryLine()
+        streamLine = capture.streamer.summaryLine()
         isRecording = capture.isRecording
         if let data = capture.previewJPEG(.full) {
             preview = UIImage(data: data)
@@ -133,6 +135,62 @@ final class AppModel: ObservableObject {
                 respond(.json(status()))
             } catch {
                 respond(.error(400, Self.describe(error)))
+            }
+
+        case ("GET", "/stream"):
+            // Built here, on the HTTP queue, because the camera list lives here.
+            let response = HTTPResponse(
+                status: 200,
+                contentType: "application/x-pgz1",
+                body: .stream { [weak self] writer in
+                    guard let self = self else {
+                        writer.close()
+                        return
+                    }
+                    self.capture.streamer.attach(writer, hello: self.hello())
+                }
+            )
+            respond(response)
+
+        case ("GET", "/api/stream/config"):
+            respond(.json(capture.streamer.configJSON))
+
+        case ("POST", "/api/stream/config"):
+            guard let body = request.jsonObject else {
+                respond(.error(400, "The body must be a JSON object"))
+                return
+            }
+            do {
+                respond(.json(try capture.streamer.updateConfig(body)))
+            } catch {
+                respond(.error(400, Self.describe(error)))
+            }
+
+        case ("POST", "/api/zoom"):
+            guard let body = request.jsonObject,
+                  let zoom = body["zoom"] as? NSNumber,
+                  CFGetTypeID(zoom) != CFBooleanGetTypeID()
+            else {
+                respond(.error(400, "The body must be {\"zoom\": number}"))
+                return
+            }
+            do {
+                try capture.setZoom(zoom.doubleValue)
+                respond(.json(status()))
+            } catch {
+                respond(.error(Self.statusCode(for: error), Self.describe(error)))
+            }
+
+        case ("POST", "/api/lens"):
+            guard let body = request.jsonObject else {
+                respond(.error(400, "The body must be a JSON object"))
+                return
+            }
+            do {
+                try capture.setLens(body)
+                respond(.json(status()))
+            } catch {
+                respond(.error(Self.statusCode(for: error), Self.describe(error)))
             }
 
         case ("POST", "/api/session/start"):
@@ -236,6 +294,28 @@ final class AppModel: ObservableObject {
         ]
     }
 
+    /// The first message on `/stream`.
+    private func hello() -> [String: Any] {
+        let current = status()
+        systemLock.lock()
+        let system = systemInfo
+        systemLock.unlock()
+        return [
+            "type": "hello",
+            "protocol": 1,
+            "t": CACurrentMediaTime(),
+            "app": ["name": "EyeCapture", "version": Self.appVersion],
+            "device": [
+                "model": system["model"] as? String ?? DeviceInfo.modelIdentifier(),
+                "system": system["system"] as? String ?? "",
+            ],
+            "capabilities": capture.streamCapabilities(),
+            "cameras": current["cameras"] ?? [Any](),
+            "streamConfig": capture.streamer.configJSON,
+            "state": current["state"] ?? [String: Any](),
+        ]
+    }
+
     private func controllerPage() -> HTTPResponse {
         guard let url = Bundle.main.url(forResource: "controller", withExtension: "html"),
               let data = try? Data(contentsOf: url)
@@ -256,6 +336,13 @@ final class AppModel: ObservableObject {
         return HTTPResponse(
             status: 200, contentType: SessionStore.contentType(for: parts[2]), body: .file(url)
         )
+    }
+
+    private static func statusCode(for error: Error) -> Int {
+        if let captureError = error as? CaptureError, case .notRunningCamera = captureError {
+            return 409
+        }
+        return 400
     }
 
     private static func describe(_ error: Error) -> String {

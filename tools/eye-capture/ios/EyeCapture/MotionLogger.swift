@@ -11,6 +11,7 @@ final class MotionLogger {
     // Guarded by `lock`.
     private var handle: FileHandle?
     private var latestGravity: [Double]?
+    private var latestRotation: [Double]?
 
     func start() {
         guard manager.isDeviceMotionAvailable, !manager.isDeviceMotionActive else { return }
@@ -19,6 +20,7 @@ final class MotionLogger {
         manager.startDeviceMotionUpdates(to: queue) { [weak self] motion, _ in
             guard let self = self, let motion = motion else { return }
             let gravity = [motion.gravity.x, motion.gravity.y, motion.gravity.z]
+            let rotation = [motion.rotationRate.x, motion.rotationRate.y, motion.rotationRate.z]
             let line = String(
                 format: "%.6f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f\n",
                 motion.timestamp,
@@ -28,6 +30,7 @@ final class MotionLogger {
             )
             self.lock.lock()
             self.latestGravity = gravity
+            self.latestRotation = rotation
             let handle = self.handle
             self.lock.unlock()
             try? handle?.write(contentsOf: Data(line.utf8))
@@ -39,6 +42,13 @@ final class MotionLogger {
         lock.lock()
         defer { lock.unlock() }
         return latestGravity
+    }
+
+    /// Rotation rate in the same frame as gravity, in rad/s.
+    func rotationRate() -> [Double]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return latestRotation
     }
 
     func beginLog(url: URL) {

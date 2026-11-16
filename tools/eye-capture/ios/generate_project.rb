@@ -31,6 +31,12 @@ target.frameworks_build_phase.files.to_a.each do |build_file|
 end
 project.frameworks_group.remove_from_project if project.frameworks_group.empty?
 
+# Signing comes from Base.xcconfig, which includes the git-ignored
+# Local.xcconfig if it exists. Settings on the target would override it, so
+# the target sets none of those keys.
+base_config = project.main_group.new_file('Base.xcconfig')
+base_config.last_known_file_type = 'text.xcconfig'
+
 group = project.new_group(NAME, NAME)
 Dir["#{NAME}/*.swift"].sort.each do |path|
   target.source_build_phase.add_file_reference(group.new_file(File.basename(path)))
@@ -43,14 +49,11 @@ end
 
 settings = {
   'PRODUCT_NAME' => '$(TARGET_NAME)',
-  'PRODUCT_BUNDLE_IDENTIFIER' => 'org.forsee.EyeCapture',
-  'MARKETING_VERSION' => '0.1',
+  'MARKETING_VERSION' => '0.2',
   'CURRENT_PROJECT_VERSION' => '1',
   'SWIFT_VERSION' => '5.0',
   'IPHONEOS_DEPLOYMENT_TARGET' => '16.0',
   'TARGETED_DEVICE_FAMILY' => '1,2',
-  'CODE_SIGN_STYLE' => 'Automatic',
-  'DEVELOPMENT_TEAM' => '',
   'GENERATE_INFOPLIST_FILE' => 'YES',
   'INFOPLIST_KEY_CFBundleDisplayName' => 'Eye Capture',
   'INFOPLIST_KEY_NSCameraUsageDescription' =>
@@ -74,6 +77,10 @@ target.build_configurations.each do |configuration|
     configuration.build_settings.delete(key)
   end
   configuration.build_settings.merge!(settings)
+  %w[PRODUCT_BUNDLE_IDENTIFIER DEVELOPMENT_TEAM CODE_SIGN_STYLE].each do |key|
+    configuration.build_settings.delete(key)
+  end
+  configuration.base_configuration_reference = base_config
 end
 
 # Stable identifiers, so regenerating does not rewrite the whole file.

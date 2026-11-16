@@ -5,6 +5,7 @@ import Foundation
 import ImageIO
 import QuartzCore
 import simd
+import UIKit
 
 enum CaptureError: Error, CustomStringConvertible {
     case unknownCamera(String)
@@ -13,6 +14,10 @@ enum CaptureError: Error, CustomStringConvertible {
     case cannotAddOutput
     case faceTrackingUnsupported
     case busyRecording
+    /// Zoom and lens settings need a running AVFoundation camera (HTTP 409).
+    case notRunningCamera(String)
+    /// A bad value in a lens request (HTTP 400).
+    case badRequest(String)
 
     var description: String {
         switch self {
@@ -22,6 +27,8 @@ enum CaptureError: Error, CustomStringConvertible {
         case .cannotAddOutput: return "The capture session rejected the video output"
         case .faceTrackingUnsupported: return "This device does not support ARKit face tracking"
         case .busyRecording: return "Stop the recording before changing camera"
+        case .notRunningCamera(let what): return "\(what) needs a running camera (not ARKit, not idle)"
+        case .badRequest(let message): return message
         }
     }
 }
@@ -49,7 +56,8 @@ struct CropSpec {
 /// Threading: `configure`, `stop` and `setFocus` are called from the HTTP
 /// queue. Frames arrive on `frameQueue`, which also owns the recorder. State
 /// shared between threads sits behind `lock`.
-final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, ARSessionDelegate {
+final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate,
+    AVCaptureDepthDataOutputDelegate, ARSessionDelegate {
     static let arkitCameraId = "arkit-face"
 
     static let cameraColumns = [
@@ -90,12 +98,19 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         var mode = "idle"
         var cameraId = ""
         var cameraName = ""
+        var cameraType = ""
         var position = ""
         var width = 0
         var height = 0
         var requestedFps = 0.0
         var measuredFps = 0.0
         var zoom = 1.0
+        var zoomRange: [Double] = []
+        var nativeZoomFactors: [Double] = []
+        var zoomChangedAt = -Double.infinity
+        var depthSource = ""
+        var lens: [String: Any] = [:]
+        var lowLight = false
         var fieldOfView = Double.nan
         var minFocusDistanceMM = -1
         var binned = false
@@ -115,6 +130,7 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
 
     private let captureSession = AVCaptureSession()
     private let videoOutput = AVCaptureVideoDataOutput()
+    private let depthOutput = AVCaptureDepthDataOutput()
     private let arSession = ARSession()
     private let frameQueue = DispatchQueue(label: "eyecapture.frames", qos: .userInitiated)
     private let ciContext = CIContext()
@@ -122,8 +138,16 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
     private let motion = MotionLogger()
     private let lock = NSLock()
 
+    /// The live stream (`GET /stream`).
+    let streamer = FrameStreamer()
+
     private lazy var devices: [AVCaptureDevice] = AVCaptureDevice.DiscoverySession(
-        deviceTypes: [.builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera],
+        // The LiDAR entry is the back wide camera plus the LiDAR scanner. It
+        // only exists on phones that have one.
+        deviceTypes: [
+            .builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera,
+            .builtInLiDARDepthCamera,
+        ],
         mediaType: .video,
         position: .unspecified
     ).devices
@@ -145,6 +169,16 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
     private var lastPreviewTime: CFTimeInterval = 0
     private var fpsWindowStart: CFTimeInterval = 0
     private var fpsWindowFrames = 0
+    private var latestDepth: DepthSample?
+
+    override init() {
+        super.init()
+        var sources = ["mac"]
+        if ARFaceTrackingConfiguration.isSupported { sources.append("arkit") }
+        sources.append("vision")
+        streamer.setSupportedRoiSources(sources)
+        streamer.stateProvider = { [weak self] in self?.statusJSON() ?? [:] }
+    }
 
     // MARK: - Camera list
 
@@ -182,6 +216,10 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
                 "formats": formats,
                 "zoomPresets": zoomPresets.sorted(),
             ]
+            if device.deviceType == .builtInLiDARDepthCamera {
+                entry["depthSource"] = "lidar"
+                entry["name"] = "\(device.localizedName) (experimental: wide camera with LiDAR depth)"
+            }
             if let format = Self.pickFormat(device, maxWidth: 3840, fps: 30) {
                 entry["fieldOfView"] = Double(format.videoFieldOfView)
             }
@@ -210,9 +248,39 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
                 "canFocus": false,
                 "formats": formats,
                 "zoomPresets": [Double](),
+                "depthSource": "truedepth",
             ])
         }
         return list
+    }
+
+    /// What this phone can stream, for `hello.capabilities`.
+    func streamCapabilities() -> [String: Any] {
+        let arkit = ARFaceTrackingConfiguration.isSupported
+        let lidar = devices.contains { $0.deviceType == .builtInLiDARDepthCamera }
+        var roiSources = ["mac"]
+        if arkit { roiSources.append("arkit") }
+        roiSources.append("vision")
+        var depthSources: [String] = []
+        if arkit { depthSources.append("truedepth") }
+        if lidar { depthSources.append("lidar") }
+        let fps60 = devices.contains { device in
+            device.formats.contains { format in
+                Self.isUsable(format) && format.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= 59 }
+            }
+        }
+        return [
+            "arkit": arkit,
+            "depth": !depthSources.isEmpty,
+            "depthSources": depthSources,
+            "roiSources": roiSources,
+            "formats": ["jpeg"],
+            "depthFormats": ["depth32"],
+            "maxRois": StreamConfig.maxRois,
+            "fps60": fps60,
+            "zoom": true,
+            "lensControl": true,
+        ]
     }
 
     // MARK: - Configuration
@@ -250,15 +318,17 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         intrinsics = nil
         previewData = [:]
         lock.unlock()
+        frameQueue.async { self.latestDepth = nil }
     }
 
     private func startCamera(cameraId: String, maxWidth: Int, fps: Double, zoom: Double) throws {
         guard let device = devices.first(where: { $0.uniqueID == cameraId }) else {
             throw CaptureError.unknownCamera(cameraId)
         }
-        guard let format = Self.pickFormat(device, maxWidth: maxWidth, fps: fps)
-            ?? Self.pickFormat(device, maxWidth: maxWidth, fps: 30)
-            ?? Self.pickFormat(device, maxWidth: Int.max, fps: 30)
+        let wantsDepth = device.deviceType == .builtInLiDARDepthCamera
+        guard let format = Self.pickFormat(device, maxWidth: maxWidth, fps: fps, needsDepth: wantsDepth)
+            ?? Self.pickFormat(device, maxWidth: maxWidth, fps: 30, needsDepth: wantsDepth)
+            ?? Self.pickFormat(device, maxWidth: Int.max, fps: 30, needsDepth: wantsDepth)
         else {
             throw CaptureError.noFormat
         }
@@ -289,6 +359,20 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
             guard captureSession.canAddOutput(videoOutput) else { throw CaptureError.cannotAddOutput }
             captureSession.addOutput(videoOutput)
         }
+        var depthFormat: AVCaptureDevice.Format?
+        if wantsDepth {
+            depthFormat = Self.pickDepthFormat(format)
+            if depthFormat != nil, !captureSession.outputs.contains(depthOutput),
+               captureSession.canAddOutput(depthOutput) {
+                depthOutput.setDelegate(self, callbackQueue: frameQueue)
+                depthOutput.alwaysDiscardsLateDepthData = true
+                depthOutput.isFilteringEnabled = true
+                captureSession.addOutput(depthOutput)
+            }
+        } else if captureSession.outputs.contains(depthOutput) {
+            captureSession.removeOutput(depthOutput)
+        }
+        let depthRunning = depthFormat != nil && captureSession.outputs.contains(depthOutput)
 
         // Hold the device lock until the session is running, so the session
         // cannot replace the format we chose.
@@ -296,6 +380,9 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         defer { device.unlockForConfiguration() }
 
         device.activeFormat = format
+        if depthRunning, let depthFormat = depthFormat {
+            device.activeDepthDataFormat = depthFormat
+        }
         let frameDuration = CMTime(value: 1, timescale: CMTimeScale(rate))
         device.activeVideoMinFrameDuration = frameDuration
         device.activeVideoMaxFrameDuration = frameDuration
@@ -341,6 +428,10 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         state.height = Int(size.height)
         state.requestedFps = rate
         state.zoom = Double(appliedZoom)
+        state.zoomRange = [Double(device.minAvailableVideoZoomFactor), Double(maxZoom)]
+        state.nativeZoomFactors = format.secondaryNativeResolutionZoomFactors.map { Double($0) }
+        state.cameraType = Self.typeName(device.deviceType)
+        state.depthSource = depthRunning ? "lidar" : ""
         state.fieldOfView = Double(format.videoFieldOfView)
         state.minFocusDistanceMM = device.minimumFocusDistance
         state.binned = format.isVideoBinned
@@ -383,8 +474,143 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         state.height = Int(format.imageResolution.height)
         state.requestedFps = Double(format.framesPerSecond)
         state.zoom = 1
+        state.zoomRange = [1, 1]
+        state.cameraType = "arkit"
+        state.depthSource = "truedepth"
         state.lastError = ""
         lock.unlock()
+    }
+
+    // MARK: - Zoom and lens
+
+    /// Changes zoom on the running camera without restarting it. Returns the
+    /// zoom actually applied (clamped to the device's range).
+    @discardableResult
+    func setZoom(_ zoom: Double) throws -> Double {
+        lock.lock()
+        let device = self.device
+        let mode = state.mode
+        lock.unlock()
+        guard mode == "camera", let device = device else {
+            throw CaptureError.notRunningCamera("Zoom")
+        }
+        guard zoom.isFinite, zoom > 0 else {
+            throw CaptureError.badRequest("zoom must be a positive number")
+        }
+        try device.lockForConfiguration()
+        defer { device.unlockForConfiguration() }
+        if device.isRampingVideoZoom {
+            device.cancelVideoZoomRamp()
+        }
+        let maxZoom = min(device.maxAvailableVideoZoomFactor, device.activeFormat.videoMaxZoomFactor)
+        let applied = min(max(CGFloat(zoom), device.minAvailableVideoZoomFactor), maxZoom)
+        device.videoZoomFactor = applied
+        lock.lock()
+        state.zoom = Double(applied)
+        state.zoomChangedAt = CACurrentMediaTime()
+        lock.unlock()
+        return Double(applied)
+    }
+
+    /// Exposure and focus options for the running camera. Body keys, all
+    /// optional: `focusLocked`, `exposureLocked`, `whiteBalanceLocked`,
+    /// `faceDrivenAutoFocus` (bools), `exposureBias` (EV), `maxExposureS`
+    /// (seconds, caps the auto-exposure shutter; null removes the cap).
+    func setLens(_ body: [String: Any]) throws {
+        let known: Set<String> = [
+            "focusLocked", "exposureLocked", "whiteBalanceLocked", "faceDrivenAutoFocus",
+            "exposureBias", "maxExposureS",
+        ]
+        for key in body.keys where !known.contains(key) {
+            throw CaptureError.badRequest("Unknown lens setting \(key)")
+        }
+        func flag(_ key: String) throws -> Bool? {
+            guard let value = body[key] else { return nil }
+            guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else {
+                throw CaptureError.badRequest("\(key) must be true or false")
+            }
+            return number.boolValue
+        }
+        func number(_ key: String) throws -> Double? {
+            guard let value = body[key], !(value is NSNull) else { return nil }
+            guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  number.doubleValue.isFinite
+            else {
+                throw CaptureError.badRequest("\(key) must be a number")
+            }
+            return number.doubleValue
+        }
+        let focusLocked = try flag("focusLocked")
+        let exposureLocked = try flag("exposureLocked")
+        let whiteBalanceLocked = try flag("whiteBalanceLocked")
+        let faceDriven = try flag("faceDrivenAutoFocus")
+        let bias = try number("exposureBias")
+        let maxExposure = try number("maxExposureS")
+        let clearsMaxExposure = body["maxExposureS"] is NSNull
+
+        lock.lock()
+        let device = self.device
+        let mode = state.mode
+        lock.unlock()
+        guard mode == "camera", let device = device else {
+            throw CaptureError.notRunningCamera("Lens settings")
+        }
+
+        if let focusLocked = focusLocked {
+            try setFocus(locked: focusLocked, point: nil)
+        }
+
+        try device.lockForConfiguration()
+        defer { device.unlockForConfiguration() }
+
+        if let locked = exposureLocked {
+            if locked, device.isExposureModeSupported(.locked) {
+                device.exposureMode = .locked
+            } else if !locked, device.isExposureModeSupported(.continuousAutoExposure) {
+                device.exposureMode = .continuousAutoExposure
+            }
+        }
+        if let locked = whiteBalanceLocked {
+            if locked, device.isWhiteBalanceModeSupported(.locked) {
+                device.whiteBalanceMode = .locked
+            } else if !locked, device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                device.whiteBalanceMode = .continuousAutoWhiteBalance
+            }
+        }
+        if let bias = bias {
+            let clamped = min(max(Float(bias), device.minExposureTargetBias), device.maxExposureTargetBias)
+            device.setExposureTargetBias(clamped, completionHandler: nil)
+        }
+        if maxExposure != nil || clearsMaxExposure {
+            let auto = device.exposureMode == .continuousAutoExposure || device.exposureMode == .autoExpose
+            guard auto else {
+                throw CaptureError.badRequest("maxExposureS needs automatic exposure; unlock exposure first")
+            }
+            if let seconds = maxExposure, seconds > 0 {
+                let format = device.activeFormat
+                var duration = CMTime(seconds: seconds, preferredTimescale: 1_000_000)
+                if CMTimeCompare(duration, format.minExposureDuration) < 0 {
+                    duration = format.minExposureDuration
+                }
+                if CMTimeCompare(duration, format.maxExposureDuration) > 0 {
+                    duration = format.maxExposureDuration
+                }
+                device.activeMaxExposureDuration = duration
+            } else {
+                // Invalid restores the default cap.
+                device.activeMaxExposureDuration = .invalid
+            }
+        }
+        if let faceDriven = faceDriven {
+            if device.isFocusModeSupported(.continuousAutoFocus) {
+                device.automaticallyAdjustsFaceDrivenAutoFocusEnabled = false
+                device.isFaceDrivenAutoFocusEnabled = faceDriven
+            }
+            if device.isExposureModeSupported(.continuousAutoExposure) {
+                device.automaticallyAdjustsFaceDrivenAutoExposureEnabled = false
+                device.isFaceDrivenAutoExposureEnabled = faceDriven
+            }
+        }
     }
 
     /// Locks or releases focus, and optionally focuses and exposes on a point
@@ -536,6 +762,13 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         if state.exposureSeconds.isFinite { json["exposureSeconds"] = state.exposureSeconds }
         if let intrinsics = intrinsics { json["intrinsics"] = intrinsics }
         if let gravity = motion.gravity() { json["gravity"] = gravity }
+        if !state.zoomRange.isEmpty { json["zoomRange"] = state.zoomRange }
+        if !state.nativeZoomFactors.isEmpty { json["nativeZoomFactors"] = state.nativeZoomFactors }
+        if !state.cameraType.isEmpty { json["cameraType"] = state.cameraType }
+        if !state.depthSource.isEmpty { json["depthSource"] = state.depthSource }
+        if !state.lens.isEmpty { json["lens"] = state.lens }
+        json["lowLight"] = state.lowLight
+        json["stream"] = streamer.stats()
         return json
     }
 
@@ -554,6 +787,7 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         var line = "\(state.cameraName), \(state.width)×\(state.height)"
         line += String(format: ", %.0f fps", state.measuredFps)
         if state.zoom > 1.01 { line += String(format: ", %.1fx", state.zoom) }
+        if state.lowLight { line += ". Low light: expect noise and blur" }
         return line
     }
 
@@ -580,7 +814,6 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
 
         lock.lock()
         let device = self.device
-        let needsIntrinsics = intrinsics == nil
         lock.unlock()
 
         var values: [Double] = [.nan, .nan, .nan, 0, 0]
@@ -594,25 +827,71 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
             ]
         }
 
-        if needsIntrinsics,
-           let attachment = CMGetAttachment(
+        // Intrinsics come with every frame; they shift with focus.
+        var matrix: matrix_float3x3?
+        if let attachment = CMGetAttachment(
                sampleBuffer, key: kCMSampleBufferAttachmentKey_CameraIntrinsicMatrix,
                attachmentModeOut: nil
            ),
            let data = attachment as? Data,
            data.count >= MemoryLayout<matrix_float3x3>.size {
-            let matrix = data.withUnsafeBytes { $0.loadUnaligned(as: matrix_float3x3.self) }
-            storeIntrinsics(matrix, pixelBuffer: pixelBuffer)
+            let loaded = data.withUnsafeBytes { $0.loadUnaligned(as: matrix_float3x3.self) }
+            matrix = loaded
+            storeIntrinsics(loaded, pixelBuffer: pixelBuffer)
         }
 
+        let lens = device.map { Self.lensInfo($0) } ?? [:]
         lock.lock()
         state.lensPosition = values[0]
         state.iso = values[1]
         state.exposureSeconds = values[2]
         state.adjustingFocus = values[3] > 0
+        state.lens = lens
+        state.lowLight = lens["lowLight"] as? Bool ?? false
         lock.unlock()
 
+        let t = CMTimeGetSeconds(time)
+        if let ticket = streamer.begin(t: t) {
+            lock.lock()
+            let snapshot = state
+            lock.unlock()
+            var lensBlock = lens
+            lensBlock["focusLocked"] = snapshot.focusLocked
+            var camera: [String: Any] = [
+                "id": snapshot.cameraId,
+                "position": snapshot.position,
+                "type": snapshot.cameraType,
+                "zoom": device.map { Double($0.videoZoomFactor) } ?? snapshot.zoom,
+                "zoomStable": CACurrentMediaTime() - snapshot.zoomChangedAt > 0.15,
+                "width": CVPixelBufferGetWidth(pixelBuffer),
+                "height": CVPixelBufferGetHeight(pixelBuffer),
+            ]
+            if snapshot.fieldOfView.isFinite { camera["fieldOfView"] = snapshot.fieldOfView }
+            if let matrix = matrix {
+                Self.addIntrinsics(matrix, to: &camera, source: "attachment", includesZoom: false)
+            }
+            var depth: DepthSample?
+            if let latest = latestDepth, abs(latest.t - t) < 0.1 {
+                depth = latest
+            }
+            let input = StreamFrameInput(
+                pixelBuffer: pixelBuffer, t: t, mode: "camera", camera: camera, lens: lensBlock,
+                gravity: motion.gravity(), rotationRate: motion.rotationRate(), arkit: nil,
+                eyePixels: nil, depth: depth
+            )
+            streamer.submit(ticket, input: input)
+        }
+
         handleFrame(pixelBuffer, time: time, values: values, columns: Self.cameraColumns)
+    }
+
+    func depthDataOutput(
+        _ output: AVCaptureDepthDataOutput,
+        didOutput depthData: AVDepthData,
+        timestamp: CMTime,
+        connection: AVCaptureConnection
+    ) {
+        latestDepth = DepthSample(data: depthData, t: CMTimeGetSeconds(timestamp), source: "lidar")
     }
 
     func captureOutput(
@@ -651,14 +930,82 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         }
 
         lock.lock()
-        let needsIntrinsics = intrinsics == nil
         state.faceTracked = tracked
         lock.unlock()
-        if needsIntrinsics {
-            storeIntrinsics(frame.camera.intrinsics, pixelBuffer: frame.capturedImage)
+        storeIntrinsics(frame.camera.intrinsics, pixelBuffer: frame.capturedImage)
+
+        if let ticket = streamer.begin(t: frame.timestamp) {
+            streamARKitFrame(frame, face: face, tracked: tracked, ticket: ticket)
         }
 
         handleFrame(frame.capturedImage, time: time, values: values, columns: Self.arkitColumns)
+    }
+
+    private func streamARKitFrame(
+        _ frame: ARFrame, face: ARFaceAnchor?, tracked: Bool, ticket: FrameStreamer.Ticket
+    ) {
+        let pixelBuffer = frame.capturedImage
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+        var camera: [String: Any] = [
+            "id": Self.arkitCameraId,
+            "position": "front",
+            "type": "arkit",
+            "zoom": 1.0,
+            "zoomStable": true,
+            "width": width,
+            "height": height,
+        ]
+        Self.addIntrinsics(frame.camera.intrinsics, to: &camera, source: "arkit", includesZoom: true)
+
+        var arkit: [String: Any] = [
+            "tracked": tracked,
+            "face": face.map { Self.flatten($0.transform) as Any } ?? NSNull(),
+            "leftEye": face.map { Self.flatten($0.leftEyeTransform) as Any } ?? NSNull(),
+            "rightEye": face.map { Self.flatten($0.rightEyeTransform) as Any } ?? NSNull(),
+            "camera": Self.flatten(frame.camera.transform),
+        ]
+        if let lookAt = face?.lookAtPoint {
+            arkit["lookAt"] = [Double(lookAt.x), Double(lookAt.y), Double(lookAt.z)]
+        } else {
+            arkit["lookAt"] = NSNull()
+        }
+        var shapes: [String: Any] = [:]
+        for (name, location) in Self.blendShapes {
+            if let value = face?.blendShapes[location]?.doubleValue {
+                shapes[name] = value
+            }
+        }
+        arkit["blendShapes"] = shapes
+
+        var eyePixels: (left: CGPoint, right: CGPoint)?
+        if tracked, let face = face {
+            let viewport = CGSize(width: width, height: height)
+            let left = Self.project(face.transform * face.leftEyeTransform, camera: frame.camera, viewport: viewport)
+            let right = Self.project(face.transform * face.rightEyeTransform, camera: frame.camera, viewport: viewport)
+            if let left = left, let right = right {
+                eyePixels = (left, right)
+                arkit["eyePixels"] = [
+                    "left": [Double(left.x), Double(left.y)],
+                    "right": [Double(right.x), Double(right.y)],
+                ]
+            }
+        }
+
+        let lens: [String: Any] = [
+            "exposureS": frame.camera.exposureDuration,
+            "exposureOffset": Double(frame.camera.exposureOffset),
+        ]
+        var depth: DepthSample?
+        if let data = frame.capturedDepthData {
+            depth = DepthSample(data: data, t: frame.capturedDepthDataTimestamp, source: "truedepth")
+        }
+        let input = StreamFrameInput(
+            pixelBuffer: pixelBuffer, t: frame.timestamp, mode: "arkit", camera: camera, lens: lens,
+            gravity: motion.gravity(), rotationRate: motion.rotationRate(), arkit: arkit,
+            eyePixels: eyePixels, depth: depth
+        )
+        streamer.submit(ticket, input: input)
     }
 
     func session(_ session: ARSession, didFailWithError error: Error) {
@@ -847,10 +1194,11 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
 
     /// The largest 8-bit format no wider than `maxWidth` that can run at `fps`.
     private static func pickFormat(
-        _ device: AVCaptureDevice, maxWidth: Int, fps: Double
+        _ device: AVCaptureDevice, maxWidth: Int, fps: Double, needsDepth: Bool = false
     ) -> AVCaptureDevice.Format? {
         let candidates = device.formats.filter { format in
             guard isUsable(format) else { return false }
+            if needsDepth, pickDepthFormat(format) == nil { return false }
             let size = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
             guard Int(size.width) <= maxWidth else { return false }
             return format.videoSupportedFrameRateRanges.contains {
@@ -867,6 +1215,77 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
             )
         }
         return candidates.max { score($0) < score($1) }
+    }
+
+    /// The largest float depth format a video format offers, if any.
+    private static func pickDepthFormat(_ format: AVCaptureDevice.Format) -> AVCaptureDevice.Format? {
+        let floats = format.supportedDepthDataFormats.filter { depth in
+            let subType = CMFormatDescriptionGetMediaSubType(depth.formatDescription)
+            return subType == kCVPixelFormatType_DepthFloat32 || subType == kCVPixelFormatType_DepthFloat16
+        }
+        return floats.max { first, second in
+            let a = CMVideoFormatDescriptionGetDimensions(first.formatDescription)
+            let b = CMVideoFormatDescriptionGetDimensions(second.formatDescription)
+            return Int(a.width) * Int(a.height) < Int(b.width) * Int(b.height)
+        }
+    }
+
+    /// Exposure and focus facts for one frame (the `lens` header block).
+    private static func lensInfo(_ device: AVCaptureDevice) -> [String: Any] {
+        let format = device.activeFormat
+        let exposure = CMTimeGetSeconds(device.exposureDuration)
+        let offset = Double(device.exposureTargetOffset)
+        let iso = Double(device.iso)
+        // At (or near) the highest ISO and still too dark: noisy and, without
+        // a shutter cap, blurred.
+        let lowLight = iso >= Double(format.maxISO) * 0.95 && offset < -1
+        var info: [String: Any] = [
+            "position": Double(device.lensPosition),
+            "adjustingFocus": device.isAdjustingFocus,
+            "adjustingExposure": device.isAdjustingExposure,
+            "iso": iso,
+            "exposureS": exposure,
+            "exposureBias": Double(device.exposureTargetBias),
+            "exposureOffset": offset,
+            "exposureLocked": device.exposureMode == .locked,
+            "whiteBalanceLocked": device.whiteBalanceMode == .locked,
+            "faceDrivenAutoFocus": device.isFaceDrivenAutoFocusEnabled,
+            "lowLight": lowLight,
+        ]
+        let cap = device.activeMaxExposureDuration
+        if cap.isValid {
+            info["maxExposureS"] = CMTimeGetSeconds(cap)
+        }
+        return info
+    }
+
+    private static func addIntrinsics(
+        _ matrix: matrix_float3x3, to camera: inout [String: Any], source: String, includesZoom: Bool
+    ) {
+        let values = [
+            Double(matrix.columns.0.x), Double(matrix.columns.1.y),
+            Double(matrix.columns.2.x), Double(matrix.columns.2.y),
+        ]
+        guard values.allSatisfy({ $0.isFinite && $0 != 0 }) else { return }
+        camera["fx"] = values[0]
+        camera["fy"] = values[1]
+        camera["cx"] = values[2]
+        camera["cy"] = values[3]
+        camera["intrinsicsSource"] = source
+        camera["intrinsicsIncludeZoom"] = includesZoom
+    }
+
+    /// A transform's origin projected into the captured image's pixels, or
+    /// nil if it is behind the camera.
+    private static func project(_ transform: simd_float4x4, camera: ARCamera, viewport: CGSize) -> CGPoint? {
+        let world = transform.columns.3
+        let inCamera = camera.transform.inverse * world
+        guard inCamera.z < 0 else { return nil }  // ARKit cameras look down -z.
+        let point = camera.projectPoint(
+            simd_float3(world.x, world.y, world.z), orientation: .landscapeRight, viewportSize: viewport
+        )
+        guard point.x.isFinite, point.y.isFinite else { return nil }
+        return point
     }
 
     private static func positionName(_ position: AVCaptureDevice.Position) -> String {

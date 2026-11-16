@@ -7,34 +7,43 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		1827C1A9AD7F7C82607845E4FC8F7FDF /* EyeCaptureApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BC852A96EB5CD96B5A9C2E9920211F5 /* EyeCaptureApp.swift */; };
-		2A69722C88D3B103282F620ED24178C4 /* DeviceInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2DA51F155856CA88EB14AEC9A647FA8 /* DeviceInfo.swift */; };
-		316FD1C4B9A0B1B92675B47DB2DC7512 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE2B93BF4F7742D031CDC564493AD6A /* AppModel.swift */; };
-		325BDAC6FB54164B2508DEF5B5AC959D /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 211164B4FC215375A5DC70FDAA96D6A4 /* SessionStore.swift */; };
-		49508336264427454706B9E33EB67F90 /* SegmentRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A331715BD1EE4D66E919258B7351AEC /* SegmentRecorder.swift */; };
-		672100DD95D3A9C4984AF4E511399BC7 /* CaptureCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92B2EC52C2B2F5A64FC44E020A071322 /* CaptureCoordinator.swift */; };
-		74F5F07634AF24AAA9FBEEAF31B8DCD1 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FF64D193FD6585FF3C65948E7B19BA0 /* ContentView.swift */; };
-		C87B21FA7F08CD05ABDBD062C22B87BA /* HTTPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D75F6A8AA1FCED0A75BF37369744AB0 /* HTTPServer.swift */; };
-		D12524F224CBA37DBC6292D39984BED8 /* controller.html in Resources */ = {isa = PBXBuildFile; fileRef = B9911AD30A5092F7628022D57B2D4871 /* controller.html */; };
-		F1EFCCC2D97EFD190E6DB4F7E4C52AA9 /* MotionLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 248EC33D99FCA2971BFD8F07751E460B /* MotionLogger.swift */; };
+		11CE41EB6DC228BB490C8AE3335A5C34 /* SegmentRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98D9ED39D17C4833E9DF371181F32F7C /* SegmentRecorder.swift */; };
+		26EFAE19547385D15D09883D9868293E /* StreamConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8891A755F8B3F0839F6FFA2D9560372 /* StreamConfig.swift */; };
+		66F8367E47C67955544CA85F5AB5E697 /* EyeCaptureApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C65CF8C9361AF56C0FC9F865C06069D /* EyeCaptureApp.swift */; };
+		78A19BB0CA4718BD752C1C592CD1C207 /* FrameStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5797D9D3B93EE0FE6269EDA4B0E82154 /* FrameStreamer.swift */; };
+		7A1B8523E1EA3D5F4A7EA42E306E7171 /* CaptureCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8060F7667C763CC46431B97B8C325B0B /* CaptureCoordinator.swift */; };
+		7D0D460915297279DA903D68635E517C /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F6C35CFCAD08027A1B9B8F36D8AABA /* AppModel.swift */; };
+		7FE419AB5CAA8D7F7BE482797CB84B9E /* controller.html in Resources */ = {isa = PBXBuildFile; fileRef = F9D1CA8EC60FD249ACADEAFAFB6D740A /* controller.html */; };
+		8172A177BB7B6576A786765CF06ADD03 /* MotionLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCB65F5F0B130AC8BD422691FB6031D1 /* MotionLogger.swift */; };
+		A617D398A6132DB78A562F2076C66918 /* DeviceInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0E185C6D03A91964E6E296A05B167F9 /* DeviceInfo.swift */; };
+		CE9A2A2020D5BE4AB4AD3CD1FFF37662 /* DepthMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3343A24A54644B84F82083AAAC68DE5 /* DepthMap.swift */; };
+		D091E87EA8769B039662273A06CC1CB9 /* HTTPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD57025752CCA7C408722CADC1D8FAD6 /* HTTPServer.swift */; };
+		E26740043F2C021FD3843E3D3551E54D /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F01CE5C3B8824AADD6BCACF1A24AE013 /* SessionStore.swift */; };
+		E4FB3654C0C60E1C77CCF777DDE8BAA1 /* VisionEyeLocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6528C69DCA710FCCCF447D0D2099A1B /* VisionEyeLocator.swift */; };
+		FCC8D4D365FF8AD88B39D0DE855F4E19 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2C9BCE23AF868B5CACF35708015018 /* ContentView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		1DE2B93BF4F7742D031CDC564493AD6A /* AppModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
-		211164B4FC215375A5DC70FDAA96D6A4 /* SessionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
-		248EC33D99FCA2971BFD8F07751E460B /* MotionLogger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MotionLogger.swift; sourceTree = "<group>"; };
-		4BC852A96EB5CD96B5A9C2E9920211F5 /* EyeCaptureApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EyeCaptureApp.swift; sourceTree = "<group>"; };
-		4FF64D193FD6585FF3C65948E7B19BA0 /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		6A331715BD1EE4D66E919258B7351AEC /* SegmentRecorder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SegmentRecorder.swift; sourceTree = "<group>"; };
-		92B2EC52C2B2F5A64FC44E020A071322 /* CaptureCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CaptureCoordinator.swift; sourceTree = "<group>"; };
-		9D75F6A8AA1FCED0A75BF37369744AB0 /* HTTPServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HTTPServer.swift; sourceTree = "<group>"; };
-		B9911AD30A5092F7628022D57B2D4871 /* controller.html */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.html; path = controller.html; sourceTree = "<group>"; };
+		1A2C9BCE23AF868B5CACF35708015018 /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		4C65CF8C9361AF56C0FC9F865C06069D /* EyeCaptureApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EyeCaptureApp.swift; sourceTree = "<group>"; };
+		5797D9D3B93EE0FE6269EDA4B0E82154 /* FrameStreamer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FrameStreamer.swift; sourceTree = "<group>"; };
+		61F6C35CFCAD08027A1B9B8F36D8AABA /* AppModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		8060F7667C763CC46431B97B8C325B0B /* CaptureCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CaptureCoordinator.swift; sourceTree = "<group>"; };
+		98D9ED39D17C4833E9DF371181F32F7C /* SegmentRecorder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SegmentRecorder.swift; sourceTree = "<group>"; };
+		B8891A755F8B3F0839F6FFA2D9560372 /* StreamConfig.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StreamConfig.swift; sourceTree = "<group>"; };
+		C0E185C6D03A91964E6E296A05B167F9 /* DeviceInfo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceInfo.swift; sourceTree = "<group>"; };
+		C3343A24A54644B84F82083AAAC68DE5 /* DepthMap.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DepthMap.swift; sourceTree = "<group>"; };
+		CD57025752CCA7C408722CADC1D8FAD6 /* HTTPServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HTTPServer.swift; sourceTree = "<group>"; };
 		D97015BF63DB551C8A777C65F5B70183 /* EyeCapture.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EyeCapture.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		E2DA51F155856CA88EB14AEC9A647FA8 /* DeviceInfo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceInfo.swift; sourceTree = "<group>"; };
+		DC49B429AA370FE9A4F053EA5528251C /* Base.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
+		DCB65F5F0B130AC8BD422691FB6031D1 /* MotionLogger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MotionLogger.swift; sourceTree = "<group>"; };
+		F01CE5C3B8824AADD6BCACF1A24AE013 /* SessionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
+		F6528C69DCA710FCCCF447D0D2099A1B /* VisionEyeLocator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VisionEyeLocator.swift; sourceTree = "<group>"; };
+		F9D1CA8EC60FD249ACADEAFAFB6D740A /* controller.html */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.html; path = controller.html; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		1D17C227B067C71FC9F34AD34B7087BA /* Frameworks */ = {
+		C718CBD1B45EDC3B407E739B7D835DD0 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -49,7 +58,8 @@
 			children = (
 				2D6B3EA399D39843E253BA2F24837D0F /* Products */,
 				999AC906B0EFAD4FED42617F57BC0342 /* Frameworks */,
-				68F86E7A0D1B78E4D0306E745DB87831 /* EyeCapture */,
+				DC49B429AA370FE9A4F053EA5528251C /* Base.xcconfig */,
+				C84CED29E316BDF5A52049BBAAD0E2D2 /* EyeCapture */,
 			);
 			sourceTree = "<group>";
 		};
@@ -59,24 +69,6 @@
 				D97015BF63DB551C8A777C65F5B70183 /* EyeCapture.app */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		68F86E7A0D1B78E4D0306E745DB87831 /* EyeCapture */ = {
-			isa = PBXGroup;
-			children = (
-				1DE2B93BF4F7742D031CDC564493AD6A /* AppModel.swift */,
-				92B2EC52C2B2F5A64FC44E020A071322 /* CaptureCoordinator.swift */,
-				4FF64D193FD6585FF3C65948E7B19BA0 /* ContentView.swift */,
-				E2DA51F155856CA88EB14AEC9A647FA8 /* DeviceInfo.swift */,
-				4BC852A96EB5CD96B5A9C2E9920211F5 /* EyeCaptureApp.swift */,
-				9D75F6A8AA1FCED0A75BF37369744AB0 /* HTTPServer.swift */,
-				248EC33D99FCA2971BFD8F07751E460B /* MotionLogger.swift */,
-				6A331715BD1EE4D66E919258B7351AEC /* SegmentRecorder.swift */,
-				211164B4FC215375A5DC70FDAA96D6A4 /* SessionStore.swift */,
-				B9911AD30A5092F7628022D57B2D4871 /* controller.html */,
-			);
-			name = EyeCapture;
-			path = EyeCapture;
 			sourceTree = "<group>";
 		};
 		946641CE764DE149B32D09E72E3D72C5 /* iOS */ = {
@@ -94,16 +86,38 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		C84CED29E316BDF5A52049BBAAD0E2D2 /* EyeCapture */ = {
+			isa = PBXGroup;
+			children = (
+				61F6C35CFCAD08027A1B9B8F36D8AABA /* AppModel.swift */,
+				8060F7667C763CC46431B97B8C325B0B /* CaptureCoordinator.swift */,
+				1A2C9BCE23AF868B5CACF35708015018 /* ContentView.swift */,
+				C3343A24A54644B84F82083AAAC68DE5 /* DepthMap.swift */,
+				C0E185C6D03A91964E6E296A05B167F9 /* DeviceInfo.swift */,
+				4C65CF8C9361AF56C0FC9F865C06069D /* EyeCaptureApp.swift */,
+				5797D9D3B93EE0FE6269EDA4B0E82154 /* FrameStreamer.swift */,
+				CD57025752CCA7C408722CADC1D8FAD6 /* HTTPServer.swift */,
+				DCB65F5F0B130AC8BD422691FB6031D1 /* MotionLogger.swift */,
+				98D9ED39D17C4833E9DF371181F32F7C /* SegmentRecorder.swift */,
+				F01CE5C3B8824AADD6BCACF1A24AE013 /* SessionStore.swift */,
+				B8891A755F8B3F0839F6FFA2D9560372 /* StreamConfig.swift */,
+				F6528C69DCA710FCCCF447D0D2099A1B /* VisionEyeLocator.swift */,
+				F9D1CA8EC60FD249ACADEAFAFB6D740A /* controller.html */,
+			);
+			name = EyeCapture;
+			path = EyeCapture;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		74296FCBF83286DF8F386AFF102F2D4C /* EyeCapture */ = {
+		DA69E3C31477179BC8F3A9C3C6D8DFA3 /* EyeCapture */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 826D8EB53A5722166F67BFA90D82CF24 /* Build configuration list for PBXNativeTarget "EyeCapture" */;
+			buildConfigurationList = C7EC728738DF161F54EDFD3E1FDB1A58 /* Build configuration list for PBXNativeTarget "EyeCapture" */;
 			buildPhases = (
-				2C9543D57BEB81F7E60E582960B3F45F /* Sources */,
-				1D17C227B067C71FC9F34AD34B7087BA /* Frameworks */,
-				E42100339A66FD635FE2720E5286B4A1 /* Resources */,
+				F075C15C3E027E99B5692FFD0DC423C9 /* Sources */,
+				C718CBD1B45EDC3B407E739B7D835DD0 /* Frameworks */,
+				48564B24F6971B9D597F904423DC2704 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -138,74 +152,46 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				74296FCBF83286DF8F386AFF102F2D4C /* EyeCapture */,
+				DA69E3C31477179BC8F3A9C3C6D8DFA3 /* EyeCapture */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		E42100339A66FD635FE2720E5286B4A1 /* Resources */ = {
+		48564B24F6971B9D597F904423DC2704 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D12524F224CBA37DBC6292D39984BED8 /* controller.html in Resources */,
+				7FE419AB5CAA8D7F7BE482797CB84B9E /* controller.html in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		2C9543D57BEB81F7E60E582960B3F45F /* Sources */ = {
+		F075C15C3E027E99B5692FFD0DC423C9 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				316FD1C4B9A0B1B92675B47DB2DC7512 /* AppModel.swift in Sources */,
-				672100DD95D3A9C4984AF4E511399BC7 /* CaptureCoordinator.swift in Sources */,
-				74F5F07634AF24AAA9FBEEAF31B8DCD1 /* ContentView.swift in Sources */,
-				2A69722C88D3B103282F620ED24178C4 /* DeviceInfo.swift in Sources */,
-				1827C1A9AD7F7C82607845E4FC8F7FDF /* EyeCaptureApp.swift in Sources */,
-				C87B21FA7F08CD05ABDBD062C22B87BA /* HTTPServer.swift in Sources */,
-				F1EFCCC2D97EFD190E6DB4F7E4C52AA9 /* MotionLogger.swift in Sources */,
-				49508336264427454706B9E33EB67F90 /* SegmentRecorder.swift in Sources */,
-				325BDAC6FB54164B2508DEF5B5AC959D /* SessionStore.swift in Sources */,
+				7D0D460915297279DA903D68635E517C /* AppModel.swift in Sources */,
+				7A1B8523E1EA3D5F4A7EA42E306E7171 /* CaptureCoordinator.swift in Sources */,
+				FCC8D4D365FF8AD88B39D0DE855F4E19 /* ContentView.swift in Sources */,
+				CE9A2A2020D5BE4AB4AD3CD1FFF37662 /* DepthMap.swift in Sources */,
+				A617D398A6132DB78A562F2076C66918 /* DeviceInfo.swift in Sources */,
+				66F8367E47C67955544CA85F5AB5E697 /* EyeCaptureApp.swift in Sources */,
+				78A19BB0CA4718BD752C1C592CD1C207 /* FrameStreamer.swift in Sources */,
+				D091E87EA8769B039662273A06CC1CB9 /* HTTPServer.swift in Sources */,
+				8172A177BB7B6576A786765CF06ADD03 /* MotionLogger.swift in Sources */,
+				11CE41EB6DC228BB490C8AE3335A5C34 /* SegmentRecorder.swift in Sources */,
+				E26740043F2C021FD3843E3D3551E54D /* SessionStore.swift in Sources */,
+				26EFAE19547385D15D09883D9868293E /* StreamConfig.swift in Sources */,
+				E4FB3654C0C60E1C77CCF777DDE8BAA1 /* VisionEyeLocator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		0F92837E951E031EDF2D42FADDE06211 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CLANG_ENABLE_OBJC_WEAK = NO;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
-				ENABLE_PREVIEWS = NO;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Eye Capture";
-				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Records video of your eyes while you look at targets on another screen.";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Lets your computer control the capture and download recordings over Wi-Fi.";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIFileSharingEnabled = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = org.forsee.EyeCapture;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
 		426B09DE9081D2D3B6922E70D5C11378 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -267,13 +253,12 @@
 			};
 			name = Debug;
 		};
-		47AE2BAD2E715A99497BA373247A71F2 /* Release */ = {
+		B8603FC3F5616E91F1CFD56B5D227591 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = DC49B429AA370FE9A4F053EA5528251C /* Base.xcconfig */;
 			buildSettings = {
 				CLANG_ENABLE_OBJC_WEAK = NO;
-				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Eye Capture";
@@ -290,15 +275,13 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = org.forsee.EyeCapture;
+				MARKETING_VERSION = 0.2;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				VALIDATE_PRODUCT = YES;
 			};
-			name = Release;
+			name = Debug;
 		};
 		BF5E06059800E223E653076CF9957C50 /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -354,23 +337,54 @@
 			};
 			name = Release;
 		};
+		EC49A2E742E7951879E5920BB5714B47 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = DC49B429AA370FE9A4F053EA5528251C /* Base.xcconfig */;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Eye Capture";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Records video of your eyes while you look at targets on another screen.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Lets your computer control the capture and download recordings over Wi-Fi.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIFileSharingEnabled = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.2;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		826D8EB53A5722166F67BFA90D82CF24 /* Build configuration list for PBXNativeTarget "EyeCapture" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				47AE2BAD2E715A99497BA373247A71F2 /* Release */,
-				0F92837E951E031EDF2D42FADDE06211 /* Debug */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		C65662E627D0FC44494FFA1AC7B08F42 /* Build configuration list for PBXProject "EyeCapture" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				426B09DE9081D2D3B6922E70D5C11378 /* Debug */,
 				BF5E06059800E223E653076CF9957C50 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C7EC728738DF161F54EDFD3E1FDB1A58 /* Build configuration list for PBXNativeTarget "EyeCapture" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EC49A2E742E7951879E5920BB5714B47 /* Release */,
+				B8603FC3F5616E91F1CFD56B5D227591 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
