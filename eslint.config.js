@@ -50,6 +50,8 @@ export default tseslint.config(
       '**/coverage/**',
       '**/playwright-report/**',
       '**/test-results/**',
+      // Python virtualenvs (the phone-gaze engine's .venv ships third-party JavaScript)
+      '**/.venv/**',
     ],
   },
   js.configs.recommended,
