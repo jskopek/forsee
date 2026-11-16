@@ -137,3 +137,87 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             build
+
+  ios-simulator:
+    name: iOS app in the Simulator talks to the engine (test pattern)
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Xcode and simulators
+        working-directory: tools/eye-capture/ios
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes
+      - name: Build the app for the Simulator
+        working-directory: tools/eye-capture/ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project EyeCapture.xcodeproj \
+            -target EyeCapture \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            SYMROOT="$RUNNER_TEMP/build" \
+            CODE_SIGNING_ALLOWED=NO \
+            build | tail -n 40
+          test -d "$RUNNER_TEMP/build/Debug-iphonesimulator/EyeCapture.app"
+      - name: Boot a Simulator, install and launch the app
+        working-directory: tools/eye-capture/ios
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, re, sys
+          devices = json.load(sys.stdin)["devices"]
+          def version(runtime):
+              return tuple(int(n) for n in re.findall(r"iOS-(\d+)-(\d+)", runtime)[0]) if "iOS" in runtime else (0, 0)
+          best = None
+          for runtime, items in devices.items():
+              for d in items:
+                  if d.get("isAvailable") and d["name"].startswith("iPhone"):
+                      key = (version(runtime), d["name"])
+                      if best is None or key > best[0]:
+                          best = (key, d["udid"], d["name"], runtime)
+          print(best[1]); print(best, file=sys.stderr)
+          ')
+          echo "UDID=$udid" >> "$GITHUB_ENV"
+          xcrun simctl bootstatus "$udid" -b
+          xcrun simctl install "$udid" "$RUNNER_TEMP/build/Debug-iphonesimulator/EyeCapture.app"
+          bundle=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$RUNNER_TEMP/build/Debug-iphonesimulator/EyeCapture.app/Info.plist")
+          echo "BUNDLE=$bundle" >> "$GITHUB_ENV"
+          xcrun simctl privacy "$udid" grant camera "$bundle" || true
+          xcrun simctl launch "$udid" "$bundle"
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8080/api/status -o "$RUNNER_TEMP/status.json"; then break; fi
+            sleep 1
+          done
+          python3 -m json.tool "$RUNNER_TEMP/status.json" | head -n 80
+      - name: Install the engine
+        working-directory: sidecars/phone-gaze
+        run: ./run.sh --install-only
+      - name: The engine's phone client against the app
+        working-directory: sidecars/phone-gaze/engine
+        env:
+          PHONEGAZE_APP_URL: http://127.0.0.1:8080
+        run: .venv/bin/python -m pytest -v -rs tests/realapp_phone_app.py
+      - name: Diagnostics
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/sim"
+          curl -fsS http://127.0.0.1:8080/api/status -o "$RUNNER_TEMP/sim/status.json" || echo "the app does not answer"
+          xcrun simctl io "$UDID" screenshot "$RUNNER_TEMP/sim/screen.png" || true
+          xcrun simctl spawn "$UDID" log show --last 15m --style compact \
+            --predicate 'process == "EyeCapture"' > "$RUNNER_TEMP/sim/app.log" 2>&1 || true
+          tail -n 80 "$RUNNER_TEMP/sim/app.log" || true
+          ls ~/Library/Logs/DiagnosticReports 2>/dev/null | grep -i eyecapture && \
+            cp ~/Library/Logs/DiagnosticReports/*EyeCapture* "$RUNNER_TEMP/sim/" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-simulator-diagnostics
+          path: ${{ runner.temp }}/sim
+          if-no-files-found: ignore

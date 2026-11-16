@@ -33,7 +33,7 @@ struct HTTPResponse {
         case file(URL)
         /// A long-lived response with no length: the headers are sent, then
         /// the handler gets a writer that sends messages until either side
-        /// closes. Called on the server queue; it must not block.
+        /// closes. Called on the route queue, like the request handler.
         case stream((StreamWriter) -> Void)
     }
 
@@ -65,13 +65,24 @@ struct HTTPResponse {
 /// A very small HTTP/1.1 server on top of Network.framework. It supports
 /// keep-alive, request bodies with Content-Length, and streamed file responses.
 /// That is all the controller page and the download script need.
+///
+/// Threading: all socket work happens on the network queue. Requests are handed
+/// to the handler on a separate serial route queue, so a slow route (`/api/configure`
+/// blocks until the camera runs) never stalls the network queue, where the live
+/// stream's writes complete and other connections are read. `respond` may be
+/// called from any queue.
 final class HTTPServer {
     typealias Handler = (HTTPRequest, @escaping (HTTPResponse) -> Void) -> Void
 
     private let listener: NWListener
     private let queue = DispatchQueue(label: "eyecapture.http")
+    private let routeQueue = DispatchQueue(label: "eyecapture.http.routes", qos: .userInitiated)
     private let handler: Handler
+    // Network queue only.
     private var connections: [ObjectIdentifier: HTTPConnection] = [:]
+    // Guarded by `stateLock`: read from the main thread, written on the network queue.
+    private let stateLock = NSLock()
+    private var listening = false
 
     /// Called on the server queue if the listener fails (for example, port in use, or
     /// iOS reclaimed the socket while the app was suspended).
@@ -79,10 +90,17 @@ final class HTTPServer {
     /// Called on the server queue when the listener is accepting connections.
     var onReady: (() -> Void)?
 
-    /// Whether the listener is accepting connections.
+    /// Whether the listener is accepting connections. Safe from any thread.
     var isListening: Bool {
-        if case .ready = listener.state { return true }
-        return false
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return listening
+    }
+
+    private func setListening(_ value: Bool) {
+        stateLock.lock()
+        listening = value
+        stateLock.unlock()
     }
 
     init(port: UInt16, handler: @escaping Handler) throws {
@@ -102,9 +120,13 @@ final class HTTPServer {
         listener.stateUpdateHandler = { [weak self] state in
             switch state {
             case .failed(let error):
+                self?.setListening(false)
                 self?.onFailure?("\(error)")
             case .ready:
+                self?.setListening(true)
                 self?.onReady?()
+            case .cancelled:
+                self?.setListening(false)
             default:
                 break
             }
@@ -114,6 +136,7 @@ final class HTTPServer {
             let connection = HTTPConnection(
                 connection: nwConnection,
                 queue: self.queue,
+                routeQueue: self.routeQueue,
                 handler: self.handler,
                 onClose: { [weak self] id in self?.connections[id] = nil }
             )
@@ -123,10 +146,15 @@ final class HTTPServer {
         listener.start(queue: queue)
     }
 
-    /// Stops accepting connections. Open connections finish on their own.
+    /// Stops accepting connections. Open connections finish on their own. Safe from
+    /// any thread: the listener's handlers are only touched on the network queue.
     func stop() {
-        listener.stateUpdateHandler = nil
-        listener.cancel()
+        setListening(false)
+        queue.async { [listener] in
+            listener.stateUpdateHandler = nil
+            listener.newConnectionHandler = nil
+            listener.cancel()
+        }
     }
 }
 
@@ -134,6 +162,7 @@ final class HTTPServer {
 private final class HTTPConnection {
     private let connection: NWConnection
     private let queue: DispatchQueue
+    private let routeQueue: DispatchQueue
     private let handler: HTTPServer.Handler
     private let onClose: (ObjectIdentifier) -> Void
 
@@ -151,11 +180,13 @@ private final class HTTPConnection {
     init(
         connection: NWConnection,
         queue: DispatchQueue,
+        routeQueue: DispatchQueue,
         handler: @escaping HTTPServer.Handler,
         onClose: @escaping (ObjectIdentifier) -> Void
     ) {
         self.connection = connection
         self.queue = queue
+        self.routeQueue = routeQueue
         self.handler = handler
         self.onClose = onClose
     }
@@ -258,9 +289,12 @@ private final class HTTPConnection {
 
         isHandlingRequest = true
         let request = HTTPRequest(method: method, path: path, query: query, body: body)
-        handler(request) { [weak self] response in
-            guard let self = self else { return }
-            self.queue.async { self.send(response) }
+        let handler = self.handler
+        let queue = self.queue
+        routeQueue.async {
+            handler(request) { [weak self] response in
+                queue.async { self?.send(response) }
+            }
         }
     }
 
@@ -333,7 +367,7 @@ private final class HTTPConnection {
                 return
             }
             guard !self.isClosed else { return }
-            opener(writer)
+            self.routeQueue.async { opener(writer) }
         })
     }
 
@@ -412,6 +446,7 @@ final class StreamWriter {
     private var writing = false
     private var pending: [Data] = []
     private var closed = false
+    private var reason = ""
     private var closeHandlers: [() -> Void] = []
 
     fileprivate init(connection: NWConnection) {
@@ -429,6 +464,14 @@ final class StreamWriter {
         lock.lock()
         defer { lock.unlock() }
         return !closed
+    }
+
+    /// Why the stream ended, when this side ended it ("" while open or when the client
+    /// closed it).
+    var closeReason: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return reason
     }
 
     /// Runs once when the stream ends, whichever side ends it. Runs at once if
@@ -469,7 +512,7 @@ final class StreamWriter {
         if writing {
             if pending.count >= Self.maxPending {
                 lock.unlock()
-                close()
+                close(reason: "the client stopped reading (\(Self.maxPending) status messages waiting)")
                 return
             }
             pending.append(data)
@@ -481,8 +524,11 @@ final class StreamWriter {
         write(data)
     }
 
-    /// Ends the stream and closes the connection.
-    func close() {
+    /// Ends the stream and closes the connection. `reason` is kept for diagnostics.
+    func close(reason: String = "") {
+        lock.lock()
+        if !closed, self.reason.isEmpty { self.reason = reason }
+        lock.unlock()
         finish()
         connection.cancel()
     }
@@ -510,8 +556,8 @@ final class StreamWriter {
     private func write(_ data: Data) {
         connection.send(content: data, completion: .contentProcessed { [weak self] error in
             guard let self = self else { return }
-            if error != nil {
-                self.close()
+            if let error = error {
+                self.close(reason: "sending failed: \(error)")
                 return
             }
             self.lock.lock()

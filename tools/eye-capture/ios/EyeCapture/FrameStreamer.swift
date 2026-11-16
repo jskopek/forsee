@@ -21,6 +21,8 @@ struct StreamFrameInput {
     /// ARKit's eye centres in sensor pixels, for `roiSource` = `"arkit"`.
     let eyePixels: (left: CGPoint, right: CGPoint)?
     let depth: DepthSample?
+    /// More header fields (the test pattern's `testPattern` block).
+    var extra: [String: Any]? = nil
 }
 
 /// The live stream (`GET /stream`): one client at a time, PGZ1 framing, and
@@ -72,6 +74,11 @@ final class FrameStreamer {
     private var sentFps = 0.0
     private var sentMbps = 0.0
     private var lastError = ""
+    private var lastErrorAt = -Double.infinity
+    /// Exponential average and maximum (last second) of the time to build one message.
+    private var encodeMs = 0.0
+    private var encodeMsMax = 0.0
+    private var windowEncodeMax = 0.0
 
     // Encode queue only.
     private let vision = VisionEyeLocator()
@@ -133,14 +140,18 @@ final class FrameStreamer {
         lastAcceptedT = -Double.infinity
         acceptedCount = 0
         lock.unlock()
-        previous?.close()
+        previous?.close(reason: "replaced by a new client")
 
         let id = ObjectIdentifier(writer)
-        writer.onClose { [weak self] in
+        writer.onClose { [weak self, weak writer] in
             guard let self = self else { return }
+            let reason = writer?.closeReason ?? ""
             self.lock.lock()
             if let current = self.writer, ObjectIdentifier(current) == id {
                 self.writer = nil
+            }
+            if !reason.isEmpty {
+                self.noteError("Stream client dropped: \(reason)")
             }
             self.lock.unlock()
         }
@@ -165,21 +176,42 @@ final class FrameStreamer {
             "mbps": sentMbps,
             "lastFrameBytes": lastFrameBytes,
             "connections": clientsTotal,
+            "encodeMs": encodeMs,
+            "encodeMsMax": encodeMsMax,
         ]
         if !lastError.isEmpty { json["lastError"] = lastError }
         return json
     }
 
-    /// One line for the phone's own screen.
+    /// Diagnostics for the phone's own screen: clients, frames sent, dropped and skipped,
+    /// encode time and the last error.
     func summaryLine() -> String {
         lock.lock()
         defer { lock.unlock() }
-        guard writer != nil else {
-            return sentTotal == 0 ? "Stream: no client" : "Stream: no client (\(sentTotal) frames sent before)"
+        var lines: [String] = []
+        if writer != nil {
+            lines.append(String(
+                format: "Stream: 1 client (%d connections so far), %.0f fps, %.1f Mbit/s",
+                clientsTotal, sentFps, sentMbps
+            ))
+        } else {
+            lines.append("Stream: no client (\(clientsTotal) connections so far)")
         }
-        return String(
-            format: "Stream: 1 client, %.0f fps, %.1f Mbit/s, %d dropped", sentFps, sentMbps, droppedTotal
-        )
+        lines.append(String(
+            format: "Frames: %d sent, %d dropped, %d skipped; encode %.1f ms (max %.1f)",
+            sentTotal, droppedTotal, skippedTotal, encodeMs, encodeMsMax
+        ))
+        if !lastError.isEmpty {
+            let age = CACurrentMediaTime() - lastErrorAt
+            lines.append(String(format: "Last stream error (%.0f s ago): ", age) + lastError)
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Lock held.
+    private func noteError(_ message: String) {
+        lastError = message
+        lastErrorAt = CACurrentMediaTime()
     }
 
     // MARK: - Frames (frame queue)
@@ -231,7 +263,9 @@ final class FrameStreamer {
     func submit(_ ticket: Ticket, input: StreamFrameInput) {
         encodeQueue.async { [weak self] in
             guard let self = self else { return }
+            let started = CACurrentMediaTime()
             let message = self.encode(ticket, input: input)
+            let elapsedMs = (CACurrentMediaTime() - started) * 1000
             var accepted = false
             if let message = message {
                 accepted = ticket.writer.sendDroppable(message)
@@ -239,23 +273,28 @@ final class FrameStreamer {
             let now = CACurrentMediaTime()
             self.lock.lock()
             self.encoding = false
+            self.encodeMs = self.encodeMs == 0 ? elapsedMs : self.encodeMs * 0.9 + elapsedMs * 0.1
+            self.windowEncodeMax = max(self.windowEncodeMax, elapsedMs)
             if accepted, let message = message {
                 self.sentTotal += 1
                 self.bytesTotal += message.count
                 self.lastFrameBytes = message.count
                 self.windowSent += 1
                 self.windowBytes += message.count
-                self.droppedSinceSent = 0
+                // Frames dropped while this one was being encoded go in the next header.
+                self.droppedSinceSent -= ticket.dropped
             } else {
                 self.droppedSinceSent += 1
                 self.droppedTotal += 1
-                if message == nil { self.lastError = "A frame could not be encoded" }
+                if message == nil { self.noteError("A frame could not be encoded") }
             }
             if now - self.windowStart >= 1 {
                 let span = now - self.windowStart
                 self.sentFps = Double(self.windowSent) / span
                 self.sentMbps = Double(self.windowBytes) * 8 / span / 1_000_000
                 self.windowStart = now
+                self.encodeMsMax = self.windowEncodeMax
+                self.windowEncodeMax = 0
                 self.windowSent = 0
                 self.windowBytes = 0
             }
@@ -358,6 +397,9 @@ final class FrameStreamer {
         if let rotation = input.rotationRate { header["rotationRate"] = rotation }
         if let arkit = input.arkit, config.arkit { header["arkit"] = arkit }
         if let cap = ticket.thermalCapFps { header["thermalCapFps"] = cap }
+        for (key, value) in input.extra ?? [:] where header[key] == nil {
+            header[key] = value
+        }
 
         if config.depth, let depth = input.depth, let map = DepthMap.metres(depth.data) {
             var block: [String: Any] = [
