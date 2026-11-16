@@ -94,6 +94,13 @@ export interface ForseeRuntimeOptions {
   readonly audioPlayer?: AudioPlayer | null;
   /** Pointer input. Default: the real `window` and `document`. */
   readonly pointerEnvironment?: PointerEnvironment;
+  /**
+   * Opt-in: drive gaze from the Phone Gaze engine (`sidecars/phone-gaze`) at
+   * this loopback WebSocket URL instead of the pointer, and send every
+   * selection back to it for drift correction. Default: none (pointer).
+   * `main.tsx` sets it from `?gaze=phone` (see `phoneGazeUrlFromSearch`).
+   */
+  readonly phoneGazeUrl?: string | null;
   /** Page lifecycle. Default: the real `window` and `document`; `null` disables flush on hide. */
   readonly lifecycle?: LifecycleEnvironment | null;
   /** Asks for plugin consent. Default: refuses (no consent UI yet; first-party plugins need none). */

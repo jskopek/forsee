@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { phoneGazeUrlFromSearch } from '@forsee/gaze-web';
 import { App } from './App';
 import { createForseeRuntime, type ForseeRuntime } from './runtime';
 import './index.css';
@@ -16,7 +17,11 @@ if (!container) throw new Error('Missing #root element');
 
 // One runtime per page load, booted outside React so that Strict Mode's
 // double mount never starts two of them on the same storage.
-const boot = createForseeRuntime({ appVersion: __FORSEE_VERSION__ });
+// `?gaze=phone` opts in to the Phone Gaze engine (sidecars/phone-gaze) as the gaze source.
+const boot = createForseeRuntime({
+  appVersion: __FORSEE_VERSION__,
+  phoneGazeUrl: phoneGazeUrlFromSearch(window.location.search),
+});
 if (import.meta.env.DEV) {
   void boot.then((runtime) => {
     window.forsee = runtime;
