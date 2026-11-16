@@ -132,6 +132,25 @@ as `{"error": "text"}` with 4xx/5xx. All coordinates in screen points.
 | `GET /api/drift`               |                                                                                                                                       | Drift correction state (also `state.drift`): `enabled`, `applied`, `offset_pt`, `offset_deg`, `session` and `recent` (`n`, `corrected` and `uncorrected` `{median_deg, mean_deg}`), `rejected`, `undone`, `resets`, `last_reset_reason`.                                              |
 | `POST /api/drift/reset`        | `{"offset"?: true, "stats"?: false}`                                                                                                  | Forgets the learned offset and/or clears the numbers. Answer as `GET /api/drift`.                                                                                                                                                                                                     |
 
+Routes added for diagnostics, the lab and tuning (each registered by its own module from
+`create_app`; the module's docstring has the bodies):
+
+| Route                                                                                                                              | Module           | What                                                                                                 |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------- |
+| `POST /api/calibration/check`                                                                                                      | `server.py`      | `{"run_id"}` → `{"run_id", "retry": [{dot_id, x, y, pose_group, reason}]}`: the quality gate's dots. |
+| `GET /api/diagnostics/health`, `POST …/doctor`, `POST …/bundle`, `POST …/reveal`, `GET …/log`                                      | `diagnostics.py` | Health strip, the doctor checklist, diagnostics bundle, show it in Finder, log tail.                 |
+| `GET /api/lab/sessions`, `GET …/reports`, `GET …/report/{id}`, `GET …/presets`, `POST …/presets/apply`, `POST …/run`, `GET …/jobs` | `lab.py`         | The Lab page: sessions, reports, presets made by `tune`, background lab runs.                        |
+| `GET /api/tuning/eye.jpg`, `GET …/stats`, `POST …/freeze`, `POST …/focus`                                                          | `tuning.py`      | The Tuning page: eye crops with overlays, live numbers, freeze frame, focus on an eye.               |
+| `GET /api/presets`, `POST …/apply`, `POST …/save`, `POST …/delete`, `GET …/export`, `POST …/import`                                | `tuning.py`      | Engine-side presets (`presets.py`, saved in `presets.json` next to the config).                      |
+
+`POST /api/calibration/start` also takes `"targets": [{x, y}]` for `validate` and `refine` (the
+touch-up flow). Optional additions to the plan of a grid run: `"sweep": {"targets", "seconds",
+"prompts"}` (head-sweep dots, `calibration.head_sweep`) and `"quality_gate": bool`. Optional
+additions to the finish answer: `calibration_info` and `run_dots` (grid and pursuit),
+`error_map` (`{model: {kept, reason, …}}`) and `touchup` (worst validation dots as targets) after
+a validation. The UI WebSocket also sends `{"type": "health", "items": [...]}` once a second
+(`diagnostics.health_broadcast`).
+
 Calibration plan:
 
 ```json

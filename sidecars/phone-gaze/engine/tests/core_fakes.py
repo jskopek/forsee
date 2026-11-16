@@ -57,6 +57,7 @@ class FakePhone:
         self.url = ""
         self.sim_gaze: list[tuple[float, float]] = []
         self.arkit_tracked = True
+        self.lens: dict[str, Any] = {}  # what POST /api/lens set
 
     def now(self) -> float:
         return time.monotonic() - self.offset
@@ -108,6 +109,13 @@ class FakePhone:
             await body(request)
             return web.json_response(self.status())
 
+        async def lens(request: web.Request) -> web.Response:
+            data = await body(request)
+            if self.mode != "camera":
+                return web.json_response({"error": "not in camera mode"}, status=409)
+            self.lens.update(data)
+            return web.json_response(self.status())
+
         async def stream_config(request: web.Request) -> web.Response:
             data = await body(request)
             for k, v in data.items():
@@ -153,6 +161,7 @@ class FakePhone:
         app.router.add_post("/api/configure", configure)
         app.router.add_post("/api/zoom", zoom)
         app.router.add_post("/api/focus", focus)
+        app.router.add_post("/api/lens", lens)
         app.router.add_post("/api/stream/config", stream_config)
         app.router.add_post("/sim/gaze", sim_gaze)
         app.router.add_get("/stream", stream)

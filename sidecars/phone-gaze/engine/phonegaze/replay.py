@@ -9,6 +9,10 @@ Two kinds of recording:
   ``events.jsonl``. :func:`iter_eye_capture` turns them into ``Frame`` objects and
   :func:`score_eye_capture` reports leave-one-dot-out accuracy per camera and model.
 
+For eye-capture sessions prefer the offline lab (``python -m phonegaze lab SESSION``,
+``phonegaze/lab.py``): frame and observation caches, every estimator combination, the moving
+dot, failure counts and an HTML report; ``tune`` and ``ab`` sweep and compare settings.
+
 Command line::
 
     python -m phonegaze.replay score RECORDING_DIR [--estimators a,b] [--models a,b] [--drift-rate 0.5]
@@ -416,6 +420,8 @@ def _iter_video(path: Path) -> Iterator[np.ndarray]:
     import cv2
 
     cap = cv2.VideoCapture(str(path))
+    if hasattr(cv2, "CAP_PROP_ORIENTATION_AUTO"):
+        cap.set(cv2.CAP_PROP_ORIENTATION_AUTO, 0)  # sensor orientation, as the intrinsics describe
     got = False
     try:
         while cap.isOpened():
@@ -435,7 +441,11 @@ def _iter_video(path: Path) -> Iterator[np.ndarray]:
         capture_output=True, text=True, check=True,
     ).stdout.strip().split(",")
     w, h = int(probe[0]), int(probe[1])
-    proc = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(path), "-f", "rawvideo", "-pix_fmt", "bgr24", "-"], stdout=subprocess.PIPE)
+    # -fps_mode passthrough: never duplicate or drop frames of a variable-rate video, so frame N
+    # stays row N of frames.csv; -noautorotate: keep the sensor orientation.
+    from .lab import ffmpeg_passthrough
+
+    proc = subprocess.Popen(["ffmpeg", "-v", "error", "-noautorotate", "-i", str(path), "-map", "0:v:0", *ffmpeg_passthrough(), "-f", "rawvideo", "-pix_fmt", "bgr24", "-"], stdout=subprocess.PIPE)
     assert proc.stdout is not None
     try:
         size = w * h * 3

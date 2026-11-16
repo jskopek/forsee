@@ -14,6 +14,12 @@ Arguments::
     --no-hotkeys          do not listen for global shortcuts
     --log-level LEVEL
 
+    python -m phonegaze doctor [--phone URL | --sim]   checklist with a fix for each problem
+    python -m phonegaze bundle [--images]               diagnostics folder (see phonegaze/doctor.py)
+    python -m phonegaze lab SESSION                     score a recorded session offline (phonegaze/lab.py)
+    python -m phonegaze tune SESSION --group NAME       sweep settings, held out (phonegaze/tune.py)
+    python -m phonegaze ab SESSION --a X --b Y          compare two presets on the same data
+
 Starts the aiohttp server from ``phonegaze.server`` and runs until Ctrl-C.
 """
 
@@ -68,6 +74,9 @@ async def run(args: argparse.Namespace) -> int:
         config.server.port = args.port
     if args.host:
         config.server.host = args.host
+    from .diagnostics import log_dir, setup_file_logging
+
+    setup_file_logging(config, log_dir(config_path))  # ~/.phonegaze/logs (diagnostics.log_file)
     phone_url = args.phone or config.phone.url
 
     # The simulator and replays keep their own calibrations, so they never replace the real one.
@@ -119,6 +128,16 @@ async def run(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     """Parse arguments, build the Engine, serve until interrupted. Returns the exit code."""
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] in ("doctor", "bundle"):
+        from .doctor import main as doctor_main
+
+        return doctor_main(argv)
+    if argv and argv[0] in ("lab", "tune", "ab"):  # the offline lab (phonegaze/lab.py, tune.py)
+        from .lab import main as lab_main
+        from .tune import ab_main, tune_main
+
+        return {"lab": lab_main, "tune": tune_main, "ab": ab_main}[argv[0]](argv[1:])
     args = parse_args(argv)
     logging.basicConfig(level=getattr(logging, str(args.log_level).upper(), logging.INFO), format="%(asctime)s %(levelname)s %(name)s: %(message)s", datefmt="%H:%M:%S")
     logging.getLogger("aiohttp.access").setLevel(logging.WARNING)

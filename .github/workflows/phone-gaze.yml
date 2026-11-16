@@ -51,6 +51,11 @@ jobs:
           NODE_PATH: ${{ runner.temp }}/pw/node_modules
           PG_PYTHON: python
         run: node tests/ui/ui_e2e.cjs
+      - name: Tuning page, presets and fallback pointer end-to-end against the simulator
+        env:
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+          PG_PYTHON: python
+        run: node tests/ui/tuning_e2e.cjs
       - name: Accuracy end-to-end against the simulator (ARKit and camera modes)
         env:
           NODE_PATH: ${{ runner.temp }}/pw/node_modules

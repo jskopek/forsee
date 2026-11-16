@@ -32,6 +32,7 @@ from . import calibration as calib
 from . import filters as filters_mod
 from . import lens as lens_mod
 from .config import Config, save_config, update
+from .fallback import FallbackPointer
 from .models.drift import DriftCorrector, DriftSettings, points_per_degree
 from .phone import PhoneClient, PhoneError, run_with_reconnect
 from .protocol import Message
@@ -216,6 +217,7 @@ class Engine:
 
         # Frame loop
         self._latest: Frame | None = None
+        self._last_received_at = 0.0
         self._frame_event: asyncio.Event | None = None
         self._loop_task: asyncio.Task | None = None
         self._ticker_task: asyncio.Task | None = None
@@ -239,6 +241,13 @@ class Engine:
         self.aim: dict[str, Any] = {"phase": "idle", "results": []}
         self._aim_task: asyncio.Task | None = None
         self._aim_samples: list[tuple[dict[str, Any], bool | None]] | None = None
+        self.fallback = FallbackPointer()
+        """``outputs.fallback_pointer``: a pointer without calibration (``fallback.py``)."""
+        self._lens_ctl_task: asyncio.Task | None = None
+        self._focus_task: asyncio.Task | None = None
+        self._focus_eye_at = 0.0
+        self.lens_controls: dict[str, Any] = {"sent": {}, "error": ""}
+        """What was last sent to the phone with ``POST /api/lens``, and its error if refused."""
 
         # Models and calibration
         self.models: dict[str, GazeModel] = {}
@@ -251,6 +260,8 @@ class Engine:
         self.validation: dict[str, Any] = {}
         self.active_run: calib.CalibrationRun | None = None
         self._run_counter = 0
+        self._pursuit_samples: list[Any] = []  # last moving-dot run, merged into the next grid fit
+        self._validation_pool: list[Any] = []  # validation samples since the last full calibration
         self._pursuit_dot: int | None = None
         self._recent_obs: deque = deque(maxlen=90)
         self.drift = DriftCorrector(DriftSettings(rate_deg_per_min=config.calibration.drift_rate))
@@ -320,8 +331,22 @@ class Engine:
             self.hotkeys.stop()
             self.hotkeys = None
         if self._executor is not None:
-            self._executor.shutdown(wait=False, cancel_futures=True)
-            self._executor = None
+            executor, self._executor = self._executor, None
+            executor.shutdown(wait=False, cancel_futures=True)
+            # Close MediaPipe's landmarker once the frame worker has left it: left to the garbage
+            # collector at exit it can deadlock on macOS, and closing it mid-frame crashes.
+            try:
+                await asyncio.wait_for(asyncio.to_thread(executor.shutdown, True), timeout=10.0)
+            except (asyncio.TimeoutError, Exception):  # noqa: BLE001
+                return
+            for est in list(self.estimators or []):
+                lm = getattr(est, "_landmarker", None)
+                if lm is not None:
+                    try:
+                        lm.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    est._landmarker = None
 
     # ------------------------------------------------------------------------------------------
     # Building parts from other areas (each degrades instead of failing)
@@ -605,6 +630,7 @@ class Engine:
             "roiQuality": s.roi_quality,
             "roiSource": s.roi_source,
             "arkit": True,
+            "depth": bool(getattr(s, "depth", False)),
         }
         if s.roi_source != "mac":
             body["rois"] = []
@@ -633,6 +659,7 @@ class Engine:
                     self.phone_status = await self.phone.configure(cam["id"], lens.max_width, lens.fps, zoom)
                 except PhoneError as exc:
                     self.log("warning", f"Could not start camera {cam.get('name') or cam['id']}: {exc}")
+        await self.send_lens_controls(only_non_default=True)
         if self.config.lens.aim_on_start and self._aim_task is None:
             self._aim_task = asyncio.create_task(self._aim_later())
 
@@ -649,6 +676,11 @@ class Engine:
             for c in cams:
                 if c.get("id") == self.config.lens.camera_id:
                     return c
+        prefer = getattr(self.config.lens, "camera_prefer", "auto")
+        if prefer != "auto":
+            cam = lens_mod.camera_for_preference(cams, prefer)
+            if cam is not None:
+                return cam
         if self.simulated:
             want = self.config.sim.camera
             for c in cams:
@@ -694,6 +726,7 @@ class Engine:
             self.dropped += 1
         if frame.t_received is None:
             frame.t_received = time.monotonic()
+        self._last_received_at = frame.t_received  # the watchdog counts frames received, not processed
         self._latest = frame
         if self._frame_event is not None:
             self._frame_event.set()
@@ -799,6 +832,11 @@ class Engine:
             self._aim_samples.append((dict(self.quality), frame.lens.adjusting_focus))
 
         raw = None if hold else self._predict(obs)
+        fb_mode = getattr(self.config.outputs, "fallback_pointer", "off")
+        if not hold and (fb_mode == "always" or (fb_mode == "uncalibrated" and self.active_model() is None)):
+            raw = self.fallback.update(obs, self.screen, now, self.config.outputs, self.config.filters.points_per_degree)
+            if raw is not None:
+                raw.t_local = now
         if raw is not None and raw.valid:
             self.drift.add_prediction(self._gaze_time(raw), raw.x, raw.y)
             if self.drift_applied(now):
@@ -922,6 +960,9 @@ class Engine:
         self.hints = lens_mod.aim_hints(obs, self.quality, decoded.width, decoded.height, adjusting_focus=frame.lens.adjusting_focus) if self.quality else self.hints
         if self.phone is None:
             return
+        self.roi_placer.smoothing = float(getattr(self.config.stream, "roi_smoothing", self.roi_placer.smoothing))
+        self.roi_placer.move_fraction = float(getattr(self.config.stream, "roi_move_fraction", self.roi_placer.move_fraction))
+        self._focus_on_eye(decoded, obs, now)
         if self.config.stream.roi_source == "mac" and (self._roi_task is None or self._roi_task.done()):
             plan = self.roi_placer.plan(decoded, obs)
             if plan is not None and self.roi_placer.should_send(plan):
@@ -935,6 +976,10 @@ class Engine:
         ):
             self.zoom_ctl.target = self.config.lens.zoom
             self.zoom_ctl.edge_margin = self.config.lens.edge_margin
+            lc = self.config.lens
+            self.zoom_ctl.stable_s = float(getattr(lc, "zoom_stable_s", self.zoom_ctl.stable_s))
+            self.zoom_ctl.cooldown_s = float(getattr(lc, "zoom_cooldown_s", self.zoom_ctl.cooldown_s))
+            self.zoom_ctl.lost_s = float(getattr(lc, "zoom_lost_s", self.zoom_ctl.lost_s))
             new_zoom = self.zoom_ctl.decide(obs, decoded.width, decoded.height, frame.camera.zoom, now)
             if new_zoom is not None and abs(new_zoom - frame.camera.zoom) > 1e-3:
                 self.zoom_ctl.note_switch(now)
@@ -987,7 +1032,52 @@ class Engine:
         if self.recorder is not None:
             self.recorder.write_event({"type": "camera", "camera_id": camera_id, "zoom": lens.zoom})
 
+    def _focus_on_eye(self, decoded: DecodedFrame, obs: Observation, now: float) -> None:
+        """``lens.focus_on_eye``: every ``focus_on_eye_s``, focus (and meter) on the left eye."""
+        lc = self.config.lens
+        if not getattr(lc, "focus_on_eye", False) or self.phone is None or getattr(lc, "focus_locked", "default") == "locked":
+            return
+        if decoded.frame.mode != "camera" or now - self._focus_eye_at < float(getattr(lc, "focus_on_eye_s", 5.0)):
+            return
+        if self._focus_task is not None and not self._focus_task.done():
+            return
+        eye = obs.left if obs.left.iris_center is not None else obs.right
+        if eye.iris_center is None or not decoded.width or not decoded.height:
+            return
+        self._focus_eye_at = now
+        x, y = eye.iris_center[0] / decoded.width, eye.iris_center[1] / decoded.height
+
+        async def go() -> None:
+            try:
+                await self.focus(x, y)
+            except PhoneError as exc:
+                if _log_allowed("focus-eye", 60):
+                    log.warning("focus on the eye failed: %s", exc)
+
+        self._focus_task = asyncio.ensure_future(go())
+
+    async def send_lens_controls(self, paths: list[str] | None = None, only_non_default: bool = False) -> None:
+        """Send ``lens.exposure_bias`` and the other camera controls with ``POST /api/lens``."""
+        if self.phone is None:
+            return
+        body = lens_mod.lens_controls_body(self.config.lens, paths, only_non_default=only_non_default)
+        if not body:
+            return
+        try:
+            self.phone_status = await self.phone.request("POST", "/api/lens", body)
+            self.lens_controls = {"sent": body, "error": ""}
+        except PhoneError as exc:
+            self.lens_controls = {"sent": body, "error": str(exc)}
+            if _log_allowed("lens-controls", 30):
+                self.log("warning", f"The phone did not take the camera controls ({', '.join(body)}): {exc}. ARKit mode and an idle camera refuse them.")
+
     def _camera_changed(self) -> None:
+        if self._loop is not None and self.phone is not None and (self._lens_ctl_task is None or self._lens_ctl_task.done()):
+            try:
+                self._lens_ctl_task = self._loop.create_task(self.send_lens_controls(only_non_default=True))
+            except RuntimeError:
+                pass
+        self.fallback.reset()
         self._drift_reset("camera changed")
         self.upright.reset()
         self.roi_placer.reset()
@@ -1106,9 +1196,10 @@ class Engine:
     # Calibration
     # ------------------------------------------------------------------------------------------
 
-    def start_calibration(self, kind: str, pose_rounds: int | None = None) -> dict[str, Any]:
+    def start_calibration(self, kind: str, pose_rounds: int | None = None, targets: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """Start a run. ``pose_rounds`` (grid only) overrides ``calibration.pose_rounds`` for this
-        run, so the UI's choice applies even if its config change has not landed yet."""
+        run, so the UI's choice applies even if its config change has not landed yet. ``targets``
+        (validate / refine only: the touch-up flow) replaces the configured dots."""
         if kind not in ("grid", "pursuit", "refine", "validate"):
             raise ValueError(f"unknown calibration kind {kind!r}")
         if kind in ("refine", "validate") and not self.models:
@@ -1118,11 +1209,18 @@ class Engine:
         self._run_counter += 1
         run_id = f"r{self._run_counter}"
         c = self.config.calibration
-        try:
-            targets = calib.config_targets(c, self.screen, kind)
-        except NotImplementedError:
-            targets = _fallback_targets(self.screen, kind, c.refine_points, c.validate_points, c.grid, c.margin)
-        self.active_run = calib.CalibrationRun(run_id=run_id, kind=kind, targets=list(targets), screen=self.screen)
+        if targets and kind in ("validate", "refine"):
+            targets = [calib.Target(i, float(t["x"]), float(t["y"])) for i, t in enumerate(targets)]
+        else:
+            try:
+                targets = calib.config_targets(c, self.screen, kind)
+            except NotImplementedError:
+                targets = _fallback_targets(self.screen, kind, c.refine_points, c.validate_points, c.grid, c.margin)
+        make_run = getattr(calib, "make_run", None)
+        if make_run is not None:
+            self.active_run = make_run(c, run_id, kind, list(targets), self.screen)
+        else:
+            self.active_run = calib.CalibrationRun(run_id=run_id, kind=kind, targets=list(targets), screen=self.screen)
         self._pursuit_dot = None
         self._sim_pose_group = None
         self._sim_head_base = None
@@ -1136,6 +1234,8 @@ class Engine:
             "pose_rounds": max(1, min(10, int(pose_rounds if pose_rounds is not None else c.pose_rounds))) if kind == "grid" else 1,
             "screen": {"width": self.screen.width, "height": self.screen.height, "source": self.screen.source},
         }
+        if hasattr(calib, "plan_extras"):
+            plan.update(calib.plan_extras(c, kind, self.screen))
         if self.recorder is not None:
             self.recorder.write_event({"type": "calib.start", **plan})
         return plan
@@ -1162,6 +1262,8 @@ class Engine:
                 self._sim_pose(pg)
         if self.simulated and state in ("show", "collect"):
             self._sim_look(x, y)
+        if self.simulated and state == "collect" and dot_id in getattr(run, "sweep_ids", ()):
+            self._sim_head_sweep()
         if state == "collect":
             if run.kind == "pursuit":
                 if self._pursuit_dot is not None and self._pursuit_dot != dot_id:
@@ -1213,6 +1315,24 @@ class Engine:
 
         asyncio.ensure_future(go())
 
+    def _sim_head_sweep(self) -> None:
+        """Simulator only: turn and move the simulated head during a head-sweep dot
+        (``calibration.sim_head_sweep``), as the UI asks a person to."""
+        phone = self.phone
+        if phone is None:
+            return
+        asyncio.ensure_future(calib.sim_head_sweep(phone.request, float(self.config.calibration.sweep_s)))
+
+    def calibration_check(self, run_id: str) -> dict[str, Any]:
+        """The quality gate (``calibration.quality_gate``): dots of the active grid run worth
+        showing again, worst first. The UI shows them in the same run, then finishes."""
+        run = self.active_run
+        if run is None or run.run_id != run_id:
+            raise ValueError(f"no active calibration run {run_id!r}")
+        if not self.config.calibration.quality_gate:
+            return {"run_id": run_id, "retry": []}
+        return _jsonable({"run_id": run_id, "retry": calib.quality_gate(run, self.config.calibration)})
+
     def _sim_restore_pose(self) -> None:
         if self.simulated and self._sim_pose_group not in (None, 0):
             self._sim_pose(0)
@@ -1255,9 +1375,14 @@ class Engine:
             answer["reports"] = [r.to_dict() for r in result.reports]
             answer["chosen"] = result.chosen
             answer["committed"] = False
+            if run.kind == "pursuit":
+                self._pursuit_samples = samples  # merged into the grid fit that follows (calibration.pursuit_merge)
         elif run.kind in ("grid", "pursuit"):
-            candidates = self._new_models()
-            result = await asyncio.to_thread(calib.fit_all, samples, screen, candidates)
+            pursuit, self._pursuit_samples = (self._pursuit_samples if run.kind == "grid" else []), []
+            result = await asyncio.to_thread(calib.fit_with_options, samples, screen, self._new_models, self.config.calibration, pursuit)
+            answer["calibration_info"] = result.info
+            answer["run_dots"] = getattr(run, "dots", [])
+            self._validation_pool = []
             fitted = {name: m for name, m in result.models.items()}
             ok = {r.model for r in result.reports if r.ok}
             self.models = {k: v for k, v in fitted.items() if k in ok} or fitted
@@ -1289,6 +1414,19 @@ class Engine:
                     validation[name] = {"error": str(exc)}
             self.validation = validation
             answer["validation"] = validation
+            # Error map (calibration.error_map) from every validation dot since the calibration;
+            # the numbers above were measured before it changed, on dots it had not seen.
+            self._validation_pool = calib.pool_validation(self._validation_pool, samples)
+            maps = {}
+            for name, model in list(self.models.items()):
+                try:
+                    maps[name] = await asyncio.to_thread(calib.fit_validation_error_map, model, self._validation_pool, screen, self.config.calibration)
+                except Exception as exc:  # noqa: BLE001
+                    maps[name] = {"kept": False, "reason": f"failed: {exc}"}
+            answer["error_map"] = maps
+            chosen_val = validation.get(self.chosen or "") or {}
+            answer["touchup"] = [t.to_dict() for t in calib.touchup_targets(chosen_val, int(self.config.calibration.touchup_dots))] if chosen_val.get("per_dot") else []
+            self._save_profile(calib.CalibrationResult(self.reports, self.chosen, self.models))
         self.filter_reset()
         answer = _jsonable(answer)
         self.broadcast({"type": "calib.report", **answer})
@@ -1524,15 +1662,33 @@ class Engine:
                 self.upright.mode = s.rotation
                 self.upright.reset()
                 self.roi_placer.width_mm, self.roi_placer.aspect = s.roi_width_mm, s.roi_aspect
-                await self.send_stream_config()
+                local_only = {"stream.roi_smoothing", "stream.roi_move_fraction"}  # engine-side, read each frame
+                if any(p.startswith("stream.") and p not in local_only for p in applied):
+                    await self.send_stream_config()
             if any(p in applied for p in ("lens.camera_id", "lens.max_width", "lens.fps")) and self.phone is not None and self.config.lens.camera_id:
                 lens = self.config.lens
                 self.phone_status = await self.phone.configure(lens.camera_id, lens.max_width, lens.fps, lens.zoom)
                 self._camera_changed()
+            elif "lens.camera_prefer" in applied and self.phone is not None and not self.config.lens.camera_id:
+                cam = lens_mod.camera_for_preference(list((self.phone_status or {}).get("cameras") or []), self.config.lens.camera_prefer)
+                if cam is not None:
+                    lens = self.config.lens
+                    self.phone_status = await self.phone.configure(cam["id"], lens.max_width, lens.fps, lens.zoom if cam.get("type") != "arkit" else 1.0)
+                    self._camera_changed()
             elif "lens.zoom" in applied and self.phone is not None:
                 await self.set_zoom(self.config.lens.zoom)
             if "estimators" in sections and not self._estimators_injected:
-                self.estimators = self._build_estimators()
+                from .vision import REBUILD_SETTINGS
+
+                if any(p.split(".", 1)[1] in REBUILD_SETTINGS for p in applied if p.startswith("estimators.")):
+                    self.estimators = self._build_estimators()
+                # Other estimator settings are read live by the estimators (vision/settings.py),
+                # so their state (tracking, reflection priors from a coded flash) is kept.
+            lens_paths = [p for p in applied if p in lens_mod.LENS_CONTROL_SETTINGS]
+            if lens_paths:
+                await self.send_lens_controls(lens_paths)
+            if "outputs.fallback_pointer" in applied:
+                self.fallback.reset()
             if "filters" in sections and not self._filter_injected:
                 self.filter = self._build_filter()
             if "outputs" in sections:
@@ -1711,6 +1867,9 @@ class Engine:
             return
         now = time.monotonic()
         last = self.last_frame.t_received if self.last_frame is not None and self.last_frame.t_received else 0.0
+        # Frames that arrived but are still waiting for the estimators (MediaPipe's first load
+        # can take 30 s on a fresh Mac) mean the camera is running: do not restart it.
+        last = max(last, getattr(self, "_last_received_at", 0.0) or 0.0)
         if now - max(last, self._connected_at) < self.NO_FRAMES_RESTART_S or now - self._last_restart < self.RESTART_EVERY_S:
             return
         self._last_restart = now

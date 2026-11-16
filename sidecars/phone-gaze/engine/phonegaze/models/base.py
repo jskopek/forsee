@@ -50,13 +50,30 @@ def dot_groups(samples: list[CalibSample]) -> dict[int, list[int]]:
 
 def sample_weights(samples: list[CalibSample]) -> np.ndarray:
     """Equal total weight per dot (so a dot with many samples does not dominate); pursuit
-    windows count half."""
+    windows count half. Each sample's own ``weight`` (head sweep, moving dot, precision
+    weighting; 1.0 normally) multiplies its share."""
     groups = dot_groups(samples)
     w = np.zeros(len(samples))
     for idx in groups.values():
         k = 0.5 if samples[idx[0]].kind == "pursuit" else 1.0
-        w[idx] = k / len(idx)
+        sw = np.array([max(float(getattr(samples[i], "weight", 1.0)), 0.0) for i in idx])
+        w[idx] = k * sw / len(idx)
     return w
+
+
+AUX_KINDS = ("sweep", "pursuit")
+"""Sample kinds that help a fit but are not scored held-out when there are ordinary dots: a
+head-sweep window or a moving-dot piece shares its target with its neighbours, so leaving it
+out alone says little, and scoring only the grid dots keeps scores comparable with and without
+them."""
+
+
+def scored_dots(samples: list[CalibSample]) -> set[int]:
+    """The dots leave-one-dot-out holds out: every dot, or only the non-auxiliary ones when there
+    are any (:data:`AUX_KINDS`)."""
+    groups = dot_groups(samples)
+    main = {d for d, idx in groups.items() if samples[idx[0]].kind not in AUX_KINDS}
+    return main if main else set(groups)
 
 
 def subsample_per_dot(samples: list[CalibSample], per_dot: int) -> list[CalibSample]:
@@ -159,6 +176,9 @@ class BaseModel:
         self.mm_per_point: tuple[float, float] = (DEFAULT_MM_PER_POINT, DEFAULT_MM_PER_POINT)
         self.screen_size: tuple[float, float] | None = None
         self._live = False
+        self.error_map: Any = None
+        """An :class:`~phonegaze.models.errormap.ErrorMap` applied after the correction, or
+        ``None`` (``calibration.error_map``)."""
 
     # --- GazeModel protocol --------------------------------------------------------------
 
@@ -169,6 +189,7 @@ class BaseModel:
         self.mm_per_point = (mx, my)
         self.screen_size = (float(screen.width), float(screen.height))
         self.correction = Correction()
+        self.error_map = None
         try:
             report = self._fit(samples, screen)
         except Exception as exc:  # noqa: BLE001 - a failed fit is a report, not a crash
@@ -197,6 +218,13 @@ class BaseModel:
                 point.left = corr.apply(*point.left)
             if point.right is not None:
                 point.right = corr.apply(*point.right)
+        emap = self.error_map
+        if emap is not None:
+            point.x, point.y = emap.apply(point.x, point.y)
+            if point.left is not None:
+                point.left = emap.apply(*point.left)
+            if point.right is not None:
+                point.right = emap.apply(*point.right)
         point.model = self.name
         return point
 
@@ -216,6 +244,7 @@ class BaseModel:
             "screen_size": list(self.screen_size) if self.screen_size else None,
             "state": self._state() if self.fitted else None,
             "report": self.report.to_dict() if self.report else None,
+            "error_map": self.error_map.to_dict() if self.error_map is not None else None,
         }
 
     @classmethod
@@ -227,6 +256,10 @@ class BaseModel:
         model.screen_size = (float(size[0]), float(size[1])) if size else None
         if data.get("report"):
             model.report = FitReport.from_dict(data["report"])
+        if data.get("error_map"):
+            from .errormap import ErrorMap
+
+            model.error_map = ErrorMap.from_dict(data["error_map"])
         if data.get("fitted") and data.get("state") is not None:
             model._load_state(data["state"])
             model.fitted = True
@@ -256,6 +289,8 @@ class BaseModel:
         good = np.all(np.isfinite(p), axis=1)
         if good.any():
             p[good] = self.correction.apply_many(p[good])
+            if self.error_map is not None:
+                p[good] = self.error_map.apply_many(p[good])
         return ids, p, np.array(target, float).reshape(-1, 2), np.array(dist, float)
 
     def _dot_errors(self, samples: list[CalibSample], screen: ScreenInfo) -> tuple[float | None, float | None]:
@@ -425,7 +460,11 @@ def loo_predictions(model: BaseModel, samples: list[CalibSample], screen: Screen
     samples = fit_samples(samples)
     out = np.full((len(samples), 2), np.nan)
     groups = dot_groups(samples)
+    scored = scored_dots(samples)
+    eyes: dict[str, np.ndarray] = {}
     for dot, idx in groups.items():
+        if dot not in scored:
+            continue
         train = [s for s in samples if s.dot_id != dot]
         if len(dot_groups(train)) < 3:
             continue
@@ -435,7 +474,14 @@ def loo_predictions(model: BaseModel, samples: list[CalibSample], screen: Screen
             warm(model)
         rep = m.fit(train, screen)
         if rep.ok:
-            out[idx] = m.predict_samples([samples[i] for i in idx], raw=True)
+            held = [samples[i] for i in idx]
+            out[idx] = m.predict_samples(held, raw=True)
+            per_eye = getattr(m, "eye_predict_samples", None)
+            if per_eye is not None:
+                for side, pe in per_eye(held).items():
+                    eyes.setdefault(side, np.full((len(samples), 2), np.nan))[idx] = pe
+    # Per-eye held-out predictions, for the eye choice and per-eye scores (calibration.fit_all).
+    model.loo_eyes = eyes  # type: ignore[attr-defined]
     return out
 
 

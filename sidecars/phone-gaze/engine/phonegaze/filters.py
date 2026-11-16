@@ -18,6 +18,13 @@ Smoothers (``filters.kind``): ``none`` (pass-through, no hold), ``one_euro`` (Ca
 ``kalman`` (constant velocity), ``fixation`` (hard smoothing during fixations: the exponentially
 weighted fixation centre with time constant ``filters.fixation_tau_ms``).
 
+Presets (``filters.preset``, :data:`PRESETS`): ``responsive``, ``balanced`` and ``steady`` set
+``kind``, ``min_cutoff``, ``beta``, ``saccade_deg`` and ``fixation_tau_ms`` together;
+``custom`` (default) uses the individual settings. **Fixation lock** (``filters.fixation_lock``):
+once gaze has stayed within ``fixation_deg`` for ``fixation_lock_ms``, the output holds still at
+the smoothed point until a saccade or until gaze leaves ``fixation_deg`` (the point then moves
+on as usual); ``GazePoint.extra["locked"]`` says when it is held.
+
 Degrees are turned into screen points with the screen's millimetre size and the observation's
 distance when the filter knows them (``set_screen``), else ``filters.points_per_degree``.
 """
@@ -25,6 +32,7 @@ distance when the filter knows them (``set_screen``), else ``filters.points_per_
 from __future__ import annotations
 
 import math
+from dataclasses import replace as dc_replace
 from dataclasses import replace
 from typing import Any, Protocol
 
@@ -169,6 +177,20 @@ class PassFilter:
         pass
 
 
+PRESETS: dict[str, dict[str, Any]] = {
+    "responsive": {"kind": "one_euro", "min_cutoff": 2.0, "beta": 0.05, "saccade_deg": 2.0, "fixation_tau_ms": 120},
+    "balanced": {"kind": "one_euro", "min_cutoff": 1.0, "beta": 0.01, "saccade_deg": 2.5, "fixation_tau_ms": 250},
+    "steady": {"kind": "fixation", "min_cutoff": 0.4, "beta": 0.005, "saccade_deg": 3.0, "fixation_tau_ms": 400},
+}
+"""``filters.preset`` -> the settings it overrides (``custom`` overrides nothing)."""
+
+
+def apply_preset(config: FiltersConfig) -> FiltersConfig:
+    """A copy of ``config`` with its preset's values in place (unchanged for ``custom``)."""
+    over = PRESETS.get(str(getattr(config, "preset", "custom")))
+    return dc_replace(config, **over) if over else config
+
+
 class SmoothingFilter:
     """Blink hold + saccade detection + fixation state around one smoother (module docstring)."""
 
@@ -197,6 +219,7 @@ class SmoothingFilter:
         self.fix_t: float | None = None
         self.candidate: np.ndarray | None = None
         self.saccade_t: float | None = None
+        self.lock: tuple[float, float] | None = None
 
     # --- helpers -----------------------------------------------------------------------------
 
@@ -293,12 +316,24 @@ class SmoothingFilter:
 
         assert self.fix_centre is not None and self.fix_start is not None
         in_fix = self.candidate is None and float(np.linalg.norm(p - self.fix_centre)) <= fix_pt and t - self.fix_start >= self.FIXATION_MIN_S
+        locked = False
+        if bool(getattr(self.config, "fixation_lock", False)):
+            lock_s = float(getattr(self.config, "fixation_lock_ms", 120)) / 1000.0
+            if saccade or (not in_fix and self.candidate is None):
+                self.lock = None
+            elif self.lock is not None and float(np.hypot(sx - self.lock[0], sy - self.lock[1])) > fix_pt:
+                self.lock = None
+            elif self.lock is None and t - self.fix_start >= max(lock_s, self.FIXATION_MIN_S):
+                self.lock = (float(sx), float(sy))
+            if self.lock is not None:
+                sx, sy = self.lock
+                locked = True
         conf = point.confidence
         if self.saccade_t is not None and t - self.saccade_t < self.POST_SACCADE_S:
             conf *= 0.7
         if self.candidate is not None:
             conf *= 0.8
-        out = replace(point, x=float(sx), y=float(sy), confidence=float(max(0.0, min(1.0, conf))), fixation=bool(in_fix), extra={**point.extra, "filter": self.kind, "saccade": bool(saccade)})
+        out = replace(point, x=float(sx), y=float(sy), confidence=float(max(0.0, min(1.0, conf))), fixation=bool(in_fix), extra={**point.extra, "filter": self.kind, "saccade": bool(saccade), "locked": locked})
         self.last_out = out
         self.last_valid_t = t
         return out
@@ -311,6 +346,7 @@ class SmoothingFilter:
 
 def build_filter(config: FiltersConfig, screen: ScreenInfo | None = None) -> GazeFilter:
     """The filter named by ``config.kind`` (``"none"`` passes points through)."""
+    config = apply_preset(config)
     if config.kind == "none":
         return PassFilter()
     if config.kind not in ("one_euro", "kalman", "fixation"):

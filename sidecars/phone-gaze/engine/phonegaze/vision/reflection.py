@@ -46,6 +46,7 @@ import numpy as np
 from ..types import DecodedFrame, Observation
 from .geometry import depth_from_iris
 from .iris_edge import _image_for
+from .settings import opt
 
 DEFAULT_PATTERN = "10110010"
 DEFAULT_STEP_S = 0.125
@@ -199,18 +200,19 @@ class ReflectionEstimator:
 
             # Coarse search over lags at 1/30 s, then refine at 1/120 s round the best.
             best = None
-            for lag in np.arange(0.0, self.max_lag_s + 1e-9, 1.0 / 30.0):
+            max_lag = float(opt(self.config, "reflection_max_lag_ms", self.max_lag_s * 1000.0)) / 1000.0
+            for lag in np.arange(0.0, max_lag + 1e-9, 1.0 / 30.0):
                 res = at_lag(float(lag))
                 if res is not None and (best is None or res[0] > best[0]):
                     best = res
             if best is not None:
                 centre_lag = best[1]
                 for lag in centre_lag + np.arange(-3, 4) / 120.0:
-                    if 0.0 <= lag <= self.max_lag_s and abs(lag - centre_lag) > 1e-9:
+                    if 0.0 <= lag <= max_lag and abs(lag - centre_lag) > 1e-9:
                         res = at_lag(float(lag))
                         if res is not None and res[0] > best[0]:
                             best = res
-            if best is None or best[0] < 0.6:
+            if best is None or best[0] < float(opt(self.config, "reflection_flash_min_corr", 0.6)):
                 continue
             score, lag, corr, c, Xv = best
             yy, xx = np.mgrid[0:g, 0:g]
@@ -246,7 +248,7 @@ class ReflectionEstimator:
             if im is None:
                 continue
             r_img = eye.iris_radius * im.scale
-            if r_img < self.min_iris_px:
+            if r_img < float(opt(self.config, "reflection_min_iris_px", self.min_iris_px)):
                 continue
             c_img = np.array(im.point_from_full(eye.iris_center)) - 0.5
             buf = self._buf.setdefault(side, _EyeCode(self.grid))
@@ -269,9 +271,17 @@ class ReflectionEstimator:
         im = _image_for(frame, side, eye.iris_center)
         if im is None:
             return None
+        cfg = self.config
+        k_mad = float(opt(cfg, "reflection_k_mad", self.k_mad))
+        min_contrast = float(opt(cfg, "reflection_min_contrast", self.min_contrast))
+        min_conf = float(opt(cfg, "reflection_min_confidence", self.min_confidence))
+        ambiguity = float(opt(cfg, "reflection_ambiguity", self.ambiguity))
+        max_off = float(opt(cfg, "reflection_max_offset", 0.6))
+        area_lo = float(opt(cfg, "reflection_area_min", 0.25))
+        area_hi = float(opt(cfg, "reflection_area_max", 3.0))
         s = im.scale
         r = eye.iris_radius * s
-        if r < self.min_iris_px:
+        if r < float(opt(cfg, "reflection_min_iris_px", self.min_iris_px)):
             return None
         c = np.array(im.point_from_full(eye.iris_center)) - 0.5  # index coordinates
         gray_full = im.gray
@@ -284,7 +294,7 @@ class ReflectionEstimator:
         patch = gray_full[y0:y1, x0:x1].astype(np.float32)
         d_m = obs.distance
         if d_m is None and frame.intrinsics is not None:
-            d_m = depth_from_iris(eye.iris_radius, frame.intrinsics.fx)
+            d_m = depth_from_iris(eye.iris_radius, frame.intrinsics.fx, float(opt(cfg, "iris_diameter_mm", 11.7)))
         d_m = d_m or 0.6
         pw, ph = predicted_reflection_px(r, d_m, self.screen_mm)
         pred_area = max(3.0, 0.9 * pw * ph)
@@ -300,7 +310,7 @@ class ReflectionEstimator:
         vals = top[inside]
         med = float(np.median(vals))
         mad = float(np.median(np.abs(vals - med))) * 1.4826
-        thr = max(med + self.k_mad * mad, med + self.min_contrast)
+        thr = max(med + k_mad * mad, med + min_contrast)
         binary = ((top > thr) & (dist < 1.05 * r)).astype(np.uint8)
         nlab, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
         if nlab <= 1:
@@ -309,7 +319,7 @@ class ReflectionEstimator:
         noise = max(mad, 1.0)
         iris_level = float(np.percentile(patch[inside], 75))
 
-        prior = self.priors.get(side)
+        prior = self.priors.get(side) if opt(cfg, "reflection_coded_flash", True) else None
         last = self._last.get(side)
         if last is not None and t_now - last[0] > 0.5:
             last = None
@@ -319,7 +329,7 @@ class ReflectionEstimator:
             x, y, w, h, area = stats[i]
             if x == 0 or y == 0 or x + w >= patch.shape[1] or y + h >= patch.shape[0]:
                 continue
-            if area < max(2.0, 0.25 * pred_area) or area > 3.0 * pred_area:
+            if area < max(2.0, area_lo * pred_area) or area > area_hi * pred_area:
                 continue
             blob = labels == i
             b8 = blob.astype(np.uint8)
@@ -329,7 +339,7 @@ class ReflectionEstimator:
             # (pupil edge), so weight by coverage between the brightest surrounding level and
             # the plateau rather than by contrast.
             hi = float(np.percentile(patch[blob], 90))
-            if hi - iris_level < 2 * self.min_contrast or area < 0.4 * w * h:
+            if hi - iris_level < 2 * min_contrast or area < 0.4 * w * h:
                 continue  # not brighter than the iris, or ring-shaped (the iris round the pupil)
             lo = float(np.percentile(patch[ring], 90)) if ring.any() else hi - float(top[blob].max())
             if hi - lo >= 5:
@@ -342,7 +352,7 @@ class ReflectionEstimator:
             bx, by = float((wts * xx).sum() / ws), float((wts * yy).sum() / ws)
             off = ((bx - cxp) / r, (by - cyp) / r)
             dn = math.hypot(*off)
-            if dn > 0.6:
+            if dn > max_off:
                 continue
             peak = float(top[blob].max())
             snr = (float(top[blob].mean()) - med) / noise
@@ -377,13 +387,13 @@ class ReflectionEstimator:
         margin = 1.0
         if len(cands) > 1:
             ratio = cands[1]["score"] / max(best["score"], 1e-9)
-            if ratio >= self.ambiguity and prior is None and last is None:
+            if ratio >= ambiguity and prior is None and last is None:
                 return None
             margin = 1.0 - 0.5 * ratio
         if prior is not None and best["prior_score"] < 0.3:
             return None
         conf = float(best["score"] * margin)
-        if conf < self.min_confidence:
+        if conf < min_conf:
             return None
 
         corners = None

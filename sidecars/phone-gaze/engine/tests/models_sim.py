@@ -115,6 +115,16 @@ class Noise:
     p_outlier: float = 0.02
     p_no_glint: float = 0.3
     landing_frames: int = 3
+    # Landmark-derived eyeball centres (off by default, so the older tests are unchanged):
+    # a constant per-eye error in the head's frame (mm; right, left) and an error that grows as
+    # the face turns away from the camera (mm per 10 degrees of yaw / pitch), as eye-corner
+    # landmarks slide when the head turns.
+    centre_err_mm: tuple[tuple[float, float, float], tuple[float, float, float]] = ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0))
+    centre_turn_mm_per_10deg: float = 0.0
+    centre_jitter_mm: float = 0.0
+    head_position_from_eyes: bool = False
+    eye_noise_scale: tuple[float, float] = (1.0, 1.0)  # iris-centre noise multiplier (right, left)
+    eye_warp_px: tuple[float, float] = (0.0, 0.0)  # (right, left) amplitude of a gaze-dependent, non-linear iris error (an eye that tracks badly)
 
 
 @dataclass
@@ -194,7 +204,12 @@ class Sim:
                 eye.openness = 0.02
                 setattr(obs, side, eye)
                 continue
-            iu = np.array(intr.project(tuple(iris))) + rng.normal(0, n.iris_px, 2)
+            iu = np.array(intr.project(tuple(iris))) + rng.normal(0, n.iris_px * n.eye_noise_scale[0 if side == "right" else 1], 2)
+            warp = n.eye_warp_px[0 if side == "right" else 1]
+            if warp:
+                vh = r_head.T @ v
+                yaw_v, pitch_v = math.atan2(vh[0], -vh[2]), math.atan2(vh[1], math.hypot(vh[0], vh[2]))
+                iu = iu + warp * np.array([math.cos(6 * yaw_v) * math.sin(6 * pitch_v), math.cos(6 * pitch_v) * math.cos(4 * yaw_v)])
             if outlier:
                 iu += rng.choice([-1, 1], 2) * 6.0
             rad = intr.fx * p.iris_radius_m / iris[2] + rng.normal(0, n.radius_px)
@@ -202,6 +217,17 @@ class Sim:
             corners = [np.array(intr.project(tuple(c + r_head @ o))) + rng.normal(0, n.corner_px, 2) for o in corner_off]
             # emulated estimator: eyeball centre from the (biased) head pose, gaze from the iris ray
             c_est = pos_est + r_est @ np.array([-sgn * n.assumed_ipd_m / 2, 0.0, 0.0])
+            err_c = np.asarray(n.centre_err_mm[0 if side == "right" else 1], float) / 1000.0
+            if n.centre_turn_mm_per_10deg:
+                face = r_head @ np.array([0.0, 0.0, -1.0])
+                yaw_c = math.degrees(math.atan2(face[0], -face[2]))
+                pitch_c = math.degrees(math.atan2(face[1], math.hypot(face[0], face[2])))
+                k = n.centre_turn_mm_per_10deg / 1000.0
+                # common sideways/vertical slide plus an opposite depth error per eye
+                err_c = err_c + np.array([k * yaw_c / 10.0, k * pitch_c / 10.0, sgn * k * yaw_c / 10.0])
+            if n.centre_jitter_mm:
+                err_c = err_c + rng.normal(0, n.centre_jitter_mm / 1000.0, 3)
+            c_est = c_est + r_est @ err_c
             ray = np.array([*intr.ray(*iu), 1.0])
             ray /= np.linalg.norm(ray)
             b = float(ray @ c_est)
@@ -229,6 +255,10 @@ class Sim:
             setattr(obs, side, eye)
         obs.head_rotation = r_est.tolist()
         obs.head_position = tuple(float(v) for v in pos_est)  # type: ignore[assignment]
+        if n.head_position_from_eyes and not blink:
+            # as the landmarks estimator does: the midpoint of the two eyeball centres
+            mid = (np.asarray(obs.left.eyeball_center) + np.asarray(obs.right.eyeball_center)) / 2
+            obs.head_position = tuple(float(v) for v in mid)  # type: ignore[assignment]
         obs.distance = float(np.linalg.norm(pos_est))
         truth["target_cam"] = target
         truth["rig"] = rig
@@ -267,6 +297,70 @@ class Sim:
                 run.add(obs)
             run.end_dot(tg.dot_id, self.t)
             prev = (tg.x, tg.y)
+        return run
+
+    def sweep(self, target: Target, head: HeadPose, run: CalibrationRun, seconds: float = 10.0, yaw_deg: float = 15.0, pitch_deg: float = 10.0, move_m: float = 0.04, rig: Rig | None = None, p_look_away: float = 0.0) -> CalibrationRun:
+        """Head sweep: eyes on ``target`` while the head turns (yaw and pitch on two slow sines)
+        and moves (sideways and in depth) for ``seconds``, through ``run`` (whose ``sweep_ids``
+        must include ``target.dot_id``). ``p_look_away``: chance per frame of a glance elsewhere."""
+        run.begin_dot(target.dot_id, target.x, target.y, self.t)
+        n = int(seconds * self.fps)
+        for i in range(n):
+            ph = i / max(n - 1, 1)
+            h = head.moved(
+                dx=move_m * math.sin(2 * math.pi * ph * 1.5) / 2,
+                dz=move_m * math.sin(2 * math.pi * ph) / 2,
+                yaw=yaw_deg * math.sin(2 * math.pi * ph * 2),
+                pitch=pitch_deg * math.sin(2 * math.pi * ph * 3 + 0.5),
+            )
+            look = (target.x, target.y)
+            if p_look_away and self.rng.random() < p_look_away:
+                look = (float(self.rng.uniform(0, self.screen.width)), float(self.rng.uniform(0, self.screen.height)))
+            obs, _ = self.observe(look[0], look[1], h, rig)
+            run.add(obs)
+        run.end_dot(target.dot_id, self.t)
+        return run
+
+    def pursuit(self, run: CalibrationRun, head: HeadPose, lag_s: float = 0.12, step_s: float = 0.25, p_catchup: float = 0.04, catchup_deg: float = 3.0, rig: Rig | None = None) -> CalibrationRun:
+        """Moving dot through ``run.targets`` (one way-point every ``step_s``, linear in between),
+        as the UI and engine do: ``begin_dot`` at each new way-point with its position. The eyes
+        trail the dot by ``lag_s``; now and then they fall further behind and catch up with a
+        saccade (``p_catchup`` per frame, ``catchup_deg`` behind, over 3 frames)."""
+        pts = run.targets
+        t0 = self.t
+        prev = None
+        behind = 0
+        total = len(pts) * step_s
+        while self.t - t0 < total:
+            el = self.t - t0
+            i = int(el // step_s)
+            if i != prev:
+                if prev is not None:
+                    run.end_dot(pts[prev].dot_id, self.t)
+                run.begin_dot(pts[i].dot_id, pts[i].x, pts[i].y, self.t)
+                prev = i
+
+            def at(tt: float) -> tuple[float, float]:
+                tt = min(max(tt, 0.0), total - 1e-6)
+                k = int(tt // step_s)
+                f = (tt - k * step_s) / step_s
+                a, b = pts[k], pts[(k + 1) % len(pts)]
+                return a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f
+
+            if behind == 0 and self.rng.random() < p_catchup:
+                behind = 3
+            lag = lag_s
+            if behind:
+                # deg -> seconds of path at the local speed, roughly
+                a, b = np.array(at(el)), np.array(at(el + 0.05))
+                spd_pt = max(np.linalg.norm(b - a) / 0.05, 1.0)
+                lag += catchup_deg * 45.0 / spd_pt
+                behind -= 1
+            look = at(el - lag)
+            obs, _ = self.observe(look[0], look[1], head, rig)
+            run.add(obs)
+        if prev is not None:
+            run.end_dot(pts[prev].dot_id, self.t)
         return run
 
     def validation_samples(self, n: int, head: HeadPose, rig: Rig | None = None, frames: int = 15, seed: int = 7) -> list[CalibSample]:

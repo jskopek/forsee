@@ -1000,6 +1000,8 @@ class CalibSample:
         run_id: calibration run this belongs to.
         pose_group: head-position round (0 for the first, 1 for "move your head and repeat"...).
         t_local: engine monotonic time of the sample.
+        weight: optional fitting weight relative to an ordinary grid sample (1.0). Set by
+            calibration for head-sweep, moving-dot and quality-weighted samples.
     """
 
     target: Vec2
@@ -1009,6 +1011,7 @@ class CalibSample:
     run_id: str = ""
     pose_group: int = 0
     t_local: float | None = None
+    weight: float = 1.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -1019,6 +1022,7 @@ class CalibSample:
             "run_id": self.run_id,
             "pose_group": self.pose_group,
             "t_local": _jsonable(self.t_local),
+            "weight": float(self.weight),
         }
 
     @classmethod
@@ -1031,6 +1035,7 @@ class CalibSample:
             run_id=data.get("run_id", ""),
             pose_group=int(data.get("pose_group", 0)),
             t_local=data.get("t_local"),
+            weight=float(data.get("weight", 1.0)),
         )
 
 

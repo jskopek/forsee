@@ -172,7 +172,7 @@ def test_registry_and_build_models():
     assert [m.name for m in models][-1] == "blend"
     for m in models:
         assert isinstance(m, GazeModel)
-    assert set(REGISTRY) == {"geometric", "ridge", "kernel", "reflection", "blend", "residual"}
+    assert set(REGISTRY) == {"geometric", "ridge", "kernel", "reflection", "blend", "residual", "hybrid"}
 
 
 def test_geometric_recovers_screen_pose_without_noise():

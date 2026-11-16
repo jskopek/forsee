@@ -36,6 +36,7 @@ from .iris_edge import IrisEdgeEstimator
 from .landmarks import LandmarkEstimator
 from .quality import QualityEstimator
 from .reflection import ReflectionEstimator
+from .settings import opt  # noqa: F401 - re-exported
 
 log = logging.getLogger(__name__)
 
@@ -51,14 +52,32 @@ REGISTRY: dict[str, type] = {
 ``cls(config: EstimatorsConfig)``."""
 
 
+def enabled(config: EstimatorsConfig | None, name: str) -> bool:
+    """The per-estimator switch ``config.use_<name>`` (missing: on)."""
+    return bool(getattr(config, f"use_{name}", True)) if config is not None else True
+
+
 def build_estimators(config: EstimatorsConfig) -> list[Estimator]:
-    """Instances for ``config.order``, in order (unknown names are logged and skipped).
-    Construction is cheap: models (MediaPipe) load on the first frame."""
+    """Instances for ``config.order``, in order (unknown names are logged and skipped; names
+    switched off with ``use_<name>`` are left out). Construction is cheap: models (MediaPipe)
+    load on the first frame. Estimators keep a reference to ``config`` and read their tuning
+    settings from it on every frame, so changing one needs no rebuild (see
+    :data:`REBUILD_SETTINGS`)."""
     out: list[Estimator] = []
     for name in list(getattr(config, "order", []) or []):
         cls = REGISTRY.get(name)
         if cls is None:
             log.warning("unknown estimator %r skipped", name)
             continue
+        if not enabled(config, name):
+            continue
         out.append(cls(config))
     return out
+
+
+REBUILD_SETTINGS = frozenset(
+    {"order", "landmarks_model", "face_confidence", "use_arkit", "use_landmarks", "use_iris_edge", "use_reflection", "use_quality", "use_appearance"}
+)
+"""``estimators.*`` settings that need the estimators rebuilt (the list changes, or MediaPipe must
+be reloaded). Every other estimator setting is read live and keeps the estimators' state (the
+reflection priors learned from a coded flash, tracking)."""

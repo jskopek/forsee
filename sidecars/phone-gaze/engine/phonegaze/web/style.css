@@ -759,3 +759,108 @@ details.section > summary {
     grid-template-columns: 1fr;
   }
 }
+
+/* Glint assist (js/glint.js): bright markers over every page, calibration included. */
+.glint-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  pointer-events: none;
+  border: 0 solid #ffffff;
+  box-sizing: border-box;
+}
+
+.glint-layer[hidden] {
+  display: none;
+}
+
+.glint-layer.glint-off {
+  border-color: transparent;
+}
+
+.glint-layer.glint-off .glint-corner {
+  visibility: hidden;
+}
+
+.glint-layer.glint-whole {
+  background: #ffffff;
+}
+
+.glint-layer.glint-whole.glint-off {
+  background: #000000;
+}
+
+.glint-corner {
+  position: absolute;
+  background: #ffffff;
+}
+
+.glint-corner[hidden] {
+  display: none;
+}
+
+.glint-corner.tl {
+  top: 0;
+  left: 0;
+}
+
+.glint-corner.tr {
+  top: 0;
+  right: 0;
+}
+
+.glint-corner.bl {
+  bottom: 0;
+  left: 0;
+}
+
+.glint-corner.br {
+  bottom: 0;
+  right: 0;
+}
+
+/* Tuning page (js/tuning.js). */
+.tuning-eye {
+  display: block;
+  width: 100%;
+  min-height: 120px;
+  background: #282828;
+  border-radius: 6px;
+  image-rendering: auto;
+}
+
+.tuning-table td {
+  padding: 2px 8px 2px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.tuning-layers {
+  margin-bottom: 12px;
+  gap: 14px;
+}
+
+.notice {
+  border-left: 4px solid var(--warn);
+  padding: 6px 10px;
+  background: var(--code);
+}
+
+.preset-diff td {
+  font-variant-numeric: tabular-nums;
+}
+
+a.button {
+  display: inline-block;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 4px 10px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.tuning-eyes {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+}

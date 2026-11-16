@@ -383,3 +383,62 @@ def zoom_options(camera: dict[str, Any], wanted: list[float] | None = None) -> l
         except (TypeError, ValueError):
             continue
     return sorted(zooms)
+
+
+# --------------------------------------------------------------------------------------------
+# Phone camera controls (POST /api/lens)
+# --------------------------------------------------------------------------------------------
+
+LENS_CONTROL_SETTINGS = (
+    "lens.exposure_bias",
+    "lens.max_exposure_ms",
+    "lens.focus_locked",
+    "lens.exposure_locked",
+    "lens.white_balance_locked",
+    "lens.face_driven_autofocus",
+)
+"""Settings sent to the phone with ``POST /api/lens`` (PROTOCOL.md)."""
+
+
+def lens_controls_body(lens: Any, paths: list[str] | tuple[str, ...] | None = None, only_non_default: bool = False) -> dict[str, Any]:
+    """The ``/api/lens`` body for ``config.lens``. ``paths``: only these settings (default: all
+    of :data:`LENS_CONTROL_SETTINGS`); ``only_non_default``: leave out settings at their
+    "leave it to the phone" value (used on connect, so a fresh phone keeps its own defaults)."""
+    wanted = set(paths or LENS_CONTROL_SETTINGS)
+    body: dict[str, Any] = {}
+    if "lens.exposure_bias" in wanted:
+        v = float(getattr(lens, "exposure_bias", 0.0))
+        if v != 0.0 or not only_non_default:
+            body["exposureBias"] = v
+    if "lens.max_exposure_ms" in wanted:
+        v = float(getattr(lens, "max_exposure_ms", 0.0))
+        if v > 0:
+            body["maxExposureS"] = v / 1000.0
+        elif not only_non_default:
+            body["maxExposureS"] = None
+    if "lens.focus_locked" in wanted:
+        v = getattr(lens, "focus_locked", "default")
+        if v in ("locked", "continuous"):
+            body["focusLocked"] = v == "locked"
+    for path, key in (("lens.exposure_locked", "exposureLocked"), ("lens.white_balance_locked", "whiteBalanceLocked")):
+        if path in wanted:
+            v = bool(getattr(lens, path.split(".", 1)[1], False))
+            if v or not only_non_default:
+                body[key] = v
+    if "lens.face_driven_autofocus" in wanted:
+        v = getattr(lens, "face_driven_autofocus", "default")
+        if v in ("on", "off"):
+            body["faceDrivenAutoFocus"] = v == "on"
+    return body
+
+
+def camera_for_preference(cameras: list[dict[str, Any]], prefer: str) -> dict[str, Any] | None:
+    """The camera ``lens.camera_prefer`` asks for, from ``/api/status`` ``cameras``."""
+    if prefer == "arkit":
+        return next((c for c in cameras if c.get("type") == "arkit"), None)
+    if prefer == "front":
+        return next((c for c in pick_cameras(cameras, "front") if c.get("type") != "arkit"), None)
+    if prefer == "back":
+        back = pick_cameras(cameras, "back")
+        return next((c for c in back if c.get("type") == "wide"), None) or (back[0] if back else None)
+    return None

@@ -156,7 +156,12 @@ def create_app(engine: Engine) -> web.Application:
     async def calib_start(request: web.Request) -> web.Response:
         body = await _body(request)
         rounds = body.get("pose_rounds")
-        return _json(engine.start_calibration(str(body.get("kind", "grid")), pose_rounds=int(rounds) if rounds is not None else None))
+        targets = body.get("targets") if isinstance(body.get("targets"), list) else None
+        return _json(engine.start_calibration(str(body.get("kind", "grid")), pose_rounds=int(rounds) if rounds is not None else None, targets=targets))
+
+    async def calib_check(request: web.Request) -> web.Response:
+        body = await _body(request)
+        return _json(engine.calibration_check(str(body.get("run_id", ""))))
 
     async def calib_finish(request: web.Request) -> web.Response:
         body = await _body(request)
@@ -331,6 +336,7 @@ def create_app(engine: Engine) -> web.Application:
         ("GET", "/api/preview.jpg", preview),
         ("POST", "/api/calibration/start", calib_start),
         ("POST", "/api/calibration/finish", calib_finish),
+        ("POST", "/api/calibration/check", calib_check),
         ("POST", "/api/calibration/cancel", calib_cancel),
         ("POST", "/api/model", model),
         ("POST", "/api/pause", pause),
@@ -345,6 +351,15 @@ def create_app(engine: Engine) -> web.Application:
     ]
     for method, path, handler in routes:
         r.add_route(method, path, _guard(handler))
+    from .diagnostics import register as register_diagnostics
+
+    register_diagnostics(app, engine)  # /api/diagnostics/* and the health strip (before the /api 404)
+    from .lab import register as register_lab
+
+    register_lab(app, engine)  # /api/lab/*: offline lab reports, presets from tune (web/lab.html)
+    from .tuning import register as register_tuning
+
+    register_tuning(app, engine)  # /api/tuning/* (Tuning page) and /api/presets/* (presets.py)
     r.add_get("/ws", ui_ws)
     r.add_get("/gaze", gaze_ws)
 

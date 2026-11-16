@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Lab · Phone Gaze</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="lab.css" />
+    <script type="module" src="lab.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">Phone Gaze</div>
+      <nav aria-label="Sections">
+        <a href="/#dashboard">← Back to the app</a>
+        <a href="diagnostics.html">Diagnostics</a>
+        <a href="lab.html" aria-current="page">Lab</a>
+      </nav>
+    </header>
+    <main id="lab" class="lab">
+      <h1>Lab</h1>
+      <p class="muted">
+        Score recorded sessions offline: your <code>tools/eye-capture</code> recordings and Phone
+        Gaze recordings, through the real estimators and every gaze model. Every number is held out
+        (each dot is predicted by models fitted without it). Nothing here changes the live engine
+        until you apply a preset.
+      </p>
+
+      <section class="card wide" aria-labelledby="h-sessions">
+        <h2 id="h-sessions">Sessions on this computer</h2>
+        <p class="small muted" id="sessions-where"></p>
+        <div id="sessions" data-testid="lab-sessions">Loading…</div>
+        <div class="row">
+          <label
+            >Or a folder <input id="session-path" type="text" placeholder="/path/to/session"
+          /></label>
+          <button id="session-run" class="primary">Run the lab</button>
+        </div>
+        <div id="jobs" data-testid="lab-jobs"></div>
+      </section>
+
+      <section class="card wide" aria-labelledby="h-reports">
+        <h2 id="h-reports">Reports</h2>
+        <div id="reports" data-testid="lab-reports">Loading…</div>
+      </section>
+
+      <section class="card wide" aria-labelledby="h-presets">
+        <h2 id="h-presets">Presets from tune</h2>
+        <p class="small muted">
+          Written by <code>python -m phonegaze tune SESSION --group NAME --save NAME</code>.
+          <strong>Apply now</strong> changes the running engine's settings;
+          <strong>Add to Experiments</strong> copies the preset into the Experiments page's presets
+          so you can compare it live.
+        </p>
+        <div id="presets" data-testid="lab-presets">Loading…</div>
+      </section>
+
+      <section class="card wide" aria-labelledby="h-cli">
+        <h2 id="h-cli">From the terminal</h2>
+        <pre class="cli">
+python -m phonegaze lab  SESSION                      # report: every camera, estimator combination, model
+python -m phonegaze lab  SESSION --set lab.eye=left   # any setting, for one run
+python -m phonegaze tune SESSION --group crop --group regularisation --save best
+python -m phonegaze tune SESSION --auto estimators. --metric loo_sample
+python -m phonegaze ab   SESSION --a base --b best    # is the difference larger than the noise?</pre>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,15 +1,11 @@
-/* global document */
+/* global document, FileReader */
 // Experiments: every setting from GET /api/config rendered automatically, applied live, with
-// reset to default, plus named presets (kept in this browser) that can be compared.
+// reset to default, plus named presets kept by the engine (phonegaze/presets.py): built-in
+// starting points and your own, applied in one click, with their difference from the defaults,
+// exported and imported as JSON files. Results of calibrations and validations are remembered
+// against the active preset in this browser.
 
 import { h, fill, fmt, deg, store, save, getPath } from './util.js';
-
-// Sections that describe this machine rather than an experiment; presets leave them alone.
-const NOT_IN_PRESETS = ['server.', 'phone.', 'recording.directory', 'ui.'];
-
-function inPreset(s) {
-  return !s.restart && !NOT_IN_PRESETS.some((p) => s.path.startsWith(p));
-}
 
 function same(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
@@ -21,33 +17,27 @@ function show(v) {
   return String(v);
 }
 
-function loadPresets() {
-  const p = store('presets', {});
-  return p && typeof p === 'object' ? p : {};
-}
+let presetCache = [];
 
-/** Changes that make the current config equal the preset (defaults for anything it omits). */
-function presetChanges(preset, settings, values) {
-  const changes = {};
-  for (const s of settings) {
-    if (!inPreset(s)) continue;
-    const want = Object.prototype.hasOwnProperty.call(preset.changes, s.path)
-      ? preset.changes[s.path]
-      : s.default;
-    if (!same(want, getPath(values, s.path))) changes[s.path] = want;
-  }
-  return changes;
+function presetResults() {
+  const r = store('presetResults', {});
+  return r && typeof r === 'object' ? r : {};
 }
 
 /** Remember calibration and validation results against the active preset, if it still matches. */
 export function trackPresetResults(ctx) {
-  ctx.api.on('calib.report', (m) => {
+  ctx.api.on('calib.report', async (m) => {
     const name = store('activePreset', '');
-    if (!name || !ctx.config) return;
-    const presets = loadPresets();
-    const p = presets[name];
-    if (!p) return;
-    if (Object.keys(presetChanges(p, ctx.config.settings, ctx.config.values)).length) return;
+    if (!name) return;
+    let listing;
+    try {
+      listing = await ctx.api.get('/api/presets');
+    } catch {
+      return;
+    }
+    presetCache = listing.presets || [];
+    const p = presetCache.find((x) => x.name === name);
+    if (!p || !p.matches) return;
     const entry = { when: new Date().toISOString(), kind: m.kind, chosen: m.chosen };
     if (m.validation) {
       const accs = Object.entries(m.validation).filter(
@@ -62,12 +52,13 @@ export function trackPresetResults(ctx) {
       const r = (m.reports || []).find((x) => x.model === m.chosen);
       if (r) entry.loo_error_deg = r.loo_error_deg;
     }
-    p.results = [...(p.results || []), entry].slice(-20);
-    save('presets', presets);
+    const all = presetResults();
+    all[name] = [...(all[name] || []), entry].slice(-20);
+    save('presetResults', all);
   });
 }
 
-function settingRow(s, ctx, onApplied) {
+export function settingRow(s, ctx, onApplied) {
   const values = () => ctx.config.values;
   const err = h('div', { class: 'err' });
   const resetBtn = h('button', {
@@ -204,15 +195,94 @@ function settingRow(s, ctx, onApplied) {
 
 function presetsCard(ctx, rerender) {
   const box = h('div');
-  const el = h('section', { class: 'card wide' }, h('h2', { text: 'Presets' }), box);
-  function render() {
-    const presets = loadPresets();
-    const names = Object.keys(presets).sort();
+  const el = h(
+    'section',
+    { class: 'card wide', 'data-testid': 'presets-card' },
+    h('h2', { text: 'Presets' }),
+    box,
+  );
+  let listing = { presets: [] };
+
+  async function call(path, body) {
+    try {
+      const res = await ctx.api.post(path, body);
+      if (res.values) ctx.config.values = res.values;
+      else ctx.config = await ctx.loadConfig(true);
+      listing = res;
+      presetCache = res.presets || [];
+      return res;
+    } catch (err) {
+      ctx.toast(err.message, 'error');
+      return null;
+    } finally {
+      rerender();
+      draw();
+    }
+  }
+
+  async function migrate() {
+    // Presets saved by earlier versions lived in this browser only: hand them to the engine once.
+    const old = store('presets', null);
+    if (!old || typeof old !== 'object') return;
+    for (const [name, p] of Object.entries(old)) {
+      if (!p || typeof p.changes !== 'object') continue;
+      try {
+        await ctx.api.post('/api/presets/import', { preset: { name, changes: p.changes } });
+        if (Array.isArray(p.results) && p.results.length) {
+          const all = presetResults();
+          all[name] = [...(all[name] || []), ...p.results].slice(-20);
+          save('presetResults', all);
+        }
+      } catch (err) {
+        ctx.toast(`Preset “${name}” from this browser was not kept: ${err.message}`, 'warning');
+      }
+    }
+    save('presets', null);
+  }
+
+  async function load() {
+    try {
+      await migrate();
+      listing = await ctx.api.get('/api/presets');
+      presetCache = listing.presets || [];
+    } catch (err) {
+      fill(box, h('p', { class: 'bad', text: `Could not load presets: ${err.message}` }));
+      return;
+    }
+    draw();
+  }
+
+  function draw() {
+    const presets = listing.presets || [];
+    const names = presets.map((p) => p.name);
     const active = store('activePreset', '');
+    const results = presetResults();
     const nameInput = h('input', {
       type: 'text',
       placeholder: 'Preset name',
       'data-testid': 'preset-name',
+    });
+    const fileInput = h('input', {
+      type: 'file',
+      accept: 'application/json,.json',
+      'data-testid': 'preset-import-file',
+      onchange: () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async () => {
+          let data;
+          try {
+            data = JSON.parse(String(reader.result));
+          } catch (err) {
+            ctx.toast(`Not a preset file: ${err.message}`, 'error');
+            return;
+          }
+          const res = await call('/api/presets/import', { preset: data });
+          if (res) ctx.toast(`Imported “${res.saved.name}”.`);
+        };
+        reader.readAsText(file);
+      },
     });
     const a = h(
       'select',
@@ -226,44 +296,53 @@ function presetsCard(ctx, rerender) {
     );
     if (names.length > 1) b.value = names[1];
     const cmp = h('div', { class: 'tablewrap' });
+    const byName = Object.fromEntries(presets.map((p) => [p.name, p]));
     const doCompare = () =>
       fill(
         cmp,
-        compareTable(presets[a.value], presets[b.value], a.value, b.value, ctx.config.settings),
+        compareTable(
+          byName[a.value],
+          byName[b.value],
+          a.value,
+          b.value,
+          ctx.config.settings,
+          results,
+        ),
       );
     a.addEventListener('change', doCompare);
     b.addEventListener('change', doCompare);
+    const current = Object.entries(listing.current || {});
     fill(
       box,
       h(
         'p',
         { class: 'muted' },
-        'A preset stores every experiment setting that differs from its default. Calibration and validation results are remembered against the active preset while the settings still match it. Presets live in this browser only.',
+        'A preset is a named set of settings that differ from their defaults. “Replace” presets set every experiment setting (defaults for the rest); “merge” presets only change their own settings, on top of the current ones. Machine settings (phone address, cursor, shortcuts, recordings, theme) are never touched. Presets are kept by the engine in ',
+        h('code', { text: listing.folder || 'presets.json' }),
+        '; built-in ones cannot be changed. Results of calibrations and validations are remembered (in this browser) against the active preset while the settings still match it.',
+      ),
+      h(
+        'p',
+        { class: 'small', 'data-testid': 'preset-current' },
+        current.length
+          ? `Current settings differ from the defaults in ${current.length}: ${current.map(([k, v]) => `${k} = ${show(v)}`).join('; ')}.`
+          : 'Current settings are all defaults.',
       ),
       h(
         'form',
         {
           class: 'row',
-          onsubmit: (e) => {
+          onsubmit: async (e) => {
             e.preventDefault();
             const name = nameInput.value.trim();
             if (!name) return;
-            const changes = {};
-            for (const s of ctx.config.settings) {
-              if (!inPreset(s)) continue;
-              const v = getPath(ctx.config.values, s.path);
-              if (!same(v, s.default)) changes[s.path] = v;
+            const res = await call('/api/presets/save', { name });
+            if (res) {
+              save('activePreset', name);
+              ctx.toast(
+                `Saved preset “${name}” (${Object.keys(res.saved.changes).length} changed settings).`,
+              );
             }
-            const all = loadPresets();
-            all[name] = {
-              changes,
-              saved: new Date().toISOString(),
-              results: (all[name] && all[name].results) || [],
-            };
-            save('presets', all);
-            save('activePreset', name);
-            ctx.toast(`Saved preset “${name}” (${Object.keys(changes).length} changed settings).`);
-            render();
           },
         },
         nameInput,
@@ -273,18 +352,20 @@ function presetsCard(ctx, rerender) {
           text: 'Save current settings as preset',
           'data-testid': 'preset-save',
         }),
+        h('span', { class: 'muted small', text: 'Import a preset file:' }),
+        fileInput,
       ),
-      names.length
+      presets.length
         ? h(
             'table',
-            { style: { marginTop: '10px' } },
+            { style: { marginTop: '10px' }, 'data-testid': 'preset-table' },
             h(
               'thead',
               {},
               h(
                 'tr',
                 {},
-                ['Preset', 'Changed settings', 'Latest result', ''].map((t) =>
+                ['Preset', 'Differs from the defaults in', 'Latest result', ''].map((t) =>
                   h('th', { text: t }),
                 ),
               ),
@@ -292,20 +373,46 @@ function presetsCard(ctx, rerender) {
             h(
               'tbody',
               {},
-              names.map((n) => {
-                const p = presets[n];
-                const lastRes = (p.results || [])[p.results ? p.results.length - 1 : 0];
+              presets.map((p) => {
+                const res = results[p.name] || [];
+                const lastRes = res[res.length - 1];
+                const tags = [p.builtin ? 'built-in' : 'yours', p.mode, p.matches ? 'in use' : ''];
                 return h(
                   'tr',
-                  { class: n === active ? 'chosen' : '' },
-                  h('td', { text: `${n}${n === active ? ' (active)' : ''}` }),
-                  h('td', {
-                    class: 'small',
-                    text:
-                      Object.entries(p.changes)
-                        .map(([k, v]) => `${k} = ${show(v)}`)
-                        .join('; ') || 'all defaults',
-                  }),
+                  {
+                    class: `${p.name === active ? 'chosen' : ''}`,
+                    'data-preset': p.name,
+                  },
+                  h(
+                    'td',
+                    {},
+                    h('div', { text: `${p.name}${p.name === active ? ' (active)' : ''}` }),
+                    h('div', { class: 'muted small', text: tags.filter(Boolean).join(' · ') }),
+                    p.description ? h('div', { class: 'muted small', text: p.description }) : null,
+                  ),
+                  h(
+                    'td',
+                    { class: 'small' },
+                    p.diff.length
+                      ? h(
+                          'table',
+                          { class: 'preset-diff' },
+                          h(
+                            'tbody',
+                            {},
+                            p.diff.map((d) =>
+                              h(
+                                'tr',
+                                {},
+                                h('td', { text: d.path }),
+                                h('td', { text: show(d.value) }),
+                                h('td', { class: 'muted', text: `default ${show(d.default)}` }),
+                              ),
+                            ),
+                          ),
+                        )
+                      : 'all defaults',
+                  ),
                   h('td', { class: 'small', text: lastRes ? resultText(lastRes) : '–' }),
                   h(
                     'td',
@@ -315,33 +422,36 @@ function presetsCard(ctx, rerender) {
                       { class: 'row' },
                       h('button', {
                         text: 'Apply',
+                        'data-testid': `preset-apply-${p.name}`,
                         onclick: async () => {
-                          const changes = presetChanges(p, ctx.config.settings, ctx.config.values);
-                          try {
-                            const res = await ctx.api.post('/api/config', { changes });
-                            ctx.config.values = res.values;
-                            const errs = Object.entries(res.errors || {});
-                            if (errs.length)
-                              ctx.toast(errs.map(([k, v]) => `${k}: ${v}`).join(' '), 'error');
-                            else ctx.toast(`Applied “${n}”.`);
-                            save('activePreset', n);
-                          } catch (err) {
-                            ctx.toast(err.message, 'error');
-                          }
-                          rerender();
+                          const r = await call('/api/presets/apply', { name: p.name });
+                          if (!r) return;
+                          const errs = Object.entries(r.errors || {});
+                          if (errs.length)
+                            ctx.toast(errs.map(([k, v]) => `${k}: ${v}`).join(' '), 'error');
+                          else
+                            ctx.toast(
+                              `Applied “${p.name}” (${Object.keys(r.applied || {}).length} settings changed).`,
+                            );
+                          save('activePreset', p.name);
                         },
                       }),
-                      h('button', {
-                        class: 'danger',
-                        text: 'Delete',
-                        onclick: () => {
-                          const all = loadPresets();
-                          delete all[n];
-                          save('presets', all);
-                          if (store('activePreset', '') === n) save('activePreset', '');
-                          render();
-                        },
+                      h('a', {
+                        class: 'button small',
+                        text: 'Export',
+                        href: `/api/presets/export?name=${encodeURIComponent(p.name)}`,
+                        download: `phonegaze-preset-${p.name.replace(/[^A-Za-z0-9_-]+/g, '-')}.json`,
                       }),
+                      p.builtin
+                        ? null
+                        : h('button', {
+                            class: 'danger',
+                            text: 'Delete',
+                            onclick: async () => {
+                              await call('/api/presets/delete', { name: p.name });
+                              if (store('activePreset', '') === p.name) save('activePreset', '');
+                            },
+                          }),
                     ),
                   ),
                 );
@@ -361,8 +471,8 @@ function presetsCard(ctx, rerender) {
     );
     if (names.length > 1) doCompare();
   }
-  render();
-  return { el, render };
+  load();
+  return { el, render: load };
 }
 
 /**
@@ -494,14 +604,14 @@ function resultText(r) {
   return `${r.kind}: no result`;
 }
 
-function compareTable(pa, pb, na, nb, settings) {
+function compareTable(pa, pb, na, nb, settings, results) {
   if (!pa || !pb) return null;
   const paths = new Set([...Object.keys(pa.changes), ...Object.keys(pb.changes)]);
   const def = Object.fromEntries(settings.map((s) => [s.path, s.default]));
   const val = (p, k) =>
     Object.prototype.hasOwnProperty.call(p.changes, k) ? p.changes[k] : def[k];
-  const best = (p, key) => {
-    const xs = (p.results || []).map((r) => r[key]).filter((x) => typeof x === 'number');
+  const best = (name, key) => {
+    const xs = (results[name] || []).map((r) => r[key]).filter((x) => typeof x === 'number');
     return xs.length ? Math.min(...xs) : null;
   };
   return h(
@@ -530,22 +640,22 @@ function compareTable(pa, pb, na, nb, settings) {
         'tr',
         {},
         h('td', { text: 'Best validated accuracy' }),
-        h('td', { text: deg(best(pa, 'accuracy_deg')) }),
-        h('td', { text: deg(best(pb, 'accuracy_deg')) }),
+        h('td', { text: deg(best(na, 'accuracy_deg')) }),
+        h('td', { text: deg(best(nb, 'accuracy_deg')) }),
       ),
       h(
         'tr',
         {},
         h('td', { text: 'Best cross-validated error' }),
-        h('td', { text: deg(best(pa, 'loo_error_deg')) }),
-        h('td', { text: deg(best(pb, 'loo_error_deg')) }),
+        h('td', { text: deg(best(na, 'loo_error_deg')) }),
+        h('td', { text: deg(best(nb, 'loo_error_deg')) }),
       ),
       h(
         'tr',
         {},
         h('td', { text: 'Results recorded' }),
-        h('td', { text: fmt((pa.results || []).length, 0) }),
-        h('td', { text: fmt((pb.results || []).length, 0) }),
+        h('td', { text: fmt((results[na] || []).length, 0) }),
+        h('td', { text: fmt((results[nb] || []).length, 0) }),
       ),
     ),
   );

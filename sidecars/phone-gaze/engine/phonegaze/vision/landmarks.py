@@ -27,6 +27,7 @@ import cv2
 import numpy as np
 
 from ..types import DecodedFrame, Observation
+from . import distance as D
 from .geometry import (
     FLIP_YZ,
     INTER_EYE_M,
@@ -40,6 +41,7 @@ from .geometry import (
     head_angles_deg,
     orthonormalize,
 )
+from .settings import opt
 
 log = logging.getLogger(__name__)
 
@@ -68,11 +70,13 @@ class LandmarkEstimator:
         self._last_rect: tuple[float, float, float, float] | None = None  # wide pixels
         self._tile = 0
         self._count = 0
+        self._head: tuple[float, np.ndarray, np.ndarray | None] | None = None  # t, rotation, position
 
     def reset(self) -> None:
         self._last_rect = None
         self._tile = 0
         self._count = 0
+        self._head = None
 
     # -----------------------------------------------------------------------------------------
 
@@ -92,8 +96,8 @@ class LandmarkEstimator:
                 base_options=BaseOptions(model_asset_path=str(path)),
                 running_mode=vision.RunningMode.IMAGE,
                 num_faces=1,
-                min_face_detection_confidence=0.3,
-                min_face_presence_confidence=0.3,
+                min_face_detection_confidence=float(opt(self.config, "face_confidence", 0.3)),
+                min_face_presence_confidence=float(opt(self.config, "face_confidence", 0.3)),
                 output_face_blendshapes=True,
                 output_facial_transformation_matrixes=True,
             )
@@ -114,15 +118,18 @@ class LandmarkEstimator:
     def _candidates(self, w: int, h: int) -> list[tuple[str, tuple[float, float, float, float], float]]:
         """``(label, (x, y, cw, ch) in wide pixels (may extend outside), scale)``."""
         out = []
+        min_crop = float(opt(self.config, "face_min_crop_px", self.min_crop_px))
         if self._last_rect is not None:
             x, y, rw, rh = self._last_rect
             side = 2.0 * max(rw, rh)
             cx, cy = x + rw / 2, y + rh / 2
-            scale = max(1.0, self.min_crop_px / side)
+            scale = max(1.0, min_crop / side)
             out.append(("track", (cx - side / 2, cy - side / 2, side, side), scale))
         out.append(("full", (0.0, 0.0, float(w), float(h)), 1.0))
         pad = 0.3 * max(w, h)
         out.append(("padded", (-pad, -pad, w + 2 * pad, h + 2 * pad), 1.0))
+        if not opt(self.config, "face_tiles", True):
+            return out
         tiles = []
         for frac in (0.5, 0.33):
             cw, ch = w * frac, h * frac
@@ -131,7 +138,7 @@ class LandmarkEstimator:
                     tiles.append((fx * (w - cw), fy * (h - ch), cw, ch))
         t = tiles[self._tile % len(tiles)]
         self._tile += 1
-        out.append(("tile", t, max(1.0, self.min_crop_px / max(t[2], t[3]))))
+        out.append(("tile", t, max(1.0, min_crop / max(t[2], t[3]))))
         return out
 
     @staticmethod
@@ -152,6 +159,39 @@ class LandmarkEstimator:
 
     # -----------------------------------------------------------------------------------------
 
+    def _smoothing_alpha(self, t: float) -> float | None:
+        """Weight of the new measurement for head-pose smoothing, or ``None`` when off."""
+        tau = float(opt(self.config, "head_smoothing_s", 0.0))
+        if tau <= 0 or self._head is None:
+            return None
+        dt = t - self._head[0]
+        if dt < 0 or dt > 1.0:
+            return None  # a gap: start afresh
+        return 1.0 - math.exp(-dt / tau)
+
+    def _smooth_rotation(self, r: np.ndarray, frame: DecodedFrame) -> np.ndarray:
+        """Exponential smoothing of the head rotation (``head_smoothing_s``); remembers the
+        weight so :meth:`_smooth_position` smooths the position of the same frame alike."""
+        t = float(frame.frame.t)
+        a = self._smoothing_alpha(t)
+        self._alpha = a
+        if a is not None and self._head is not None:
+            r = orthonormalize((1 - a) * self._head[1] + a * r)
+        self._head = (t, r, self._head[2] if self._head is not None else None)
+        return r
+
+    def _smooth_position(self, p: np.ndarray) -> np.ndarray:
+        """Called after :meth:`_smooth_rotation` for the same frame."""
+        p = np.asarray(p, float)
+        if self._head is None:
+            return p
+        t, r, prev = self._head
+        a = getattr(self, "_alpha", None)
+        if a is not None and prev is not None:
+            p = (1 - a) * prev + a * p
+        self._head = (t, r, p)
+        return p
+
     def process(self, frame: DecodedFrame, previous: Observation | None) -> Observation | None:
         wide = frame.wide
         if wide is None:
@@ -165,7 +205,8 @@ class LandmarkEstimator:
         h, w = rgb.shape[:2]
         res = None
         used = None
-        for label, rect, scale in self._candidates(w, h)[: self.max_attempts + (1 if self._last_rect else 0)]:
+        attempts = int(opt(self.config, "face_attempts", self.max_attempts))
+        for label, rect, scale in self._candidates(w, h)[: attempts + (1 if self._last_rect else 0)]:
             crop = self._cut(rgb, rect, scale)
             if crop.shape[0] < 32 or crop.shape[1] < 32:
                 continue
@@ -197,6 +238,7 @@ class LandmarkEstimator:
         if res.facial_transformation_matrixes:
             m = np.asarray(res.facial_transformation_matrixes[0], float)
             head_r = orthonormalize(FLIP_YZ @ m[:3, :3] @ FLIP_YZ)
+            head_r = self._smooth_rotation(head_r, frame)
 
         shapes = {}
         if res.face_blendshapes:
@@ -238,14 +280,33 @@ class LandmarkEstimator:
             span_px = float(np.linalg.norm(pts[CORNERS["left"][1]] - pts[CORNERS["right"][1]]))
             fore = float(math.hypot(head_r[0, 0], head_r[1, 0])) if head_r is not None else 1.0
             d_span = depth_from_span(span_px, OUTER_CANTHI_M, intr.fx, fore)
-            d_iris = combine([(depth_from_iris(obs.eye(s).iris_radius or 0, intr.fx), 1.0) for s in ("left", "right")])
+            diameter = float(opt(self.config, "iris_diameter_mm", 11.7))
+            d_iris = combine([(depth_from_iris(obs.eye(s).iris_radius or 0, intr.fx, diameter), 1.0) for s in ("left", "right")])
             cues["canthi"] = None if d_span is None else distance_from_depth(intr, mid_px, d_span)
             cues["iris"] = None if d_iris is None else distance_from_depth(intr, mid_px, d_iris)
             w_iris = min(2.0, (np.mean(list(iris_r_wide.values())) / 10.0) ** 2)
-            dist = combine([(cues["canthi"], 1.0), (cues["iris"], w_iris)])
+            src = D.source(self.config)
+            used = "landmarks"
+            if src == "iris":
+                dist = cues["iris"]
+                used = "iris_landmarks"
+            elif src == "head":
+                dist = cues["canthi"]
+                used = "eye_corners"
+            elif src == "fixed":
+                dist = float(opt(self.config, "fixed_distance_m", 0.6))
+                used = "fixed"
+            else:
+                dist = combine([(cues["canthi"], 1.0), (cues["iris"], w_iris)])
+            if src == "depth":
+                d_map = combine([(D.depth_at(frame, (float(pts[CORNERS[s][0]][0] + pts[CORNERS[s][1]][0]) / 2, float(pts[CORNERS[s][0]][1] + pts[CORNERS[s][1]][1]) / 2)), 1.0) for s in ("left", "right")])
+                cues["depth"] = d_map
+                if d_map is not None:
+                    dist, used = d_map, "depth"
             arkit_pose = obs.provenance.get("distance") == "arkit"
             if dist is not None and 0.1 < dist < 3.0 and not arkit_pose:
                 obs.set("distance", float(dist), n)
+                D.note(obs, used, cues)
                 if head_r is not None:
                     obs.set("head_rotation", [[float(v) for v in row] for row in head_r], n)
                 rx, ry = intr.ray(*mid_px)
@@ -259,7 +320,7 @@ class LandmarkEstimator:
                     c = eyeball_center_from_corners(intr, eye.inner_corner, eye.outer_corner, z, head_r)
                     centers.append(c)
                     obs.set(f"{side}.eyeball_center", tuple(float(v) for v in c), n)
-                obs.set("head_position", tuple(float(v) for v in (centers[0] + centers[1]) / 2), n)
+                obs.set("head_position", tuple(float(v) for v in self._smooth_position((centers[0] + centers[1]) / 2)), n)
                 fill_eye_model(obs, n)
 
         obs.extra[n] = {

@@ -7,20 +7,35 @@ a dwell click, and a WebSocket stream the Forsee keyboard can use.
 How it is built: [ARCHITECTURE.md](ARCHITECTURE.md). Wire format: [docs/PROTOCOL.md](docs/PROTOCOL.md).
 Engine API: [docs/INTERFACES.md](docs/INTERFACES.md).
 
+**When it does not work, or to make it better: [docs/TUNING.md](docs/TUNING.md)**, the playbook
+(what to try first on the real day, a symptom-to-setting table, how to compare two setups).
+The tools it uses:
+
+- `python -m phonegaze doctor --phone http://<phone-ip>:8080`: a checklist from Python to each
+  vision stage, each item with a fix. The **Diagnostics** page (Dashboard link) runs the same and
+  shows a live health strip.
+- `python -m phonegaze bundle`: a diagnostics folder (summary, settings, log, recent numbers; no
+  images unless asked) in `~/.phonegaze/diagnostics/`. The log is in `~/.phonegaze/logs/`.
+- `python -m phonegaze lab SESSION`, `tune` and `ab`: score recorded sessions offline, sweep
+  settings held out, and compare two setups on the same data. Also the **Lab** page.
+- The **Tuning** tab (eye crops with the iris fit and reflection drawn on), about 120 switches on
+  the **Experiments** page, and presets. All new switches default to the behaviour from before.
+
 ## Status: read this first
 
 Nothing here has run on a real iPhone or a real Mac with a person in front of it. What has been
 checked, and how:
 
-| Part                                                     | Checked how                                                                                                                    |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| iPhone app 0.2.1 (live stream, zoom, lens, ARKit)        | Compiles in CI (macOS runner, signing off). Never run on a phone.                                                              |
-| Engine (Python): phone client, pipeline, models, UI, API | Unit tests on Linux and macOS CI; end to end against the simulated phone (below).                                              |
-| Simulated phone                                          | Speaks the same protocol as the app; exact synthetic eyes, ARKit transforms and screen reflections.                            |
-| Browser UI                                               | Driven in headless Chromium against the engine and simulator: connect, aim, calibrate, validate, refine, live, record.         |
-| Mac outputs (cursor, hotkeys, screen size)               | CI on a macOS runner imports them, reads the screen size from macOS and runs the engine for a few seconds. Cursor never moved. |
-| Forsee gaze source (`?gaze=phone`)                       | Unit tests against a fake server. Never connected to the real engine.                                                          |
-| Drift correction from selections (experiment, off)       | Unit tests, a simulated drifting phone (Models simulator), API tests with fake clients. Never with a real phone or person.     |
+| Part                                                           | Checked how                                                                                                                                                     |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| iPhone app 0.2.2 (live stream, zoom, lens, ARKit)              | Compiles in CI. Runs in the iOS Simulator in CI with a synthetic test-pattern camera, streaming to the real engine (9 wire tests). Never run on a phone.        |
+| Engine (Python): phone client, pipeline, models, UI, API       | Unit tests on Linux and macOS CI; end to end against the simulated phone (below).                                                                               |
+| Simulated phone                                                | Speaks the same protocol as the app; exact synthetic eyes, ARKit transforms and screen reflections.                                                             |
+| Browser UI                                                     | Driven in headless Chromium against the engine and simulator: connect, aim, calibrate, validate, refine, live, record.                                          |
+| Mac outputs (cursor, hotkeys, screen size)                     | CI on a macOS runner imports them, reads the screen size from macOS and runs the engine for a few seconds. Cursor never moved.                                  |
+| Forsee gaze source (`?gaze=phone`)                             | Unit tests against a fake server. Never connected to the real engine.                                                                                           |
+| Drift correction from selections (experiment, off)             | Unit tests, a simulated drifting phone (Models simulator), API tests with fake clients. Never with a real phone or person.                                      |
+| Doctor, diagnostics, lab, tuning switches, calibration options | Unit tests; the doctor, Tuning page and calibration options against the simulated phone; the lab on synthetic sessions only. Never with a real phone or person. |
 
 Accuracy against the simulator, measured by
 [`engine/tests/ui/accuracy_e2e.cjs`](engine/tests/ui/accuracy_e2e.cjs): a 3×3 grid calibration
@@ -74,7 +89,7 @@ simulated phone watching a synthetic face. Press **Calibrate**, then Space; then
 `--sim camera` is the simulated rear camera at 2×. Ctrl-C stops it. The simulator keeps its
 calibrations in its own profile (`~/.phonegaze/profiles/sim/`), apart from the real one.
 
-### 2. Rebuild the phone app (version 0.2.1)
+### 2. Rebuild the phone app (version 0.2.2)
 
 Once, put your signing team in a file git ignores:
 

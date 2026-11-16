@@ -22,7 +22,26 @@ eye offset          3      added to both eyeball centres, head frame, m; only wi
                            head poses and ``eye_offset=True`` (off by default: in the test
                            simulator it made head-moved accuracy worse)
 eye radius          1      rotation centre to iris plane, m; prior 10.2 +- 1 mm
+centre right/left   3 + 3  per-eye eyeball rotation centre in the HEAD's frame, m
+                           (``centre`` option, below); prior SD ``centre_sd_mm``
 ==================  =====  ============================================================
+
+Eyeball centre (``centre`` option, config ``models.eyeball_centre``):
+
+- ``"estimator"`` (default): the centre the estimators measured each frame (from the eye
+  corners, or ARKit), plus the shared eye offset above. The last two parameter groups are unused.
+- ``"per_eye"``: the measured centre plus a fixed per-eye correction in the head's frame. A
+  landmark-derived centre that sits 1 mm off the real one tilts that eye's axis by about 5
+  degrees; a correction that turns with the head removes the part of that error that is fixed in
+  the head, which is what changes the answer when the head turns.
+- ``"head"``: a fixed per-eye point in the head's frame placed by the head pose alone
+  (``head_position + R_head @ centre``), started from the median of the measured centres in that
+  frame, so the eye-corner landmarks no longer move the eyeball centre at all.
+
+The corrections are only freed when the head moved during calibration (several head positions
+or a head sweep, see :meth:`GeometricModel._detect_multi_pose`); otherwise they stay at their
+prior. ``eye`` chooses which eye predicts (``both``, ``left``, ``right``; ``auto`` is resolved by
+``calibration.fit_all`` from per-eye held-out errors).
 
 From a single head position, kappa and the screen pose cannot be told apart (rotating the
 screen looks like shifting both eyes' kappa), so with one pose kappa is held close to its prior
@@ -56,7 +75,12 @@ faces the user squarely: the user's right is the camera's -x."""
 
 DEG = math.pi / 180.0
 I_ROT, I_T, I_KR, I_KL, I_GAIN, I_OFF, I_RAD = slice(0, 3), slice(3, 6), slice(6, 8), slice(8, 10), slice(10, 12), slice(12, 15), 15
-N_PARAMS = 16
+I_CR, I_CL = slice(16, 19), slice(19, 22)
+N_PARAMS = 22
+CENTRE_MODES = ("estimator", "per_eye", "head", "auto")
+EYE_CHOICES = ("both", "left", "right", "auto")
+MULTI_POSE_ROTATION_DEG = 6.0
+"""Head rotations spread wider than this (a head sweep) count as several head positions."""
 
 KAPPA_PRIOR = np.array([5.0 * DEG, -1.5 * DEG])
 """Nasal (positive = towards the nose) and vertical (negative = up, since y points down)."""
@@ -98,8 +122,10 @@ class EyeData:
         self.ray: list[np.ndarray] | np.ndarray = []
         self.rh: list[np.ndarray] | np.ndarray = []
         self.side: list[float] | np.ndarray = []
+        self.hp: list[np.ndarray] | np.ndarray = []
+        self.centre_mode = "estimator"
 
-    def add(self, obs: Observation, name: str, centre: np.ndarray | None = None) -> bool:
+    def add(self, obs: Observation, name: str, centre: np.ndarray | None = None, head: np.ndarray | None = None) -> bool:
         ci = F.eye_center(obs, name) if centre is None else centre
         gi = F.optical_dir(obs, name)
         if ci is None or gi is None:
@@ -115,6 +141,8 @@ class EyeData:
             rx, ry = obs.intrinsics.ray(*eye.iris_center)
             ray = np.array([rx, ry, 1.0]) / math.sqrt(rx * rx + ry * ry + 1.0)
         r = F.as_rotation(obs.head_rotation)
+        hp = F.head_position(obs) if head is None else head
+        self.hp.append(ci if hp is None else hp)  # type: ignore[union-attr]
         self.c.append(ci)  # type: ignore[union-attr]
         self.g.append(gi)  # type: ignore[union-attr]
         self.ray.append(ray)  # type: ignore[union-attr]
@@ -128,6 +156,7 @@ class EyeData:
         self.ray = np.array(self.ray, float).reshape(-1, 3)
         self.rh = np.array(self.rh, float).reshape(-1, 3, 3)
         self.side = np.array(self.side, float)
+        self.hp = np.array(self.hp, float).reshape(-1, 3)
         self.has_ray = np.all(np.isfinite(self.ray), axis=1)
         return self
 
@@ -144,21 +173,27 @@ class _Rows(EyeData):
     averaging first removes most of it. Without ``aggregate``: one row per sample and eye.
     """
 
-    def __init__(self, samples: list[CalibSample], mm: tuple[float, float], aggregate: bool = True) -> None:
+    def __init__(self, samples: list[CalibSample], mm: tuple[float, float], aggregate: bool = True, centre_mode: str = "estimator") -> None:
         super().__init__()
+        self.centre_mode = centre_mode
         per: dict[tuple[int, float], EyeData] = {}
-        meta: dict[tuple[int, float], tuple[tuple[float, float], str]] = {}
-        tgt, dot, smp = [], [], []
+        meta: dict[tuple[int, float], list[Any]] = {}
+        tgt, dot, smp, sw = [], [], [], []
         for i, s in enumerate(samples):
             for name in F.SIDES:
                 key = (int(s.dot_id), 1.0 if name == "right" else -1.0)
                 if aggregate:
                     if per.setdefault(key, EyeData()).add(s.obs, name):
-                        meta[key] = ((s.target[0] * mm[0], s.target[1] * mm[1]), s.kind)
+                        # targets are averaged too: moving-dot samples carry their own (lagged) target
+                        m = meta.setdefault(key, [np.zeros(2), 0, s.kind, 0.0])
+                        m[0] = m[0] + np.array([s.target[0] * mm[0], s.target[1] * mm[1]])
+                        m[1] += 1
+                        m[3] += float(getattr(s, "weight", 1.0))
                 elif self.add(s.obs, name):
                     tgt.append((s.target[0] * mm[0], s.target[1] * mm[1]))
                     dot.append(s.dot_id)
                     smp.append(s.kind)
+                    sw.append(float(getattr(s, "weight", 1.0)))
         if aggregate:
             for key, ed in per.items():
                 if not len(ed.c):
@@ -175,9 +210,12 @@ class _Rows(EyeData):
                 u, _, vt = np.linalg.svd(np.mean(ed.rh, axis=0))
                 self.rh.append(u @ vt)  # type: ignore[union-attr]
                 self.side.append(key[1])  # type: ignore[union-attr]
-                tgt.append(meta[key][0])
+                self.hp.append(np.mean(ed.hp, axis=0))  # type: ignore[union-attr]
+                m = meta[key]
+                tgt.append(tuple(m[0] / max(m[1], 1)))
                 dot.append(key[0])
-                smp.append(meta[key][1])
+                smp.append(m[2])
+                sw.append(m[3] / max(m[1], 1))
         self.freeze()
         self.target_mm = np.array(tgt, float).reshape(-1, 2)
         self.dot = np.array(dot)
@@ -191,7 +229,24 @@ class _Rows(EyeData):
                     w[m] = 1.0 / m.sum()
         kinds = np.array(smp) if smp else np.zeros(0, str)
         w[kinds == "pursuit"] *= 0.5
+        if sw:
+            w *= np.maximum(np.array(sw, float), 0.0)
         self.weight = w
+        self.kind = kinds
+
+
+def eye_centres(p: np.ndarray, d: EyeData) -> np.ndarray:
+    """Eyeball rotation centres (camera coordinates) under the parameters, by ``d.centre_mode``
+    (module docstring, "Eyeball centre")."""
+    rh = d.rh
+    mode = getattr(d, "centre_mode", "estimator")
+    off = np.broadcast_to(p[I_OFF], (len(d.side), 3))
+    if mode == "estimator":
+        return d.c + np.einsum("mij,mj->mi", rh, off)
+    per = np.where((d.side > 0)[:, None], p[I_CR], p[I_CL])
+    if mode == "head":
+        return d.hp + np.einsum("mij,mj->mi", rh, off + per)
+    return d.c + np.einsum("mij,mj->mi", rh, off + per)
 
 
 def forward(p: np.ndarray, d: EyeData) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -204,7 +259,7 @@ def forward(p: np.ndarray, d: EyeData) -> tuple[np.ndarray, np.ndarray, np.ndarr
     rs = screen_rotation(p[I_ROT])
     s0 = p[I_T]
     rh = d.rh
-    cc = d.c + np.einsum("mij,j->mi", rh, p[I_OFF])
+    cc = eye_centres(p, d)
     g = np.array(d.g, copy=True)
     if d.has_ray.any():
         ray = d.ray[d.has_ray]
@@ -255,8 +310,15 @@ class GeometricModel(BaseModel):
         smooth_centre_s: float = 0.3,
         sigma_deg: float = 1.0,
         distance_sd_m: float = 0.1,
+        centre: str = "estimator",
+        centre_sd_mm: float = 2.0,
+        eye: str = "both",
         **extra: Any,
     ) -> None:
+        if centre not in CENTRE_MODES:
+            raise ValueError(f"unknown eyeball centre mode {centre!r}")
+        if eye not in EYE_CHOICES:
+            raise ValueError(f"unknown eye choice {eye!r}")
         super().__init__(
             gain=gain,
             eye_offset=eye_offset,
@@ -270,8 +332,17 @@ class GeometricModel(BaseModel):
             smooth_centre_s=smooth_centre_s,
             sigma_deg=sigma_deg,
             distance_sd_m=distance_sd_m,
+            centre=centre,
+            centre_sd_mm=centre_sd_mm,
+            eye=eye,
             **extra,
         )
+        self.eye_use = eye if eye in ("left", "right") else "both"
+        self.eye_weights: dict[str, float] = {"left": 1.0, "right": 1.0}
+        """Per-eye fusion weights (multiplying each eye's confidence); set by the eye choice
+        ``"weighted"`` (inverse squared per-eye held-out error), otherwise 1."""
+        self.centre_prior: np.ndarray | None = None
+        self.centre_used: str | None = None
         self.params = self.default_params()
         self.multi_pose = False
         self.viewing_distance_m: float | None = None
@@ -286,6 +357,7 @@ class GeometricModel(BaseModel):
         if isinstance(other, GeometricModel) and other.fitted:
             self._warm = other.params.copy()
             self.person_prior = None if other.person_prior is None else other.person_prior.copy()
+            self.centre_prior = None if other.centre_prior is None else other.centre_prior.copy()
 
     # --- parameters ---------------------------------------------------------------------------
 
@@ -310,6 +382,9 @@ class GeometricModel(BaseModel):
         sd[I_GAIN] = o["gain_sd"]
         sd[I_OFF] = o["eye_offset_sd_mm"] / 1000.0
         sd[I_RAD] = o["radius_sd_mm"] / 1000.0
+        if self.centre_prior is not None and self.person_prior is None:
+            mean[16:22] = self.centre_prior
+        sd[16:22] = float(o.get("centre_sd_mm", 2.0)) / 1000.0
         if pose_prior is not None:
             p0, rot_sd, t_sd = pose_prior
             mean[0:6] = p0[0:6]
@@ -325,6 +400,8 @@ class GeometricModel(BaseModel):
             free[I_GAIN] = bool(self.options["gain"])
             free[I_OFF] = bool(self.options["eye_offset"]) and (self.multi_pose or bool(self.options.get("eye_offset_single")))
             free[I_RAD] = bool(self.options["radius"])
+            if self._mode() != "estimator" and self.multi_pose:
+                free[16:22] = True
         return free
 
     # --- solving -----------------------------------------------------------------------------
@@ -364,7 +441,7 @@ class GeometricModel(BaseModel):
             return np.concatenate([r, pr, extra])
 
         def cc_rows(q: np.ndarray) -> np.ndarray:
-            return np.asarray(rows.c) + np.einsum("mij,j->mi", rows.rh, q[I_OFF])
+            return eye_centres(q, rows)
 
         lo = np.full(N_PARAMS, -np.inf)
         hi = np.full(N_PARAMS, np.inf)
@@ -405,6 +482,8 @@ class GeometricModel(BaseModel):
                 p = self.default_params()
                 if self.person_prior is not None:
                     p[6:] = self.person_prior[6:]
+                elif self.centre_prior is not None:
+                    p[16:22] = self.centre_prior
                 p[I_ROT] = rv
                 p[I_T] = -rs @ np.asarray(q)
                 out.append(p)
@@ -415,19 +494,30 @@ class GeometricModel(BaseModel):
         pos = [F.head_position(s.obs) for s in samples]
         pos = np.array([p for p in pos if p is not None])
         spread = float(np.max(np.ptp(pos, axis=0))) if len(pos) > 2 else 0.0
-        return len(groups) > 1 and spread > 0.03 or spread > 0.06
+        if len(groups) > 1 and spread > 0.03 or spread > 0.06:
+            return True
+        return head_rotation_spread_deg(samples) > MULTI_POSE_ROTATION_DEG
 
     def _fit(self, samples: list[CalibSample], screen: ScreenInfo) -> FitReport:
         init, self._warm = self._warm, None
         mm = self.mm_per_point
         screen_m = (screen.width * mm[0] / 1000.0, screen.height * mm[1] / 1000.0)
         self._screen_m = screen_m
-        rows = _Rows(samples, mm)
+        self.multi_pose = self._detect_multi_pose(samples)
+        mode = str(self.options.get("centre", "estimator"))
+        if mode == "auto":
+            # "head" when the head moved during calibration (head sweep or several positions), else
+            # the estimator's centres: without head movement nothing pins the head-frame centres,
+            # and in the phonegaze.sim loop "head" from one still position was worse after a turn.
+            mode = "head" if self.multi_pose else "estimator"
+        self.centre_used = mode
+        rows = _Rows(samples, mm, centre_mode=mode)
+        if mode == "head" and self.centre_prior is None and self.person_prior is None:
+            self.centre_prior = head_frame_centres(rows)
         n_dots = len(dot_groups(samples))
         if len(rows) < 4 or len(np.unique(rows.dot)) < 3:
             self.fitted = False
             return FitReport(model=self.name, ok=False, n_samples=len(samples), n_dots=n_dots, message="needs eyeball centres and gaze directions for at least 3 dots")
-        self.multi_pose = self._detect_multi_pose(samples)
         if init is not None:
             p, _ = self._solve(rows, init, self._free_mask(True), irls=2, max_nfev=100)
         else:
@@ -472,7 +562,7 @@ class GeometricModel(BaseModel):
         False when there is too little data."""
         if not self.fitted:
             return False
-        rows = _Rows(samples, self.mm_per_point)
+        rows = _Rows(samples, self.mm_per_point, centre_mode=self._mode())
         if len(rows) < 4 or len(np.unique(rows.dot)) < 3:
             return False
         p, _ = self._solve(rows, self.params, self._free_mask(False), pose_prior=(self.params.copy(), rot_sd_deg * DEG, t_sd_m), irls=3)
@@ -489,7 +579,7 @@ class GeometricModel(BaseModel):
         jump of more than 2 cm, a gap of more than 1 s, or time going backwards (a new sequence).
         Calling again with the same ``obs.t`` returns the stored value (``predict`` and
         ``predict_all`` both see each frame)."""
-        c = F.eye_center(obs, side)
+        c = F.eye_center(obs, side) if side != "head" else F.head_position(obs)
         tau = float(self.options.get("smooth_centre_s") or 0.0)
         if c is None or tau <= 0:
             return c
@@ -504,10 +594,22 @@ class GeometricModel(BaseModel):
         self._smooth[side] = (obs.t, new)
         return new
 
-    def eye_points(self, obs: Observation, smooth: bool = False) -> dict[str, tuple[float, float]]:
-        """Per-eye screen points (before the output correction)."""
+    def _mode(self) -> str:
+        """The eyeball-centre mode in use (``auto`` resolved at fit time)."""
+        mode = getattr(self, "centre_used", None) or str(self.options.get("centre", "estimator"))
+        return "estimator" if mode == "auto" else mode
+
+    def _sides(self) -> tuple[str, ...]:
+        return F.SIDES if self.eye_use in ("both", "weighted") else (self.eye_use,)
+
+    def eye_points(self, obs: Observation, smooth: bool = False, sides: tuple[str, ...] | None = None) -> dict[str, tuple[float, float]]:
+        """Per-eye screen points (before the output correction), for the eyes in use (or
+        ``sides``)."""
         d = EyeData()
-        names = [n for n in F.SIDES if d.add(obs, n, self._smoothed_centre(obs, n) if smooth else None)]
+        d.centre_mode = self._mode()
+        # "head" mode: the head position is smoothed like the eyeball centres are (same jitter)
+        head = self._smoothed_centre(obs, "head") if smooth and d.centre_mode == "head" else None
+        names = [n for n in (sides or self._sides()) if d.add(obs, n, self._smoothed_centre(obs, n) if smooth else None, head=head)]
         if not names:
             return {}
         mm, ok, _ = forward(self.params, d.freeze())
@@ -519,14 +621,25 @@ class GeometricModel(BaseModel):
         thousands of samples); the live path goes sample by sample."""
         if raw is False or not self.fitted:
             return super().predict_samples(samples, raw=raw)
+        return self._batch(samples, self._sides())
+
+    def eye_predict_samples(self, samples: list[CalibSample]) -> dict[str, np.ndarray]:
+        """Raw per-eye predictions (``N x 2`` each, NaN where that eye had none), for per-eye
+        held-out scores and the eye choice."""
+        if not self.fitted:
+            return {}
+        return {side: self._batch(samples, (side,)) for side in F.SIDES}
+
+    def _batch(self, samples: list[CalibSample], use: tuple[str, ...]) -> np.ndarray:
         d = EyeData()
+        d.centre_mode = self._mode()
         owner, sides, conf = [], [], []
         for i, smp in enumerate(samples):
-            for name in F.SIDES:
+            for name in use:
                 if d.add(smp.obs, name):
                     owner.append(i)
                     sides.append(name)
-                    conf.append(F.eye_confidence(smp.obs, name))
+                    conf.append(F.eye_confidence(smp.obs, name) * self.eye_weights.get(name, 1.0))
         out = np.full((len(samples), 2), np.nan)
         if not owner:
             return out
@@ -546,7 +659,9 @@ class GeometricModel(BaseModel):
         the fit uses), with the correction applied."""
         if not self.fitted:
             return super().dot_predictions(samples)
-        rows = _Rows(samples, (1.0, 1.0))
+        rows = _Rows(samples, (1.0, 1.0), centre_mode=self._mode())
+        if self.eye_use in ("left", "right") and len(rows):
+            rows.weight = np.where(rows.side == (1.0 if self.eye_use == "right" else -1.0), rows.weight, 0.0)
         ids = list(dot_groups(samples))
         pred = np.full((len(ids), 2), np.nan)
         target = np.array([next(s.target for s in samples if s.dot_id == d) for d in ids], float).reshape(-1, 2)
@@ -555,9 +670,11 @@ class GeometricModel(BaseModel):
             mm, ok, cc = forward(self.params, rows)
             pts = mm / np.array(self.mm_per_point)
             for k, d in enumerate(ids):
-                m = ok & (rows.dot == d)
+                m = ok & (rows.dot == d) & (rows.weight > 0)
                 if m.any():
                     pred[k] = self.correction.apply_many(pts[m].mean(axis=0)[None, :])[0]
+                    if self.error_map is not None:
+                        pred[k] = self.error_map.apply_many(pred[k][None, :])[0]
                     dist[k] = float(np.linalg.norm(cc[m].mean(axis=0)))
         return ids, pred, target, dist
 
@@ -567,7 +684,10 @@ class GeometricModel(BaseModel):
             return None
         from ..filters import fuse_eyes
 
-        x, y, conf = fuse_eyes(pts.get("left"), pts.get("right"), F.eye_confidence(obs, "left"), F.eye_confidence(obs, "right"))
+        cl, cr = F.eye_confidence(obs, "left"), F.eye_confidence(obs, "right")
+        _, _, conf = fuse_eyes(pts.get("left"), pts.get("right"), cl, cr)
+        # position: each eye's confidence times its weight (eye choice "weighted"; 1 otherwise)
+        x, y, _ = fuse_eyes(pts.get("left"), pts.get("right"), cl * self.eye_weights.get("left", 1.0), cr * self.eye_weights.get("right", 1.0))
         return GazePoint(x=x, y=y, t=obs.t, confidence=conf, model=self.name, t_local=obs.t_local, left=pts.get("left"), right=pts.get("right"))
 
     def degree_distance(self) -> float | None:
@@ -611,6 +731,10 @@ class GeometricModel(BaseModel):
             "measured_distance_m": self.measured_distance_m,
             "distance_plausible": self.distance_plausible(),
             "multi_pose": self.multi_pose,
+            "eyeball_centre": self._mode(),
+            "centre_right_mm": [float(v * 1000) for v in p[I_CR]],
+            "centre_left_mm": [float(v * 1000) for v in p[I_CL]],
+            "eye": self.eye_use,
         }
 
     def person_params(self) -> dict[str, Any]:
@@ -620,11 +744,12 @@ class GeometricModel(BaseModel):
         return {"params": self.params[:6].tolist(), **self.screen_pose()}
 
     def set_person(self, person: dict[str, Any]) -> None:
-        self.params[6:] = np.asarray(person["params"], float)
+        saved = np.asarray(person["params"], float)
+        self.params[6 : 6 + len(saved)] = saved[: N_PARAMS - 6]
         self.person_prior = self.params.copy()
 
     def _state(self) -> dict[str, Any]:
-        return {"params": self.params.tolist(), "multi_pose": self.multi_pose, "viewing_distance_m": self.viewing_distance_m, "measured_distance_m": self.measured_distance_m, "summary": self.summary()}
+        return {"params": self.params.tolist(), "multi_pose": self.multi_pose, "eye_use": self.eye_use, "eye_weights": dict(self.eye_weights), "centre_used": self.centre_used, "centre_prior": None if self.centre_prior is None else self.centre_prior.tolist(), "viewing_distance_m": self.viewing_distance_m, "measured_distance_m": self.measured_distance_m, "summary": self.summary()}
 
     def _load_state(self, state: dict[str, Any]) -> None:
         params = np.asarray(state["params"], float)
@@ -632,5 +757,35 @@ class GeometricModel(BaseModel):
             params = np.concatenate([params, self.default_params()[len(params) :]])
         self.params = params
         self.multi_pose = bool(state.get("multi_pose", False))
+        self.eye_use = str(state.get("eye_use") or self.eye_use)
+        self.eye_weights = {k: float(v) for k, v in (state.get("eye_weights") or {"left": 1.0, "right": 1.0}).items()}
+        self.centre_used = state.get("centre_used")
+        cp = state.get("centre_prior")
+        self.centre_prior = None if cp is None else np.asarray(cp, float)
         self.viewing_distance_m = state.get("viewing_distance_m")
         self.measured_distance_m = state.get("measured_distance_m")
+
+
+def head_rotation_spread_deg(samples: list[CalibSample]) -> float:
+    """Largest angle (degrees) between any sample's head rotation and the median head rotation:
+    how much the head turned during calibration."""
+    rots = [r for r in (F.as_rotation(s.obs.head_rotation) for s in samples) if r is not None]
+    if len(rots) < 3:
+        return 0.0
+    rv = Rotation.from_matrix(np.array(rots)).as_rotvec()
+    med = Rotation.from_rotvec(np.median(rv, axis=0))
+    ang = (Rotation.from_rotvec(rv) * med.inv()).magnitude()
+    return float(np.degrees(np.percentile(ang, 95)))
+
+
+def head_frame_centres(rows: EyeData) -> np.ndarray:
+    """Per-eye median of the measured eyeball centres in the head's frame relative to the head
+    position: the starting point (and prior mean) of the ``"head"`` eyeball-centre mode.
+    ``[right xyz, left xyz]`` in metres."""
+    out = np.zeros(6)
+    rel = np.einsum("mji,mj->mi", np.asarray(rows.rh), np.asarray(rows.c) - np.asarray(rows.hp))
+    for k, sd in enumerate((1.0, -1.0)):
+        m = np.asarray(rows.side) == sd
+        if m.any():
+            out[3 * k : 3 * k + 3] = np.median(rel[m], axis=0)
+    return out

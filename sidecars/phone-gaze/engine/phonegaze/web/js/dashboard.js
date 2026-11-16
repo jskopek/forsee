@@ -440,6 +440,44 @@ function logCard(ctx) {
   return { el, update() {}, off };
 }
 
+// Link to the Diagnostics page, with the live health strip (WebSocket "health" messages) in one line.
+function diagnosticsCard(ctx) {
+  const line = h('p', {
+    class: 'muted small',
+    'data-testid': 'health-line',
+    text: 'Waiting for frames…',
+  });
+  const off = ctx.api.on('health', (m) => {
+    const parts = (m.items || [])
+      .filter((it) => it.status !== 'na')
+      .map((it) => `${it.label} ${it.pct === null ? '–' : `${it.pct.toFixed(0)}%`}`);
+    line.textContent = parts.length ? parts.join(' · ') : 'No frames yet.';
+    const bad = (m.items || []).some((it) => it.status === 'bad');
+    line.className = `small ${bad ? 'bad' : 'muted'}`;
+  });
+  const el = h(
+    'section',
+    { class: 'card' },
+    h('h2', { text: 'Something wrong?' }),
+    line,
+    h('a', {
+      href: 'diagnostics.html',
+      'data-testid': 'diagnostics-link',
+      text: 'Diagnostics: checklist with fixes, health strip, bundle for the developers',
+    }),
+    h(
+      'p',
+      { class: 'small' },
+      h('a', {
+        href: 'lab.html',
+        'data-testid': 'lab-link',
+        text: 'Lab: score recorded sessions offline, sweep settings, compare two setups (A/B)',
+      }),
+    ),
+  );
+  return { el, update() {}, off };
+}
+
 export default {
   id: 'dashboard',
   title: 'Dashboard',
@@ -451,6 +489,7 @@ export default {
       outputsCard(ctx),
       modelsCard(ctx),
       logCard(ctx),
+      diagnosticsCard(ctx),
     ];
     root.appendChild(
       h(

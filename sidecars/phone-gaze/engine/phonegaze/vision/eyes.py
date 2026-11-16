@@ -38,9 +38,9 @@ class EyeGuess:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
-def radius_range(fx: float, near_mm: float = NEAR_MM, far_mm: float = FAR_MM) -> tuple[float, float]:
+def radius_range(fx: float, near_mm: float = NEAR_MM, far_mm: float = FAR_MM, diameter_mm: float = IRIS_DIAMETER_MM) -> tuple[float, float]:
     """Iris radius range in pixels for a lens with focal length ``fx`` pixels."""
-    return fx * IRIS_DIAMETER_MM / 2 / far_mm, fx * IRIS_DIAMETER_MM / 2 / near_mm
+    return fx * diameter_mm / 2 / far_mm, fx * diameter_mm / 2 / near_mm
 
 
 def direct_eyes(bgr: np.ndarray, r_min: float, r_max: float, near=None, max_eyes: int = 2, max_width: int = 1920) -> list[EyeGuess]:
@@ -128,9 +128,10 @@ def _sample(gray: np.ndarray, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
     return cv2.remap(gray, xs.astype(np.float32), ys.astype(np.float32), cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
 
-def limbus_points(gray: np.ndarray, centre, r0: float, step_deg: float = 3.0):
+def limbus_points(gray: np.ndarray, centre, r0: float, step_deg: float = 3.0, subpixel: bool = True):
     """Strongest dark-to-bright step outward along rays from the centre, between 0.6 and 1.45 r0.
-    The peak is refined with a parabola through the gradient (sub-sample precision)."""
+    The peak is refined with a parabola through the gradient (sub-sample precision) unless
+    ``subpixel`` is false."""
     angles = np.radians(np.arange(0, 360, step_deg))
     dr = max(0.25, r0 / 200)
     rho = np.arange(0.6 * r0, 1.45 * r0, dr)
@@ -148,7 +149,7 @@ def limbus_points(gray: np.ndarray, centre, r0: float, step_deg: float = 3.0):
     gm, g0, gp = grad[rows, ic - 1], grad[rows, ic], grad[rows, ic + 1]
     den = gm - 2 * g0 + gp
     frac = np.where((np.abs(den) > 1e-9) & (i == ic), 0.5 * (gm - gp) / np.where(np.abs(den) > 1e-9, den, 1.0), 0.0)
-    frac = np.clip(frac, -0.5, 0.5)
+    frac = np.clip(frac, -0.5, 0.5) if subpixel else np.zeros_like(frac)
     r_at = rho[0] + (ic + frac) * dr
     r_at = np.where(i == ic, r_at, rho[i])
     pts = np.stack([centre[0] + np.cos(angles) * r_at, centre[1] + np.sin(angles) * r_at], 1)
@@ -165,29 +166,84 @@ def _ellipse_residual(pts: np.ndarray, ell) -> np.ndarray:
     return (np.hypot(u / a, v / b) - 1) * (a + b) / 2
 
 
-def fit_iris(gray: np.ndarray, centre, r0: float, rng=None, iterations: int = 2, major_range=None, ransac: int = 150, early_stop: float = 0.85):
-    """Fit an ellipse to the limbus. Returns dict or None.
+def _fit_circle(pts: np.ndarray):
+    """Least-squares circle (Kasa) as an OpenCV-style ellipse ``((cx, cy), (d, d), 0)``."""
+    x, y = pts[:, 0].astype(np.float64), pts[:, 1].astype(np.float64)
+    A = np.column_stack([x, y, np.ones_like(x)])
+    b = x * x + y * y
+    try:
+        sol, *_ = np.linalg.lstsq(A, b, rcond=None)
+    except np.linalg.LinAlgError:
+        raise cv2.error("circle fit failed") from None
+    cx, cy = sol[0] / 2, sol[1] / 2
+    r2 = sol[2] + cx * cx + cy * cy
+    if not np.isfinite(r2) or r2 <= 0:
+        raise cv2.error("circle fit failed")
+    d = 2 * float(np.sqrt(r2))
+    return ((float(cx), float(cy)), (d, d), 0.0)
+
+
+def _lid_keep(angles: np.ndarray, upper_deg: float, lower_deg: float) -> np.ndarray:
+    """Rays to keep: not within ``upper_deg`` of straight up or ``lower_deg`` of straight down
+    (image y grows downwards, so straight up is -90 degrees)."""
+    a = np.degrees(angles) % 360.0
+    keep = np.ones(len(a), bool)
+    if upper_deg > 0:
+        keep &= np.abs(((a - 270.0) + 180.0) % 360.0 - 180.0) > upper_deg
+    if lower_deg > 0:
+        keep &= np.abs(((a - 90.0) + 180.0) % 360.0 - 180.0) > lower_deg
+    return keep
+
+
+def fit_iris(
+    gray: np.ndarray,
+    centre,
+    r0: float,
+    rng=None,
+    iterations: int = 2,
+    major_range=None,
+    ransac: int = 150,
+    early_stop: float = 0.85,
+    *,
+    shape: str = "ellipse",
+    edge_keep: float = 0.35,
+    subpixel: bool = True,
+    lid_upper_deg: float = 0.0,
+    lid_lower_deg: float = 0.0,
+    inlier_frac: float = 0.04,
+):
+    """Fit an ellipse (or, with ``shape="circle"``, a circle) to the limbus. Returns dict or None.
 
     major_range = (lo, hi) limits the ellipse's long axis. The long axis of a tilted circle is
     its true diameter, so with a known iris size it barely changes with gaze direction.
+
+    Tuning (defaults reproduce the original): ``edge_keep`` is the fraction of the 90th percentile
+    edge strength a ray needs; ``lid_upper_deg`` / ``lid_lower_deg`` drop rays near straight up /
+    down (eyelids); ``inlier_frac`` is the inlier tolerance in iris radii; ``subpixel`` toggles
+    the parabola refinement of each edge point.
     """
+    circle = shape == "circle"
+    fit_shape = _fit_circle if circle else cv2.fitEllipse
+    n_min = 3 if circle else 5
     rng = rng or np.random.default_rng(0)
     centre = np.asarray(centre, float)
     best = None
     ell = None
     tol = 1.0
     for _ in range(iterations):
-        pts, strength, angles = limbus_points(gray, centre, r0)
-        keep = strength > 0.35 * np.percentile(strength, 90)
+        pts, strength, angles = limbus_points(gray, centre, r0, subpixel=subpixel)
+        keep = strength > edge_keep * np.percentile(strength, 90)
+        if lid_upper_deg > 0 or lid_lower_deg > 0:
+            keep &= _lid_keep(angles, lid_upper_deg, lid_lower_deg)
         pts, strength, angles = pts[keep], strength[keep], angles[keep]
         if len(pts) < 8:
             return None
-        tol = max(1.0, 0.04 * r0)
+        tol = max(1.0, inlier_frac * r0)
         best = None
         for _ in range(ransac):
-            sample = pts[rng.choice(len(pts), 5, replace=False)]
+            sample = pts[rng.choice(len(pts), n_min, replace=False)]
             try:
-                e = cv2.fitEllipse(sample.astype(np.float32))
+                e = fit_shape(sample.astype(np.float32))
             except cv2.error:
                 continue
             (cx, cy), (w, h), _a = e
@@ -202,7 +258,10 @@ def fit_iris(gray: np.ndarray, centre, r0: float, rng=None, iterations: int = 2,
                     break
         if best is None or best[1].sum() < 8:
             return None
-        ell = cv2.fitEllipse(pts[best[1]].astype(np.float32))
+        try:
+            ell = fit_shape(pts[best[1]].astype(np.float32))
+        except cv2.error:
+            return None
         centre = np.array(ell[0])
         r0 = (ell[1][0] + ell[1][1]) / 4
     # Final polish (not in the original): refit on the tighter half of the tolerance, which
@@ -210,7 +269,7 @@ def fit_iris(gray: np.ndarray, centre, r0: float, rng=None, iterations: int = 2,
     tight = np.abs(_ellipse_residual(pts, ell)) < 0.5 * tol
     if tight.sum() >= max(8, 0.5 * best[1].sum()):
         try:
-            ell = cv2.fitEllipse(pts[tight].astype(np.float32))
+            ell = fit_shape(pts[tight].astype(np.float32))
         except cv2.error:
             pass
     inl = np.abs(_ellipse_residual(pts, ell)) < tol
@@ -224,7 +283,7 @@ def fit_iris(gray: np.ndarray, centre, r0: float, rng=None, iterations: int = 2,
         "angle": ang,
         "ellipse": ell,
         "inliers": int(inl.sum()),
-        "rays": int(round(360 / 3.0)),
+        "rays": int(_lid_keep(np.radians(np.arange(0, 360, 3.0)), lid_upper_deg, lid_lower_deg).sum()),
         "rms_px": float(np.sqrt(np.mean(_ellipse_residual(pts[inl], ell) ** 2))),
         "points": pts[inl],
         "angles": angles[inl],

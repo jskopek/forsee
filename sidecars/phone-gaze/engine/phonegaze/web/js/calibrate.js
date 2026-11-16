@@ -26,12 +26,18 @@ class Cancelled extends Error {
 }
 
 let running = false;
+// Targets for the next touch-up flow: the worst validation dots (set by the report button).
+let touchupTargets = [];
 
 export function flowRunning() {
   return running;
 }
 
-/** kind: "full" (grid, optional moving dot and pose rounds), "pursuit", "refine", "validate". */
+/**
+ * kind: "full" (grid, optional moving dot, pose rounds, quality gate and head sweep), "pursuit",
+ * "refine", "validate", "touchup" (validation dots again at the worst places of the last
+ * validation, which also feed the error map).
+ */
 export async function startFlow(kind, ctx) {
   if (running) return null;
   running = true;
@@ -384,7 +390,8 @@ class Flow {
   async run() {
     try {
       let result;
-      if (this.kind === 'refine' || this.kind === 'validate') result = await this.simpleFlow();
+      if (this.kind === 'refine' || this.kind === 'validate' || this.kind === 'touchup')
+        result = await this.simpleFlow();
       else if (this.kind === 'pursuit') result = await this.pursuitFlow();
       else result = await this.fullFlow();
       return result;
@@ -420,6 +427,8 @@ class Flow {
       grid: c.grid || '3x3',
       movingDot: Boolean(c.moving_dot),
       poseRounds: Math.max(1, Number(c.pose_rounds) || 1),
+      headSweep: Math.max(0, Number(c.head_sweep) || 0),
+      qualityGate: Boolean(c.quality_gate),
       flash: Boolean(store('flash', false)),
     };
   }
@@ -453,6 +462,25 @@ class Flow {
         h('option', { value: String(i), text: String(i), selected: i === o.poseRounds }),
       );
     }
+    const sweep = h('select', {
+      'data-testid': 'opt-sweep',
+      onchange: (e) => this.setConfig({ 'calibration.head_sweep': Number(e.target.value) }),
+    });
+    for (let i = 0; i <= 3; i++) {
+      sweep.appendChild(
+        h('option', {
+          value: String(i),
+          text: i ? `${i} dot${i > 1 ? 's' : ''}` : 'off',
+          selected: i === o.headSweep,
+        }),
+      );
+    }
+    const gate = h('input', {
+      type: 'checkbox',
+      checked: o.qualityGate,
+      'data-testid': 'opt-gate',
+      onchange: (e) => this.setConfig({ 'calibration.quality_gate': e.target.checked }),
+    });
     const flash = h('input', {
       type: 'checkbox',
       checked: o.flash,
@@ -479,6 +507,17 @@ class Flow {
             text: ' (two or more lets the geometric model learn your eyes)',
           }),
         ),
+        h(
+          'label',
+          { class: 'row' },
+          'Head sweep: ',
+          sweep,
+          h('span', {
+            class: 'muted small',
+            text: ' (look at a dot while turning your head, about 10 s each; used by models.eyeball_centre "head" or "auto" on the Experiments page)',
+          }),
+        ),
+        h('label', { class: 'row' }, gate, ' Show poor dots again once (quality gate)'),
         h(
           'label',
           { class: 'row' },
@@ -536,9 +575,89 @@ class Flow {
         total,
         prefix: nRounds > 1 ? `Position ${r + 1} · ` : '',
       });
+      if (plan.quality_gate) await this.qualityGate(plan, r);
+    }
+    const sweepDots = (plan.sweep && plan.sweep.targets) || [];
+    for (let k = 0; k < sweepDots.length; k++) {
+      await this.runSweep(plan, sweepDots[k], k, sweepDots.length);
     }
     const answer = await this.finishRun(plan);
     return this.report(answer, plan, { pursuitAnswer });
+  }
+
+  /**
+   * Quality gate: ask the engine which dots of this head position were rejected, scattered or
+   * far off, and show those once more (same ids, so the engine keeps the better attempt).
+   */
+  async qualityGate(plan, poseGroup) {
+    let check;
+    try {
+      check = await this.api.post('/api/calibration/check', { run_id: plan.run_id });
+    } catch {
+      return; // an older engine, or no gate: carry on
+    }
+    this.check();
+    const retry = (check.retry || []).filter((d) => (d.pose_group || 0) === poseGroup);
+    if (!retry.length) return;
+    this.panel(
+      h('h1', { text: 'A few dots again' }),
+      h('p', {
+        text: `${retry.length} dot${retry.length > 1 ? 's' : ''} did not measure well. Look at each one again, as before.`,
+        'data-testid': 'gate-prompt',
+      }),
+      h('p', { class: 'muted small', text: retry.map((d) => d.reason).join(' · ') }),
+      h('p', { class: 'keys', text: 'Starting by itself · Esc cancels' }),
+    );
+    // Automatic: no key press, so the flow never stops and waits here.
+    await this.wait(2000);
+    this.clearPanel();
+    await this.wait(250);
+    const again = { ...plan, targets: retry.map((d) => ({ dot_id: d.dot_id, x: d.x, y: d.y })) };
+    await this.runDots(again, { poseGroup, prefix: 'Again · ' });
+  }
+
+  /** Head sweep: one dot held for plan.sweep.seconds while the head turns and moves. */
+  async runSweep(plan, target, k, n) {
+    const seconds = Number(plan.sweep.seconds) || 10;
+    const prompt =
+      (plan.sweep.prompts || [])[k] || 'Keep your eyes on the dot and slowly move your head.';
+    this.panel(
+      h('h1', { text: n > 1 ? `Head sweep ${k + 1} of ${n}` : 'Head sweep' }),
+      h('p', { text: prompt, 'data-testid': 'sweep-prompt' }),
+      h('p', {
+        class: 'muted',
+        text: `About ${Math.round(seconds)} seconds. Slow and small is fine; never take your eyes off the dot.`,
+      }),
+      this.goButton('Ready'),
+      h('p', { class: 'keys', text: 'Space when ready · Esc cancels' }),
+    );
+    await this.waitGo();
+    this.clearPanel();
+    await this.ensureExact(plan);
+    this.placeDot(plan.screen, target.x, target.y, plan.targets.concat([target]));
+    this.send(plan, target, 'show', 0);
+    const settle = plan.settle_ms ?? 600;
+    const s0 = performance.now();
+    for (;;) {
+      await this.frame();
+      const f = Math.min(1, (performance.now() - s0) / Math.max(1, settle));
+      this.ring(70 - 56 * f);
+      if (f >= 1) break;
+    }
+    this.send(plan, target, 'collect', 0);
+    const t0 = performance.now();
+    for (;;) {
+      await this.frame();
+      const left = seconds - (performance.now() - t0) / 1000;
+      if (left <= 0) break;
+      this.setProgress(
+        seconds - left,
+        seconds,
+        `Eyes on the dot, move your head slowly · ${Math.ceil(left)} s`,
+      );
+    }
+    this.send(plan, target, 'done', 0);
+    this.dot.hidden = true;
   }
 
   async pursuitFlow() {
@@ -559,12 +678,15 @@ class Flow {
 
   async simpleFlow() {
     const isRefine = this.kind === 'refine';
+    const isTouchup = this.kind === 'touchup';
     this.panel(
-      h('h1', { text: isRefine ? 'Quick refine' : 'Validation' }),
+      h('h1', { text: isRefine ? 'Quick refine' : isTouchup ? 'Touch-up' : 'Validation' }),
       h('p', {
         text: isRefine
           ? 'Look at the centre of each dot. This adjusts the calibration you already have.'
-          : 'Look at the centre of each dot. These dots are only used to measure accuracy.',
+          : isTouchup
+            ? 'The places that were least accurate, once more. They measure accuracy again and, with the error map on, correct it there.'
+            : 'Look at the centre of each dot. These dots are only used to measure accuracy (and, with the error map on, to correct it).',
       }),
       this.goButton('Start'),
       h('p', { class: 'keys', text: 'Space starts · Esc cancels' }),
@@ -572,7 +694,9 @@ class Flow {
     await this.waitGo();
     this.clearPanel();
     await this.fullscreen();
-    const plan = await this.startRun(this.kind);
+    const plan = isTouchup
+      ? await this.startRun('validate', { targets: touchupTargets })
+      : await this.startRun(this.kind);
     await this.wait(250);
     await this.runDots(plan, {});
     const answer = await this.finishRun(plan);
@@ -601,6 +725,18 @@ class Flow {
           'data-testid': 'report-done',
           onclick: () => this.cancel(),
         }),
+        answer.kind === 'validate' && (answer.touchup || []).length
+          ? h('button', {
+              class: 'big',
+              text: `Touch up the worst ${answer.touchup.length}`,
+              'data-testid': 'report-touchup',
+              onclick: () => {
+                touchupTargets = answer.touchup;
+                this.cancel();
+                window.setTimeout(() => this.ctx.calibrate('touchup'), 50);
+              },
+            })
+          : null,
         answer.kind !== 'validate'
           ? h('button', {
               class: 'big',
@@ -897,6 +1033,71 @@ function headline(answer) {
   return `Using ${chosen.model}: ${deg(chosen.loo_error_deg)} cross-validated error.`;
 }
 
+function degText(v) {
+  return v === null || v === undefined ? '–' : deg(v);
+}
+
+/** What the switchable calibration options did: per-eye scores, the moving dot, the gate, the head sweep, the error map. */
+function extrasCard(answer) {
+  const lines = [];
+  for (const r of answer.reports || []) {
+    const e = (r.params || {}).eye_loo_deg;
+    if (!e) continue;
+    lines.push(
+      h('li', {
+        'data-testid': 'eye-scores',
+        text:
+          `${r.model}: held-out error with both eyes ${degText(e.both)}, left eye alone ${degText(e.left)}, right eye alone ${degText(e.right)}` +
+          (e.weighted !== undefined ? `, both weighted by eye ${degText(e.weighted)}` : '') +
+          ((r.params || {}).eye_used ? ` · using ${r.params.eye_used}` : ''),
+      }),
+    );
+  }
+  const info = answer.calibration_info || {};
+  const p = info.pursuit;
+  if (p) {
+    lines.push(
+      h('li', {
+        text:
+          p.n_out > 0
+            ? `Moving dot: eyes trailed the dot by ${fmt(p.lag_ms, 0)} ms; kept ${p.n_out} of ${p.n_in} samples (${p.dropped_saccade} in catch-up saccades, ${p.dropped_far} far off). ` +
+              `Grid held-out error ${degText(p.grid_heldout_deg_without)} without it, ${degText(p.grid_heldout_deg_with)} with it: ${p.merged ? 'merged' : 'not merged'}.`
+            : `Moving dot: not merged (${p.reason || 'nothing usable'}).`,
+      }),
+    );
+  }
+  if (info.sweep_windows)
+    lines.push(
+      h('li', { text: `Head sweep: ${info.sweep_windows} windows of head movement used.` }),
+    );
+  const dots = answer.run_dots || [];
+  const retried = dots.filter((d) => d.retry).length;
+  const rejected = dots.filter((d) => d.reason && !d.replaced).map((d) => d.reason);
+  if (retried)
+    lines.push(
+      h('li', { text: `Quality gate: ${retried} dot${retried > 1 ? 's' : ''} shown again.` }),
+    );
+  if (rejected.length)
+    lines.push(h('li', { text: `Not used: ${rejected.length} dot(s): ${rejected.join('; ')}` }));
+  const maps = answer.error_map || {};
+  for (const [name, m] of Object.entries(maps)) {
+    if (!m || m.reason === 'off') continue;
+    lines.push(
+      h('li', {
+        'data-testid': 'error-map',
+        text: `Error map for ${name} (${m.kind || ''}, ${m.n_dots ?? '?'} dots): ${m.reason || ''}`,
+      }),
+    );
+  }
+  if (!lines.length) return null;
+  return h(
+    'div',
+    { class: 'card' },
+    h('h2', { text: 'Calibration options' }),
+    h('ul', {}, ...lines),
+  );
+}
+
 export function renderReport(box, answer, plan, opts = {}) {
   const screen = plan.screen || { width: 1, height: 1 };
   const perDot = perDotByModel(answer);
@@ -913,6 +1114,7 @@ export function renderReport(box, answer, plan, opts = {}) {
     pursuit: 'Moving dot',
     refine: 'Quick refine',
     validate: 'Validation',
+    touchup: 'Touch-up',
   };
   const timings = opts.timings || [];
   const seconds = timings.length
@@ -943,6 +1145,7 @@ export function renderReport(box, answer, plan, opts = {}) {
       h('h2', { text: 'Accuracy per model' }),
       h('div', { class: 'tablewrap' }, modelTable(answer)),
     ),
+    extrasCard(answer),
     opts.pursuitAnswer
       ? h(
           'div',

@@ -9,8 +9,10 @@ import aim from './aim.js';
 import live from './live.js';
 import experiments, { trackPresetResults } from './experiments.js';
 import recordings from './recordings.js';
+import tuning from './tuning.js';
+import { installGlint } from './glint.js';
 
-const VIEWS = [dashboard, aim, live, experiments, recordings];
+const VIEWS = [dashboard, aim, tuning, live, experiments, recordings];
 
 const ctx = {
   api,
@@ -129,6 +131,7 @@ function init() {
   window.addEventListener('hashchange', route);
   window.addEventListener('keydown', onKey);
   trackPresetResults(ctx);
+  installGlint(ctx);
   api.connect();
   api.refreshState().catch(() => {});
   ctx.loadConfig().catch((err) => toast(`Could not load settings: ${err.message}`, 'error'));
