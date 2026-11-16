@@ -6,7 +6,7 @@ On top of that, :data:`LANDMARK_NOISE` makes the eyeball centres behave like lan
 ones: a constant per-eye error and an error that grows as the face turns (about 1 mm per 15
 degrees here), which is what degrades the geometric model when the head turns.
 
-Not a test module; ``tests/models_options_test.py`` asserts on it, and
+Not a test module; ``tests/test_models_options.py`` asserts on it, and
 ``python tests/models_options.py`` prints the tables (degrees of true visual angle, mean over
 validation samples at three head poses).
 """

@@ -51,6 +51,8 @@ export default tseslint.config(
       'apps/desktop/release/**',
       // Python virtualenvs (the phone-gaze engine's .venv ships third-party JavaScript)
       '**/.venv/**',
+      // agent worktrees (git-ignored checkouts of other branches)
+      '.claude/**',
     ],
   },
   js.configs.recommended,

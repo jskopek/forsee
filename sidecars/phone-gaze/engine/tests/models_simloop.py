@@ -10,7 +10,7 @@ in the image as the face turns (``corner_slide_px_per_10deg``), the effect seen 
 landmarks. No images are rendered (the oracle reads the truth), so this measures the
 calibration and models, not the vision.
 
-Not a test module: ``tests/models_options_test.py`` runs a small case, and
+Not a test module: ``tests/test_models_options.py`` runs a small case, and
 ``python tests/models_simloop.py`` prints the table.
 """
 
