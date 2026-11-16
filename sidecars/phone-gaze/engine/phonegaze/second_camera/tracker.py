@@ -166,6 +166,11 @@ class WebcamTracker:
                     best = s
         return best if best is not None and abs(best.t_local - t) <= max_skew_s else None
 
+    def close(self) -> None:
+        """Close MediaPipe's landmarker now: left to interpreter shutdown it can hang the
+        process."""
+        close_mediapipe(self.estimator)
+
     def reset(self) -> None:
         with self.lock:
             self.samples.clear()
@@ -173,6 +178,16 @@ class WebcamTracker:
             self.estimator.reset()
         except Exception:  # noqa: BLE001
             pass
+
+
+def close_mediapipe(obj: Any) -> None:
+    """Close any MediaPipe task an estimator holds (its attributes)."""
+    for value in list(vars(obj).values()) if hasattr(obj, "__dict__") else []:
+        if type(value).__module__.startswith("mediapipe") and hasattr(value, "close"):
+            try:
+                value.close()
+            except Exception:  # noqa: BLE001
+                pass
 
 
 class _Cfg:

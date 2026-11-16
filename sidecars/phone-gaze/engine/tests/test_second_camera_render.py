@@ -17,6 +17,7 @@ import pytest
 from phonegaze.config import Config
 from phonegaze.pipeline import Engine
 from phonegaze.second_camera.geometry import Pose, difference
+from phonegaze.second_camera.tracker import close_mediapipe
 
 pytestmark = pytest.mark.slow
 
@@ -94,3 +95,5 @@ async def test_phone_pose_from_rendered_webcam_and_phone(tmp_path, ray: bool) ->
         assert sc_state["self_check"]["n"] > 20 and 0.8 < sc_state["self_check"]["webcam_m"] / sc_state["self_check"]["phone_m"] < 1.3
     finally:
         await engine.stop()
+        for est in engine.estimators:  # MediaPipe left to interpreter shutdown can hang it
+            close_mediapipe(est)

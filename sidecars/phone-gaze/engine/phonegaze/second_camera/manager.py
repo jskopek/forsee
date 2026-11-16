@@ -117,6 +117,8 @@ class SecondCamera:
     def stop(self) -> None:
         if self.thread is not None:
             self.thread.stop()
+            if self.tracker is not None:
+                self.tracker.close()
         self.thread = None
 
     def reset(self) -> None:
