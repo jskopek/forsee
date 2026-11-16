@@ -7,43 +7,45 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		11CE41EB6DC228BB490C8AE3335A5C34 /* SegmentRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98D9ED39D17C4833E9DF371181F32F7C /* SegmentRecorder.swift */; };
-		26EFAE19547385D15D09883D9868293E /* StreamConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8891A755F8B3F0839F6FFA2D9560372 /* StreamConfig.swift */; };
-		66F8367E47C67955544CA85F5AB5E697 /* EyeCaptureApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C65CF8C9361AF56C0FC9F865C06069D /* EyeCaptureApp.swift */; };
-		78A19BB0CA4718BD752C1C592CD1C207 /* FrameStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5797D9D3B93EE0FE6269EDA4B0E82154 /* FrameStreamer.swift */; };
-		7A1B8523E1EA3D5F4A7EA42E306E7171 /* CaptureCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8060F7667C763CC46431B97B8C325B0B /* CaptureCoordinator.swift */; };
-		7D0D460915297279DA903D68635E517C /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F6C35CFCAD08027A1B9B8F36D8AABA /* AppModel.swift */; };
-		7FE419AB5CAA8D7F7BE482797CB84B9E /* controller.html in Resources */ = {isa = PBXBuildFile; fileRef = F9D1CA8EC60FD249ACADEAFAFB6D740A /* controller.html */; };
-		8172A177BB7B6576A786765CF06ADD03 /* MotionLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCB65F5F0B130AC8BD422691FB6031D1 /* MotionLogger.swift */; };
-		A617D398A6132DB78A562F2076C66918 /* DeviceInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0E185C6D03A91964E6E296A05B167F9 /* DeviceInfo.swift */; };
-		CE9A2A2020D5BE4AB4AD3CD1FFF37662 /* DepthMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3343A24A54644B84F82083AAAC68DE5 /* DepthMap.swift */; };
-		D091E87EA8769B039662273A06CC1CB9 /* HTTPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD57025752CCA7C408722CADC1D8FAD6 /* HTTPServer.swift */; };
-		E26740043F2C021FD3843E3D3551E54D /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F01CE5C3B8824AADD6BCACF1A24AE013 /* SessionStore.swift */; };
-		E4FB3654C0C60E1C77CCF777DDE8BAA1 /* VisionEyeLocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6528C69DCA710FCCCF447D0D2099A1B /* VisionEyeLocator.swift */; };
-		FCC8D4D365FF8AD88B39D0DE855F4E19 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2C9BCE23AF868B5CACF35708015018 /* ContentView.swift */; };
+		09A79BDD32E3E1314CF36A3588CB0C50 /* MotionLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38F0A44E7A010EBC4CE05E853E0470B0 /* MotionLogger.swift */; };
+		14FA64B8A5A0DD31F6397DFC04C536B5 /* HTTPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA81433D2660D12A5C0C56F0FCFBE950 /* HTTPServer.swift */; };
+		16FBD93C52F550C2DC481B8BF8644D14 /* VisionEyeLocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33117DA7F55B93EFFE2D8A9494A6CA89 /* VisionEyeLocator.swift */; };
+		358BA89C514FBCF3F0641338C5AEF8D5 /* controller.html in Resources */ = {isa = PBXBuildFile; fileRef = A5E78C57AC56240CA8DA2FD7346D6D86 /* controller.html */; };
+		583283F2763E2FB8F41724345E182922 /* SegmentRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1D6D5B8B9D931396F0BA846281180C8 /* SegmentRecorder.swift */; };
+		58C8B7DB6B307788A94500ED7218D345 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43167D456C38B8ACEA8285B0F1A140AD /* ContentView.swift */; };
+		66C4A67E0E9B21BAD190F52EFDBEAC53 /* CaptureCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9906F15A85217BE1EDB4497FCF5B735C /* CaptureCoordinator.swift */; };
+		6999613CF4C762E15E2811775B262653 /* StreamConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94B58C39A727073EB0198471659EBBBF /* StreamConfig.swift */; };
+		875B544AFE8A4DC4966FE0FA6271118E /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC9E020134CC102D9CD0FC98F1E5D250 /* SessionStore.swift */; };
+		B7B3FBF7A6E37CADF9125D25264269A7 /* EyeCaptureApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19E2C45531D691FD4C9775A6AEE08EAC /* EyeCaptureApp.swift */; };
+		BFEE0E181EC3AE46149F7DD5214BE353 /* FrameStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66626178A64C5C3FC09E88CAFA1FC9DC /* FrameStreamer.swift */; };
+		C75B8342C285DDED70C62C0F5735FEB5 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EF95C268B3044A7E0DF9CF0FC18A2A8 /* AppModel.swift */; };
+		E52E9D19DB28CE71BE7B3E5402B1BAFC /* DeviceInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 879F542A64993E838CDA3AE0C831C008 /* DeviceInfo.swift */; };
+		EB708F864A7AFCD1AB110E8CD727E546 /* TestPattern.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9003E806011E6EB393936C89A15E51C7 /* TestPattern.swift */; };
+		FAEFF6356CCF86AEB7AB5BB60313CC76 /* DepthMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1F66810EA922A3DAF70F47A190E4EB /* DepthMap.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		1A2C9BCE23AF868B5CACF35708015018 /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		4C65CF8C9361AF56C0FC9F865C06069D /* EyeCaptureApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EyeCaptureApp.swift; sourceTree = "<group>"; };
-		5797D9D3B93EE0FE6269EDA4B0E82154 /* FrameStreamer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FrameStreamer.swift; sourceTree = "<group>"; };
-		61F6C35CFCAD08027A1B9B8F36D8AABA /* AppModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
-		8060F7667C763CC46431B97B8C325B0B /* CaptureCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CaptureCoordinator.swift; sourceTree = "<group>"; };
-		98D9ED39D17C4833E9DF371181F32F7C /* SegmentRecorder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SegmentRecorder.swift; sourceTree = "<group>"; };
-		B8891A755F8B3F0839F6FFA2D9560372 /* StreamConfig.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StreamConfig.swift; sourceTree = "<group>"; };
-		C0E185C6D03A91964E6E296A05B167F9 /* DeviceInfo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceInfo.swift; sourceTree = "<group>"; };
-		C3343A24A54644B84F82083AAAC68DE5 /* DepthMap.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DepthMap.swift; sourceTree = "<group>"; };
-		CD57025752CCA7C408722CADC1D8FAD6 /* HTTPServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HTTPServer.swift; sourceTree = "<group>"; };
+		19E2C45531D691FD4C9775A6AEE08EAC /* EyeCaptureApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EyeCaptureApp.swift; sourceTree = "<group>"; };
+		33117DA7F55B93EFFE2D8A9494A6CA89 /* VisionEyeLocator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VisionEyeLocator.swift; sourceTree = "<group>"; };
+		38F0A44E7A010EBC4CE05E853E0470B0 /* MotionLogger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MotionLogger.swift; sourceTree = "<group>"; };
+		43167D456C38B8ACEA8285B0F1A140AD /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		5EF95C268B3044A7E0DF9CF0FC18A2A8 /* AppModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		66626178A64C5C3FC09E88CAFA1FC9DC /* FrameStreamer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FrameStreamer.swift; sourceTree = "<group>"; };
+		879F542A64993E838CDA3AE0C831C008 /* DeviceInfo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceInfo.swift; sourceTree = "<group>"; };
+		9003E806011E6EB393936C89A15E51C7 /* TestPattern.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TestPattern.swift; sourceTree = "<group>"; };
+		94B58C39A727073EB0198471659EBBBF /* StreamConfig.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StreamConfig.swift; sourceTree = "<group>"; };
+		9906F15A85217BE1EDB4497FCF5B735C /* CaptureCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CaptureCoordinator.swift; sourceTree = "<group>"; };
+		A5E78C57AC56240CA8DA2FD7346D6D86 /* controller.html */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.html; path = controller.html; sourceTree = "<group>"; };
+		C1D6D5B8B9D931396F0BA846281180C8 /* SegmentRecorder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SegmentRecorder.swift; sourceTree = "<group>"; };
+		CC9E020134CC102D9CD0FC98F1E5D250 /* SessionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
 		D97015BF63DB551C8A777C65F5B70183 /* EyeCapture.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EyeCapture.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DA81433D2660D12A5C0C56F0FCFBE950 /* HTTPServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HTTPServer.swift; sourceTree = "<group>"; };
 		DC49B429AA370FE9A4F053EA5528251C /* Base.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
-		DCB65F5F0B130AC8BD422691FB6031D1 /* MotionLogger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MotionLogger.swift; sourceTree = "<group>"; };
-		F01CE5C3B8824AADD6BCACF1A24AE013 /* SessionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
-		F6528C69DCA710FCCCF447D0D2099A1B /* VisionEyeLocator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VisionEyeLocator.swift; sourceTree = "<group>"; };
-		F9D1CA8EC60FD249ACADEAFAFB6D740A /* controller.html */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.html; path = controller.html; sourceTree = "<group>"; };
+		FF1F66810EA922A3DAF70F47A190E4EB /* DepthMap.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DepthMap.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		C718CBD1B45EDC3B407E739B7D835DD0 /* Frameworks */ = {
+		71516F13765E05F544E5A6F896938F26 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -59,7 +61,7 @@
 				2D6B3EA399D39843E253BA2F24837D0F /* Products */,
 				999AC906B0EFAD4FED42617F57BC0342 /* Frameworks */,
 				DC49B429AA370FE9A4F053EA5528251C /* Base.xcconfig */,
-				C84CED29E316BDF5A52049BBAAD0E2D2 /* EyeCapture */,
+				846EA1B47326BDEC85888B06BD2A50B3 /* EyeCapture */,
 			);
 			sourceTree = "<group>";
 		};
@@ -69,6 +71,29 @@
 				D97015BF63DB551C8A777C65F5B70183 /* EyeCapture.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		846EA1B47326BDEC85888B06BD2A50B3 /* EyeCapture */ = {
+			isa = PBXGroup;
+			children = (
+				5EF95C268B3044A7E0DF9CF0FC18A2A8 /* AppModel.swift */,
+				9906F15A85217BE1EDB4497FCF5B735C /* CaptureCoordinator.swift */,
+				43167D456C38B8ACEA8285B0F1A140AD /* ContentView.swift */,
+				FF1F66810EA922A3DAF70F47A190E4EB /* DepthMap.swift */,
+				879F542A64993E838CDA3AE0C831C008 /* DeviceInfo.swift */,
+				19E2C45531D691FD4C9775A6AEE08EAC /* EyeCaptureApp.swift */,
+				66626178A64C5C3FC09E88CAFA1FC9DC /* FrameStreamer.swift */,
+				DA81433D2660D12A5C0C56F0FCFBE950 /* HTTPServer.swift */,
+				38F0A44E7A010EBC4CE05E853E0470B0 /* MotionLogger.swift */,
+				C1D6D5B8B9D931396F0BA846281180C8 /* SegmentRecorder.swift */,
+				CC9E020134CC102D9CD0FC98F1E5D250 /* SessionStore.swift */,
+				94B58C39A727073EB0198471659EBBBF /* StreamConfig.swift */,
+				9003E806011E6EB393936C89A15E51C7 /* TestPattern.swift */,
+				33117DA7F55B93EFFE2D8A9494A6CA89 /* VisionEyeLocator.swift */,
+				A5E78C57AC56240CA8DA2FD7346D6D86 /* controller.html */,
+			);
+			name = EyeCapture;
+			path = EyeCapture;
 			sourceTree = "<group>";
 		};
 		946641CE764DE149B32D09E72E3D72C5 /* iOS */ = {
@@ -86,38 +111,16 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
-		C84CED29E316BDF5A52049BBAAD0E2D2 /* EyeCapture */ = {
-			isa = PBXGroup;
-			children = (
-				61F6C35CFCAD08027A1B9B8F36D8AABA /* AppModel.swift */,
-				8060F7667C763CC46431B97B8C325B0B /* CaptureCoordinator.swift */,
-				1A2C9BCE23AF868B5CACF35708015018 /* ContentView.swift */,
-				C3343A24A54644B84F82083AAAC68DE5 /* DepthMap.swift */,
-				C0E185C6D03A91964E6E296A05B167F9 /* DeviceInfo.swift */,
-				4C65CF8C9361AF56C0FC9F865C06069D /* EyeCaptureApp.swift */,
-				5797D9D3B93EE0FE6269EDA4B0E82154 /* FrameStreamer.swift */,
-				CD57025752CCA7C408722CADC1D8FAD6 /* HTTPServer.swift */,
-				DCB65F5F0B130AC8BD422691FB6031D1 /* MotionLogger.swift */,
-				98D9ED39D17C4833E9DF371181F32F7C /* SegmentRecorder.swift */,
-				F01CE5C3B8824AADD6BCACF1A24AE013 /* SessionStore.swift */,
-				B8891A755F8B3F0839F6FFA2D9560372 /* StreamConfig.swift */,
-				F6528C69DCA710FCCCF447D0D2099A1B /* VisionEyeLocator.swift */,
-				F9D1CA8EC60FD249ACADEAFAFB6D740A /* controller.html */,
-			);
-			name = EyeCapture;
-			path = EyeCapture;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		DA69E3C31477179BC8F3A9C3C6D8DFA3 /* EyeCapture */ = {
+		D754FE1B9D43ED47200651C9FB93D562 /* EyeCapture */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = C7EC728738DF161F54EDFD3E1FDB1A58 /* Build configuration list for PBXNativeTarget "EyeCapture" */;
+			buildConfigurationList = BC359FC6F13324455FF0BCA475E1B141 /* Build configuration list for PBXNativeTarget "EyeCapture" */;
 			buildPhases = (
-				F075C15C3E027E99B5692FFD0DC423C9 /* Sources */,
-				C718CBD1B45EDC3B407E739B7D835DD0 /* Frameworks */,
-				48564B24F6971B9D597F904423DC2704 /* Resources */,
+				B700630D18481FA540FF7A52E7EFB6D8 /* Sources */,
+				71516F13765E05F544E5A6F896938F26 /* Frameworks */,
+				4EA2C6B096F8A89F2758F14EB2268C84 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -152,40 +155,41 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				DA69E3C31477179BC8F3A9C3C6D8DFA3 /* EyeCapture */,
+				D754FE1B9D43ED47200651C9FB93D562 /* EyeCapture */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		48564B24F6971B9D597F904423DC2704 /* Resources */ = {
+		4EA2C6B096F8A89F2758F14EB2268C84 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				7FE419AB5CAA8D7F7BE482797CB84B9E /* controller.html in Resources */,
+				358BA89C514FBCF3F0641338C5AEF8D5 /* controller.html in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		F075C15C3E027E99B5692FFD0DC423C9 /* Sources */ = {
+		B700630D18481FA540FF7A52E7EFB6D8 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				7D0D460915297279DA903D68635E517C /* AppModel.swift in Sources */,
-				7A1B8523E1EA3D5F4A7EA42E306E7171 /* CaptureCoordinator.swift in Sources */,
-				FCC8D4D365FF8AD88B39D0DE855F4E19 /* ContentView.swift in Sources */,
-				CE9A2A2020D5BE4AB4AD3CD1FFF37662 /* DepthMap.swift in Sources */,
-				A617D398A6132DB78A562F2076C66918 /* DeviceInfo.swift in Sources */,
-				66F8367E47C67955544CA85F5AB5E697 /* EyeCaptureApp.swift in Sources */,
-				78A19BB0CA4718BD752C1C592CD1C207 /* FrameStreamer.swift in Sources */,
-				D091E87EA8769B039662273A06CC1CB9 /* HTTPServer.swift in Sources */,
-				8172A177BB7B6576A786765CF06ADD03 /* MotionLogger.swift in Sources */,
-				11CE41EB6DC228BB490C8AE3335A5C34 /* SegmentRecorder.swift in Sources */,
-				E26740043F2C021FD3843E3D3551E54D /* SessionStore.swift in Sources */,
-				26EFAE19547385D15D09883D9868293E /* StreamConfig.swift in Sources */,
-				E4FB3654C0C60E1C77CCF777DDE8BAA1 /* VisionEyeLocator.swift in Sources */,
+				C75B8342C285DDED70C62C0F5735FEB5 /* AppModel.swift in Sources */,
+				66C4A67E0E9B21BAD190F52EFDBEAC53 /* CaptureCoordinator.swift in Sources */,
+				58C8B7DB6B307788A94500ED7218D345 /* ContentView.swift in Sources */,
+				FAEFF6356CCF86AEB7AB5BB60313CC76 /* DepthMap.swift in Sources */,
+				E52E9D19DB28CE71BE7B3E5402B1BAFC /* DeviceInfo.swift in Sources */,
+				B7B3FBF7A6E37CADF9125D25264269A7 /* EyeCaptureApp.swift in Sources */,
+				BFEE0E181EC3AE46149F7DD5214BE353 /* FrameStreamer.swift in Sources */,
+				14FA64B8A5A0DD31F6397DFC04C536B5 /* HTTPServer.swift in Sources */,
+				09A79BDD32E3E1314CF36A3588CB0C50 /* MotionLogger.swift in Sources */,
+				583283F2763E2FB8F41724345E182922 /* SegmentRecorder.swift in Sources */,
+				875B544AFE8A4DC4966FE0FA6271118E /* SessionStore.swift in Sources */,
+				6999613CF4C762E15E2811775B262653 /* StreamConfig.swift in Sources */,
+				EB708F864A7AFCD1AB110E8CD727E546 /* TestPattern.swift in Sources */,
+				16FBD93C52F550C2DC481B8BF8644D14 /* VisionEyeLocator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -253,7 +257,7 @@
 			};
 			name = Debug;
 		};
-		B8603FC3F5616E91F1CFD56B5D227591 /* Debug */ = {
+		6F4B2C5A4A0E76BADF69355B90D63E0E /* Release */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = DC49B429AA370FE9A4F053EA5528251C /* Base.xcconfig */;
 			buildSettings = {
@@ -275,13 +279,14 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2.1;
+				MARKETING_VERSION = 0.2.2;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
 			};
-			name = Debug;
+			name = Release;
 		};
 		BF5E06059800E223E653076CF9957C50 /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -337,7 +342,7 @@
 			};
 			name = Release;
 		};
-		EC49A2E742E7951879E5920BB5714B47 /* Release */ = {
+		DD89D7DF22BD1A1F189939DE905F190E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = DC49B429AA370FE9A4F053EA5528251C /* Base.xcconfig */;
 			buildSettings = {
@@ -359,32 +364,31 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2.1;
+				MARKETING_VERSION = 0.2.2;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				VALIDATE_PRODUCT = YES;
 			};
-			name = Release;
+			name = Debug;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		BC359FC6F13324455FF0BCA475E1B141 /* Build configuration list for PBXNativeTarget "EyeCapture" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6F4B2C5A4A0E76BADF69355B90D63E0E /* Release */,
+				DD89D7DF22BD1A1F189939DE905F190E /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		C65662E627D0FC44494FFA1AC7B08F42 /* Build configuration list for PBXProject "EyeCapture" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				426B09DE9081D2D3B6922E70D5C11378 /* Debug */,
 				BF5E06059800E223E653076CF9957C50 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		C7EC728738DF161F54EDFD3E1FDB1A58 /* Build configuration list for PBXNativeTarget "EyeCapture" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				EC49A2E742E7951879E5920BB5714B47 /* Release */,
-				B8603FC3F5616E91F1CFD56B5D227591 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

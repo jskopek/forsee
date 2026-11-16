@@ -94,7 +94,7 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         let label: String
     }
 
-    private struct State {
+    fileprivate struct State {
         var mode = "idle"
         var cameraId = ""
         var cameraName = ""
@@ -127,6 +127,13 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         var framesSkipped = 0
         var framesDropped = 0
         var lastError = ""
+        /// The synthetic camera (`TestPattern`) is running instead of a real one.
+        var testPattern = false
+        var exposureLocked = false
+        var whiteBalanceLocked = false
+        var faceDrivenAutoFocus = true
+        var exposureBias = 0.0
+        var maxExposureS = Double.nan
     }
 
     private let captureSession = AVCaptureSession()
@@ -160,6 +167,12 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
     private var previewWantedUntil: [PreviewKind: CFTimeInterval] = [:]
     private var previewData: [PreviewKind: Data] = [:]
     private var cropSpec = CropSpec()
+    private var testSource: TestPatternSource?
+    private var testGeneration = 0
+
+    /// The phone has no camera at all (the iOS Simulator): the test pattern is listed as
+    /// its cameras, and ARKit-style ROIs are allowed for the synthetic ARKit face.
+    private(set) lazy var hasNoCamera: Bool = devices.isEmpty
 
     // Frame queue only.
     private var recorder: SegmentRecorder?
@@ -174,10 +187,10 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
 
     override init() {
         super.init()
-        var sources = ["mac"]
-        if ARFaceTrackingConfiguration.isSupported { sources.append("arkit") }
-        sources.append("vision")
-        streamer.setSupportedRoiSources(sources)
+        // Discover the cameras now, on one thread: `devices` is lazy and not thread-safe.
+        _ = devices
+        _ = hasNoCamera
+        streamer.setSupportedRoiSources(Self.roiSources(arkit: ARFaceTrackingConfiguration.isSupported || hasNoCamera))
         streamer.stateProvider = { [weak self] in self?.statusJSON() ?? [:] }
 
         // Frames stop without any error when the camera is interrupted (the app went to
@@ -327,16 +340,26 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
                 "depthSource": "truedepth",
             ])
         }
+        // Always selectable by id; listed only where there is no real camera, so the
+        // engine never picks it on a phone.
+        if hasNoCamera {
+            list.append(contentsOf: TestPattern.cameraEntries())
+        }
         return list
+    }
+
+    static func roiSources(arkit: Bool) -> [String] {
+        var sources = ["mac"]
+        if arkit { sources.append("arkit") }
+        sources.append("vision")
+        return sources
     }
 
     /// What this phone can stream, for `hello.capabilities`.
     func streamCapabilities() -> [String: Any] {
         let arkit = ARFaceTrackingConfiguration.isSupported
         let lidar = devices.contains { $0.deviceType == .builtInLiDARDepthCamera }
-        var roiSources = ["mac"]
-        if arkit { roiSources.append("arkit") }
-        roiSources.append("vision")
+        let roiSources = Self.roiSources(arkit: arkit || hasNoCamera)
         var depthSources: [String] = []
         if arkit { depthSources.append("truedepth") }
         if lidar { depthSources.append("lidar") }
@@ -356,6 +379,7 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
             "fps60": fps60,
             "zoom": true,
             "lensControl": true,
+            "testPattern": true,
         ]
     }
 
@@ -369,7 +393,9 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         guard !isRecording else { throw CaptureError.busyRecording }
 
         stopSources()
-        if cameraId == Self.arkitCameraId {
+        if TestPattern.isTestCamera(cameraId) {
+            startTestPattern(arkit: cameraId == TestPattern.arkitCameraId, maxWidth: maxWidth, fps: fps, zoom: zoom)
+        } else if cameraId == Self.arkitCameraId {
             try startARKit(maxWidth: maxWidth, fps: fps)
         } else {
             try startCamera(cameraId: cameraId, maxWidth: maxWidth, fps: fps, zoom: zoom)
@@ -382,6 +408,11 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
     }
 
     private func stopSources() {
+        lock.lock()
+        let test = testSource
+        testSource = nil
+        lock.unlock()
+        test?.stop()
         if captureSession.isRunning {
             captureSession.stopRunning()
         }
@@ -578,7 +609,19 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         lock.lock()
         let device = self.device
         let mode = state.mode
+        let isTest = state.testPattern
         lock.unlock()
+        if mode == "camera", isTest {
+            guard zoom.isFinite, zoom > 0 else {
+                throw CaptureError.badRequest("zoom must be a positive number")
+            }
+            let applied = min(max(zoom, TestPattern.zoomRange[0]), TestPattern.zoomRange[1])
+            lock.lock()
+            state.zoom = applied
+            state.zoomChangedAt = CACurrentMediaTime()
+            lock.unlock()
+            return applied
+        }
         guard mode == "camera", let device = device else {
             throw CaptureError.notRunningCamera("Zoom")
         }
@@ -639,7 +682,16 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         lock.lock()
         let device = self.device
         let mode = state.mode
+        let isTest = state.testPattern
         lock.unlock()
+        if mode == "camera", isTest {
+            try setTestLens(
+                focusLocked: focusLocked, exposureLocked: exposureLocked,
+                whiteBalanceLocked: whiteBalanceLocked, faceDriven: faceDriven, bias: bias,
+                maxExposure: maxExposure, clearsMaxExposure: clearsMaxExposure
+            )
+            return
+        }
         guard mode == "camera", let device = device else {
             throw CaptureError.notRunningCamera("Lens settings")
         }
@@ -707,6 +759,15 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         lock.lock()
         let device = self.device
         let mode = state.mode
+        if mode == "camera", state.testPattern {
+            if let locked = locked {
+                state.focusLocked = locked
+            } else if point != nil {
+                state.focusLocked = false
+            }
+            lock.unlock()
+            return
+        }
         lock.unlock()
         guard mode == "camera", let device = device else {
             throw CaptureError.notRunningCamera("Focus")
@@ -853,7 +914,10 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         if state.iso.isFinite { json["iso"] = state.iso }
         if state.exposureSeconds.isFinite { json["exposureSeconds"] = state.exposureSeconds }
         if let intrinsics = intrinsics { json["intrinsics"] = intrinsics }
-        if let gravity = motion.gravity() { json["gravity"] = gravity }
+        if let gravity = motion.gravity() ?? (state.testPattern ? TestPattern.gravity : nil) {
+            json["gravity"] = gravity
+        }
+        if state.testPattern { json["testPattern"] = true }
         if !state.zoomRange.isEmpty { json["zoomRange"] = state.zoomRange }
         if !state.nativeZoomFactors.isEmpty { json["nativeZoomFactors"] = state.nativeZoomFactors }
         if !state.cameraType.isEmpty { json["cameraType"] = state.cameraType }
@@ -1108,7 +1172,7 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         lock.unlock()
     }
 
-    private func handleFrame(
+    func handleFrame(
         _ pixelBuffer: CVPixelBuffer, time: CMTime, values: [Double], columns: [String]
     ) {
         let now = CACurrentMediaTime()
@@ -1353,7 +1417,7 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         return info
     }
 
-    private static func addIntrinsics(
+    static func addIntrinsics(
         _ matrix: matrix_float3x3, to camera: inout [String: Any], source: String, includesZoom: Bool
     ) {
         let values = [
@@ -1408,7 +1472,7 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
         return columns
     }
 
-    private static func flatten(_ matrix: simd_float4x4?) -> [Double] {
+    static func flatten(_ matrix: simd_float4x4?) -> [Double] {
         guard let matrix = matrix else { return [Double](repeating: .nan, count: 16) }
         let columns = [matrix.columns.0, matrix.columns.1, matrix.columns.2, matrix.columns.3]
         var values: [Double] = []
@@ -1420,5 +1484,166 @@ final class CaptureCoordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDe
             values.append(Double(column.w))
         }
         return values
+    }
+}
+
+// MARK: - Test pattern
+
+extension CaptureCoordinator {
+    /// Starts the synthetic camera (`TestPattern`) in camera or ARKit mode.
+    private func startTestPattern(arkit: Bool, maxWidth: Int, fps: Double, zoom: Double) {
+        let size = TestPattern.size(maxWidth: maxWidth)
+        lock.lock()
+        testGeneration += 1
+        let generation = testGeneration
+        lock.unlock()
+        let source = TestPatternSource(
+            queue: frameQueue, width: size.width, height: size.height, fps: fps
+        ) { [weak self] buffer, t in
+            self?.testPatternFrame(buffer, t: t, arkit: arkit, generation: generation)
+        }
+        let applied = arkit ? 1 : min(max(zoom.isFinite ? zoom : 1, TestPattern.zoomRange[0]), TestPattern.zoomRange[1])
+        lock.lock()
+        state.mode = arkit ? "arkit" : "camera"
+        state.testPattern = true
+        state.cameraId = arkit ? TestPattern.arkitCameraId : TestPattern.cameraId
+        state.cameraName = arkit ? "Test pattern with a synthetic ARKit face" : "Test pattern (synthetic camera)"
+        state.position = arkit ? "front" : "back"
+        state.cameraType = arkit ? "arkit" : "wide"
+        state.width = size.width
+        state.height = size.height
+        state.requestedFps = source.frameRate
+        state.zoom = applied
+        state.zoomRange = arkit ? [1, 1] : TestPattern.zoomRange
+        state.nativeZoomFactors = arkit ? [] : [2]
+        state.depthSource = ""
+        state.fieldOfView = TestPattern.fieldOfView
+        state.minFocusDistanceMM = arkit ? -1 : 100
+        state.faceTracked = arkit
+        state.lastError = ""
+        testSource = source
+        lock.unlock()
+        source.start()
+    }
+
+    /// Lens settings for the test pattern: validated like a real camera's, then only
+    /// remembered and reported in each frame's `lens` block.
+    private func setTestLens(
+        focusLocked: Bool?, exposureLocked: Bool?, whiteBalanceLocked: Bool?, faceDriven: Bool?,
+        bias: Double?, maxExposure: Double?, clearsMaxExposure: Bool
+    ) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        if let value = focusLocked { state.focusLocked = value }
+        if let value = exposureLocked { state.exposureLocked = value }
+        if let value = whiteBalanceLocked { state.whiteBalanceLocked = value }
+        if let value = faceDriven { state.faceDrivenAutoFocus = value }
+        if let value = bias { state.exposureBias = min(max(value, -8), 8) }
+        if maxExposure != nil || clearsMaxExposure {
+            guard !state.exposureLocked else {
+                throw CaptureError.badRequest("maxExposureS needs automatic exposure; unlock exposure first")
+            }
+            if let seconds = maxExposure, seconds > 0 {
+                state.maxExposureS = min(max(seconds, 0.0001), 1)
+            } else {
+                state.maxExposureS = .nan
+            }
+        }
+    }
+
+    fileprivate static func testLensBlock(_ state: State, arkit: Bool) -> [String: Any] {
+        var exposure = 1.0 / 60
+        if state.maxExposureS.isFinite { exposure = min(exposure, state.maxExposureS) }
+        if arkit {
+            return ["exposureS": exposure, "exposureOffset": 0.0]
+        }
+        var lens: [String: Any] = [
+            "position": 0.5,
+            "adjustingFocus": false,
+            "adjustingExposure": false,
+            "iso": 100.0,
+            "exposureS": exposure,
+            "exposureBias": state.exposureBias,
+            "exposureOffset": 0.0,
+            "exposureLocked": state.exposureLocked,
+            "whiteBalanceLocked": state.whiteBalanceLocked,
+            "faceDrivenAutoFocus": state.faceDrivenAutoFocus,
+            "lowLight": false,
+        ]
+        if state.maxExposureS.isFinite { lens["maxExposureS"] = state.maxExposureS }
+        return lens
+    }
+
+    /// One test-pattern frame, on the frame queue: drawn, then handled exactly as
+    /// `captureOutput` handles a camera frame (stream, recording, previews).
+    private func testPatternFrame(_ buffer: CVPixelBuffer, t: Double, arkit: Bool, generation: Int) {
+        lock.lock()
+        guard state.testPattern, testGeneration == generation else {
+            lock.unlock()
+            return
+        }
+        let zoom = arkit ? 1.0 : state.zoom
+        let source = testSource
+        let lens = Self.testLensBlock(state, arkit: arkit)
+        state.lensPosition = arkit ? .nan : 0.5
+        state.iso = arkit ? .nan : 100
+        state.exposureSeconds = lens["exposureS"] as? Double ?? .nan
+        state.adjustingFocus = false
+        state.lens = lens
+        state.lowLight = false
+        let snapshot = state
+        lock.unlock()
+
+        let width = CVPixelBufferGetWidth(buffer)
+        let height = CVPixelBufferGetHeight(buffer)
+        let discs = TestPattern.discs(t: t, width: width, height: height, zoom: zoom)
+        source?.render(discs, into: buffer)
+        let k = TestPattern.intrinsics(width: width, height: height)
+        storeIntrinsics(k, pixelBuffer: buffer)
+        let face = TestPattern.arkit(discs, intrinsics: k, blendShapeNames: Self.blendShapes.map { $0.0 })
+
+        if let ticket = streamer.begin(t: t) {
+            var camera: [String: Any] = [
+                "id": snapshot.cameraId,
+                "position": snapshot.position,
+                "type": snapshot.cameraType,
+                "zoom": zoom,
+                "zoomStable": arkit || t - snapshot.zoomChangedAt > 0.25,
+                "width": width,
+                "height": height,
+                "fieldOfView": TestPattern.fieldOfView,
+            ]
+            // Like the camera's attachment, the intrinsics describe the unzoomed sensor.
+            Self.addIntrinsics(k, to: &camera, source: "test", includesZoom: arkit)
+            var lensBlock = lens
+            if !arkit { lensBlock["focusLocked"] = snapshot.focusLocked }
+            let input = StreamFrameInput(
+                pixelBuffer: buffer, t: t, mode: arkit ? "arkit" : "camera", camera: camera,
+                lens: lensBlock, gravity: motion.gravity() ?? TestPattern.gravity,
+                rotationRate: motion.rotationRate() ?? [0, 0, 0], arkit: arkit ? face.block : nil,
+                eyePixels: arkit ? face.eyes : nil, depth: nil,
+                extra: [
+                    "testPattern": [
+                        "version": 1, "zoom": zoom, "discs": discs.map { $0.json },
+                    ] as [String: Any],
+                ]
+            )
+            streamer.submit(ticket, input: input)
+        }
+
+        let time = CMTime(seconds: t, preferredTimescale: 1_000_000)
+        if arkit {
+            var values: [Double] = [1]
+            values += Self.flatten(face.face)
+            values += Self.flatten(face.leftEye)
+            values += Self.flatten(face.rightEye)
+            values += [Double(face.lookAt.x), Double(face.lookAt.y), Double(face.lookAt.z)]
+            values += Self.flatten(matrix_identity_float4x4)
+            values += [Double](repeating: 0, count: Self.blendShapes.count)
+            handleFrame(buffer, time: time, values: values, columns: Self.arkitColumns)
+        } else {
+            let values: [Double] = [0.5, 100, snapshot.exposureSeconds, 0, 0]
+            handleFrame(buffer, time: time, values: values, columns: Self.cameraColumns)
+        }
     }
 }

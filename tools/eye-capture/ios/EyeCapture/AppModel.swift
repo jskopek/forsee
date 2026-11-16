@@ -9,7 +9,7 @@ import UIKit
 /// through these routes; the phone's own screen only shows status.
 final class AppModel: ObservableObject {
     static let port: UInt16 = 8080
-    static let appVersion = "0.2.1"
+    static let appVersion = "0.2.2"
 
     @Published var addresses: [String] = []
     @Published var statusLine = "Starting…"
@@ -27,7 +27,7 @@ final class AppModel: ObservableObject {
     private let systemLock = NSLock()
     private var systemInfo: [String: Any] = [:]
 
-    // HTTP queue only.
+    // Route queue only (HTTPServer runs every route and stream opener there).
     private var cameras: [[String: Any]]?
 
     func start() {
@@ -99,7 +99,11 @@ final class AppModel: ObservableObject {
     private func refresh() {
         addresses = DeviceInfo.ipv4Addresses().map { "http://\($0):\(Self.port)" }
         statusLine = capture.summaryLine()
-        streamLine = capture.streamer.summaryLine()
+        var diagnostics = capture.streamer.summaryLine()
+        if let cameraError = capture.statusJSON()["lastError"] as? String, !cameraError.isEmpty {
+            diagnostics += "\nCamera: " + cameraError
+        }
+        streamLine = diagnostics
         isRecording = capture.isRecording
         if let data = capture.previewJPEG(.full) {
             preview = UIImage(data: data)
@@ -113,7 +117,7 @@ final class AppModel: ObservableObject {
         systemLock.unlock()
     }
 
-    // MARK: - Routes (HTTP queue)
+    // MARK: - Routes (route queue)
 
     private func route(_ request: HTTPRequest, respond: @escaping (HTTPResponse) -> Void) {
         switch (request.method, request.path) {
@@ -163,7 +167,7 @@ final class AppModel: ObservableObject {
             }
 
         case ("GET", "/stream"):
-            // Built here, on the HTTP queue, because the camera list lives here.
+            // The opener runs on the route queue too, where the camera list lives.
             let response = HTTPResponse(
                 status: 200,
                 contentType: "application/x-pgz1",

@@ -49,7 +49,7 @@ end
 
 settings = {
   'PRODUCT_NAME' => '$(TARGET_NAME)',
-  'MARKETING_VERSION' => '0.2.1',
+  'MARKETING_VERSION' => '0.2.2',
   'CURRENT_PROJECT_VERSION' => '1',
   'SWIFT_VERSION' => '5.0',
   'IPHONEOS_DEPLOYMENT_TARGET' => '16.0',
