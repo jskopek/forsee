@@ -51,7 +51,7 @@ def make_condition(
     cond: dict[str, Any],
     *,
     fps: float = 15.0,
-    dwell_s: float = 1.0,
+    dwell_s: float = 1.5,
     gap_s: float = 0.25,
     validate_n: int = 10,
     pose_groups: int = 2,

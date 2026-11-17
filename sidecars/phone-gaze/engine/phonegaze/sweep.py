@@ -505,6 +505,7 @@ FIT_AXES: dict[str, dict[str, Any]] = {
     "models.eye": {"values": ["both", "left", "right", "auto"], "models": GEOMETRIC_LIKE},
     "calibration.sample_weighting": {"values": ["per_dot", "precision", "per_sample"], "models": None},
     "calibration.outlier_mad": {"values": [3.0, 2.0, 5.0], "models": None},
+    "calibration.settle_ms": {"values": [600, 400], "models": None},
     "calibration.discard_ms": {"values": [150, 300, 500, 800], "models": None},
     "poses": {"values": [True, False], "models": None},
     "calibration.pursuit_merge": {"values": ["off", "auto", "on"], "models": None},
@@ -575,6 +576,8 @@ def normalise_fit(fit: dict[str, Any], cond_has: dict[str, bool]) -> dict[str, A
             continue
         if k == "calibration.pursuit_merge" and not cond_has.get("pursuit"):
             continue
+        if k == "calibration.settle_ms" and not cond_has.get("settle"):
+            continue
         if v == ax["values"][0]:
             continue
         out[k] = v
@@ -606,7 +609,7 @@ def full_space_size(cond_has: dict[str, bool], n_vision: int) -> int:
         for k, ax in FIT_AXES.items():
             if ax["models"] is not None and model not in ax["models"]:
                 continue
-            if (k == "poses" and not cond_has.get("poses")) or (k == "calibration.pursuit_merge" and not cond_has.get("pursuit")):
+            if (k == "poses" and not cond_has.get("poses")) or (k == "calibration.pursuit_merge" and not cond_has.get("pursuit")) or (k == "calibration.settle_ms" and not cond_has.get("settle")):
                 continue
             n *= len(ax["values"])
         total += n
@@ -726,11 +729,16 @@ def _window(os_: ObsSet, t0: float, t1: float) -> list[Any]:
 
 
 def build_samples(cond: Condition, os_: ObsSet, cfg: Config) -> dict[str, Any]:
-    """Cleaned samples per phase, as live calibration cleans a dot (``calibration.clean_dot``)."""
+    """Cleaned samples per phase, as live calibration cleans a dot (``calibration.clean_dot``).
+
+    Live, a dot is shown for ``settle_ms`` before collecting starts, then the first
+    ``discard_ms`` of the collection are dropped. A collection run's dot times are when the dot
+    appeared and disappeared, so both apply; a recorded calibration's windows already start
+    after the settle."""
     from .calibration import clean_dot
 
     cal = cfg.calibration
-    disc = float(cal.discard_ms) / 1000.0
+    disc = float(cal.discard_ms) / 1000.0 + (float(cal.settle_ms) / 1000.0 if cond.kind == "collect" else 0.0)
     out: dict[str, Any] = {"calibration": [], "poses": [], "validation": [], "pursuit": [], "rejected": {}}
     for d in cond.dots:
         obs = _window(os_, d.t0 + disc, d.t1)
@@ -984,7 +992,7 @@ class Sweep:
         self.progress = progress or (lambda s: None)
         self.rng = random.Random(seed)
         self.conds = {c.id: c for c in inputs.conditions}
-        self.has = {c.id: {"poses": bool(c.phase("poses")), "pursuit": c.pursuit is not None} for c in inputs.conditions}
+        self.has = {c.id: {"poses": bool(c.phase("poses")), "pursuit": c.pursuit is not None, "settle": c.kind == "collect"} for c in inputs.conditions}
         self.visions: dict[str, dict[str, dict[str, Any]]] = {c.id: {} for c in inputs.conditions}
         self.obs_stats: dict[tuple[str, str], dict[str, Any]] = {}
         self.results: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -1255,8 +1263,10 @@ class Sweep:
         self._refine_vision(conds)
         # B: one setting at a time around the best three.
         tasks = []
+        self.anchors: dict[str, list[dict[str, Any]]] = {}
         for c in conds:
-            for anchor in self.best(c.id, 3):
+            self.anchors[c.id] = self.best(c.id, 3)
+            for anchor in self.anchors[c.id]:
                 v = anchor["vision_def"] or self.visions[c.id][anchor["vision"]]
                 for axis, ax in FIT_AXES.items():
                     if axis == "poses":
@@ -1338,21 +1348,28 @@ class Sweep:
         model = base_fit.get("model", "auto")
         out = []
         if greedy:
-            # every single change that helped this (vision, model), all together
-            helped: dict[str, Any] = {}
-            for (c, vid, _), r in self.results.items():
-                if c != cid or vid != b["vision"] or r["fit"].get("model") != model or _score(r) >= _score(b):
-                    continue
-                diff = {k: x for k, x in r["fit"].items() if base_fit.get(k) != x}
-                if len(diff) == 1:
-                    helped.update(diff)
-            if helped:
-                out.append((cid, v, {**base_fit, **helped}))
+            # around each anchor of the one-at-a-time pass: every single change that helped it,
+            # all together
+            for anchor in getattr(self, "anchors", {}).get(cid, []):
+                afit = anchor["fit"]
+                helped: dict[str, Any] = {}
+                for (c, vid, _), r in self.results.items():
+                    if c != cid or vid != anchor["vision"] or _score(r) >= _score(anchor):
+                        continue
+                    diff = {k: x for k, x in r["fit"].items() if afit.get(k) != x}
+                    gone = [k for k in afit if k not in r["fit"]]
+                    if len(diff) + len(gone) == 1 and diff:
+                        helped.update(diff)
+                if len(helped) > 1:
+                    av = anchor["vision_def"] or self.visions[cid][anchor["vision"]]
+                    out.append((cid, av, {**afit, **helped}))
         axes = [a for a, ax in FIT_AXES.items() if ax["models"] is None or model in ax["models"]]
         if not self.has[cid]["poses"]:
             axes = [a for a in axes if a != "poses"]
         if not self.has[cid]["pursuit"]:
             axes = [a for a in axes if a != "calibration.pursuit_merge"]
+        if not self.has[cid]["settle"]:
+            axes = [a for a in axes if a != "calibration.settle_ms"]
         tries = 0
         while len(out) < self.workers * 2 and tries < 60:
             tries += 1

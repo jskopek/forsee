@@ -22,7 +22,7 @@ from phonegaze.config import Config  # noqa: E402
 def one(tmp_path_factory) -> Path:
     """One small synthetic condition (clean) in a recordings folder."""
     root = tmp_path_factory.mktemp("recs")
-    make_condition(root, "unit", {**DEFAULT_CONDITIONS[0]}, fps=8.0, dwell_s=0.8, validate_n=6, pose_groups=1, pursuit_s=0)
+    make_condition(root, "unit", {**DEFAULT_CONDITIONS[0]}, fps=8.0, dwell_s=1.5, validate_n=6, pose_groups=1, pursuit_s=0)
     return root
 
 

@@ -21,7 +21,7 @@ from sweep_synth import DEFAULT_CONDITIONS, make_run  # noqa: E402
 from phonegaze import sweep as S  # noqa: E402
 from phonegaze.config import Config  # noqa: E402
 
-SMALL = {"fps": 10.0, "dwell_s": 0.9, "validate_n": 8, "pose_groups": 2, "pursuit_s": 4.0}
+SMALL = {"fps": 10.0, "dwell_s": 1.5, "validate_n": 8, "pose_groups": 2, "pursuit_s": 4.0}
 
 
 @pytest.fixture(scope="module")

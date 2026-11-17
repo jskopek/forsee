@@ -47,7 +47,11 @@ from .types import Observation, _jsonable
 log = logging.getLogger(__name__)
 
 SETTLE_S = 0.3
-"""Frames this long after a dot appears are left out of the within-fixation numbers."""
+"""Frames this long after a recorded calibration dot starts collecting are left out of the
+within-fixation numbers."""
+COLLECT_SETTLE_S = 0.6
+"""The same for a collection run, whose dot times start when the dot appeared (live waits
+``calibration.settle_ms``, 600 ms, before collecting)."""
 
 THRESHOLDS = {
     "availability": 0.8,  # usable-eye share below this is a problem
@@ -182,7 +186,9 @@ def availability(cond: Any, os_: Any) -> dict[str, Any]:
 def _dot_frames(cond: Any, os_: Any, phases: tuple[str, ...]) -> list[tuple[Any, list[Observation]]]:
     from .sweep import _window
 
-    return [(d, _window(os_, d.t0 + SETTLE_S, d.t1)) for d in cond.dots if d.phase in phases]
+    # a collection run's dot times start when the dot appeared: wait for the eyes as live does
+    settle = COLLECT_SETTLE_S if getattr(cond, "kind", "") == "collect" else SETTLE_S
+    return [(d, _window(os_, d.t0 + settle, d.t1)) for d in cond.dots if d.phase in phases]
 
 
 def precision_floor(cond: Any, os_: Any) -> dict[str, Any]:
