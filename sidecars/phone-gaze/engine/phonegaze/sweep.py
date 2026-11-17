@@ -1761,7 +1761,7 @@ def make_preset(board: dict[str, Any], sw: Sweep) -> dict[str, Any] | None:
     desc = (
         f"From the sweep '{sw.inputs.name}' ({board['created'][:10]}): {cond.camera_label} at {cond.zoom or '?'}x, setup '{cond.label}'. "
         f"Validation {o.get('acc_deg', 0):.2f} deg" + (f" (95% {ci[0]:.2f}-{ci[1]:.2f})" if ci else "") + (f", {o['confirm_deg']:.2f} deg when picked on half the validation dots and scored on the other" if o.get("confirm_deg") is not None else "") + ". "
-        f"Applies to camera {cond.camera_id} at zoom {cond.zoom or '?'}x; on another camera, sweep that one."
+        f"Applies to camera {cond.camera_label} at zoom {cond.zoom or '?'}x; on another camera, sweep that one."
     )
     try:
         preset = validate({"name": PRESET_NAME, "description": desc, "mode": "replace", "changes": ch})
@@ -1866,7 +1866,7 @@ def format_summary(board: dict[str, Any]) -> str:
     p = board.get("preset")
     if p:
         L.append("")
-        L.append(f"Preset '{p['name']}' written: camera {p['camera_id']} at {p.get('zoom') or '?'}x, {len(p['changes'])} setting(s).")
+        L.append(f"Preset '{p['name']}' written: {p.get('camera_label') or p['camera_id']} at {p.get('zoom') or '?'}x, {len(p['changes'])} setting(s).")
     if board.get("notes"):
         L.append("")
         L.append("Notes:")
@@ -1926,7 +1926,7 @@ def write_markdown(board: dict[str, Any]) -> str:
         L.append("")
     p = board.get("preset")
     if p:
-        L += ["## Preset", "", f"Saved as **{p['name']}** (Experiments page, Presets): camera {p['camera_id']} at {p.get('zoom') or '?'}x.", ""]
+        L += ["## Preset", "", f"Saved as **{p['name']}** (Experiments page, Presets): {p.get('camera_label') or p['camera_id']} at {p.get('zoom') or '?'}x.", ""]
         L += [f"- `{k}` = `{json.dumps(_jsonable(v))}`" for k, v in sorted(p["changes"].items())]
         L += [f"- Note: {n}" for n in p.get("notes") or []]
     for n in board.get("notes") or []:
@@ -1981,7 +1981,7 @@ def write_html(board: dict[str, Any]) -> str:
         parts.append("<ul>" + "".join(f"<li>{x}</li>" for x in extra) + "</ul>")
     p = board.get("preset")
     if p:
-        parts.append(f"<h2>Preset</h2><p>Saved as <b>{esc(p['name'])}</b>: camera {esc(p['camera_id'])} at {esc(p.get('zoom') or '?')}x.</p><ul>" + "".join(f"<li><code>{esc(k)}</code> = <code>{esc(json.dumps(_jsonable(v)))}</code></li>" for k, v in sorted(p["changes"].items())) + "</ul>")
+        parts.append(f"<h2>Preset</h2><p>Saved as <b>{esc(p['name'])}</b>: {esc(p.get('camera_label') or p['camera_id'])} at {esc(p.get('zoom') or '?')}x.</p><ul>" + "".join(f"<li><code>{esc(k)}</code> = <code>{esc(json.dumps(_jsonable(v)))}</code></li>" for k, v in sorted(p["changes"].items())) + "</ul>")
     parts.append("</body></html>")
     return "".join(parts)
 
@@ -2210,7 +2210,7 @@ def register(app: Any, engine: Any) -> None:
             return _json({"error": f"cannot save the preset: {exc}"}, 400)
         changes = changes_to_apply(saved, engine.config)
         errors = await engine.apply_config(changes)
-        return _json({"applied": changes, "errors": errors, "preset": saved["name"], "camera_id": preset.get("camera_id"), "zoom": preset.get("zoom")})
+        return _json({"applied": changes, "errors": errors, "preset": saved["name"], "camera_id": preset.get("camera_id"), "camera_label": preset.get("camera_label"), "zoom": preset.get("zoom")})
 
     r = app.router
     r.add_get("/api/sweep/targets", targets)

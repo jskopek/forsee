@@ -454,9 +454,12 @@ def verdict(d: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
             }
         )
     main = fl.get("main_deg")
-    if main is not None and main > T["noise_deg"]:
+    # Frame-to-frame jitter is averaged over each dot's frames: with a small held-out error it is
+    # not what limits accuracy (the simulator's rendered eyes jitter 2-3 degrees per frame and
+    # still reach 0.3), so it only counts up to the error actually measured.
+    if main is not None and main > T["noise_deg"] and (ach is None or ach > 0.5 * T["noise_deg"]):
         sig = {"iris_minus_corners": "the iris measurement (relative to the eye corners)", "iris": "the iris measurement", "gaze_dir": "the measured gaze direction"}.get(fl.get("main_signal"), "the main measurement")
-        findings.append({"kind": "noise", "size": main, "text": f"{sig} is too noisy: {main:.1f} degrees of jitter within a fixation", "next": "more pixels and less blur on the eye: zoom in or move closer, more light or a shorter shutter (lens.max_exposure_ms 8-16), estimators.iris_fit circle; filters.preset steady hides jitter but not offsets"})
+        findings.append({"kind": "noise", "size": main if ach is None else min(main, ach), "text": f"{sig} is too noisy: {main:.1f} degrees of jitter from frame to frame within a fixation", "next": "more pixels and less blur on the eye: zoom in or move closer, more light or a shorter shutter (lens.max_exposure_ms 8-16), estimators.iris_fit circle; filters.preset steady hides jitter but not offsets"})
     main_ss = (st.get("signals") or {}).get(st.get("main_signal") or "")
     if main_ss:
         for ax in ("horizontal", "vertical"):

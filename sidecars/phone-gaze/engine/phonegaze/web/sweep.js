@@ -178,7 +178,8 @@ function progressView(s) {
         class: 'small',
         'data-testid': 'sweep-eta',
         text:
-          `${s.evaluated || 0} setups fitted so far; elapsed ${duration(s.elapsed_s)}` +
+          `${s.evaluated || 0} setups fitted so far` +
+          (typeof s.elapsed_s === 'number' ? `; running for ${duration(s.elapsed_s)}` : '; starting') +
           (typeof s.eta_s === 'number' ? `, about ${duration(s.eta_s)} left in this step` : '') +
           (s.minutes ? ` (budget ${s.minutes} min)` : ''),
       }),
@@ -234,7 +235,7 @@ function resultView(s) {
               const errs = Object.values(r.errors || {});
               status.textContent = errs.length
                 ? `Applied with errors: ${errs.join('; ')}`
-                : `Applied "${r.preset}" (${Object.keys(r.applied).length} setting(s)); it is for camera ${r.camera_id} at ${r.zoom || '?'}×.`;
+                : `Applied "${r.preset}" (${Object.keys(r.applied).length} setting(s)); it is for the ${r.camera_label || r.camera_id} at ${r.zoom || '?'}×. Calibrate on that camera next.`;
             } catch (err) {
               status.textContent = err.message;
             }

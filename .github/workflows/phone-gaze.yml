@@ -20,7 +20,7 @@ jobs:
   engine-linux:
     name: Engine tests (Linux)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -73,6 +73,11 @@ jobs:
           NODE_PATH: ${{ runner.temp }}/pw/node_modules
           PG_PYTHON: python
         run: node tests/ui/collect_e2e.cjs
+      - name: Sweep (Sweep page) end-to-end against the simulator
+        env:
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+          PG_PYTHON: python
+        run: node tests/ui/sweep_e2e.cjs
       - name: Keep the accuracy numbers
         if: always()
         uses: actions/upload-artifact@v4

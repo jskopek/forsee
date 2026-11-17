@@ -1,7 +1,7 @@
 /* global setTimeout, fetch, __dirname, window */
 // End to end: collect against the simulator, sweep from the Sweep page, apply the preset.
 //
-//   node sidecars/phone-gaze/engine/tests/sweep_e2e.cjs
+//   node sidecars/phone-gaze/engine/tests/ui/sweep_e2e.cjs
 //
 // Starts `python -m phonegaze` with HOME in a temporary folder and connects the simulated phone.
 // Collects a two-condition run (back wide 2x, front ARKit; short protocol) by driving the Collect
@@ -19,7 +19,7 @@ const path = require('path');
 const net = require('net');
 const { chromium } = require('playwright');
 
-const ENGINE_DIR = path.resolve(__dirname, '..');
+const ENGINE_DIR = path.resolve(__dirname, '..', '..');
 
 function log(...args) {
   console.log(`[sweep-e2e ${new Date().toISOString().slice(11, 19)}]`, ...args);
