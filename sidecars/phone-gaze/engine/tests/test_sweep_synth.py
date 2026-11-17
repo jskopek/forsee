@@ -206,3 +206,18 @@ def test_sweep_page_routes(swept: dict, tmp_path: Path) -> None:
             await client.close()
 
     asyncio.run(go())
+
+
+def test_diagnose_after_a_sweep_covers_the_best_setup_and_the_defaults(swept: dict, run: Path, capsys) -> None:
+    from phonegaze import signal_report as R
+
+    assert R.main([str(run), "--config", str(swept["conf"]), "--vision", "oracle", "--workers", "2", "--json"]) == 0
+    diag = json.loads(capsys.readouterr().out)
+    which = [(d["id"], d["which"].split(" (")[0]) for d in diag["conditions"]]
+    ids = [c["id"] for c in DEFAULT_CONDITIONS]
+    scored = [c["id"] for c in swept["board"]["conditions"] if c.get("winner")]
+    for cid in ids:
+        mine = [w for i, w in which if i == cid]
+        assert mine[-1] == "with today's defaults"
+        if cid in scored:
+            assert mine == ["with the sweep's best setup", "with today's defaults"]

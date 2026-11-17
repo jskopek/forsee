@@ -581,7 +581,7 @@ def format_text(diag: dict[str, Any]) -> str:
     """Plain text for a chat; every number with its unit and what it means."""
     L = []
     for d in diag.get("conditions", []):
-        L.append(f"{d['label']} [{d.get('camera_label') or d.get('camera_id', '?')} {d.get('zoom') or '?'}x]")
+        L.append(f"{d['label']} [{d.get('camera_label') or d.get('camera_id', '?')} {d.get('zoom') or '?'}x]" + (f", {d['which']}" if d.get("which") else ""))
         L.append(f"  why: {d['verdict']}")
         L.append(f"  next: {d['next_step']}")
         av = d.get("availability") or {}
@@ -669,16 +669,35 @@ def main(argv: list[str] | None = None) -> int:
         inputs = resolve(args.target, cfg)
         out = Path(args.out).expanduser() if args.out else sweeps_dir(inputs.root) / safe_name(inputs.name)
         sw = Sweep(inputs, cfg, out, vision_mode=args.vision, workers=args.workers, progress=lambda m: print(m, file=sys.stderr, flush=True))
-        tasks = [(c.id, vision_space(c, args.vision)[0], None, {"model": "auto"}) for c in inputs.conditions]
-        for c, t in zip(inputs.conditions, tasks):
-            print(f"{c.label}: diagnosing with the {t[1].get('chain')} estimators and the default models", file=sys.stderr, flush=True)
+        from .sweep import fit_name, top_by_validation, vision_name
+
+        defaults = [(c.id, vision_space(c, args.vision)[0], None, {"model": "auto"}) for c in inputs.conditions]
+        # A sweep of this run already fitted: diagnose its best setup too, and lead with it.
+        best = []
+        for c in inputs.conditions:
+            top = top_by_validation(sw, c.id, 1)
+            if top:
+                r = top[0]
+                best.append((c.id, r.get("vision_def") or sw.visions[c.id].get(r["vision"]) or vision_space(c, args.vision)[0], r, r["fit"]))
+        if best:
+            print(f"Found the sweep of this run in {out} ({len(sw.results)} setups): diagnosing its best setup and today's defaults", file=sys.stderr, flush=True)
+        else:
+            print("No sweep of this run yet: diagnosing today's default settings only (run the sweep for its best setup)", file=sys.stderr, flush=True)
         sw.no_state = True
         sw._pool = sw._executor()
         try:
-            conds = sw.diagnose_all(tasks)
+            got_best = {d["id"]: d for d in sw.diagnose_all(best)} if best else {}
+            got_def = {d["id"]: d for d in sw.diagnose_all(defaults)}
         finally:
             if sw._pool is not None:
                 sw._pool.shutdown(wait=True, cancel_futures=True)
+        conds = []
+        for c in inputs.conditions:
+            if c.id in got_best:
+                t = next(t for t in best if t[0] == c.id)
+                conds.append({**got_best[c.id], "which": f"with the sweep's best setup ({fit_name(t[3])} | {vision_name(t[1])})"})
+            if c.id in got_def:
+                conds.append({**got_def[c.id], "which": f"with today's defaults ({vision_name(defaults[[x.id for x in inputs.conditions].index(c.id)][1])}, default models)"})
         diag: dict[str, Any] = {"name": inputs.name, "conditions": conds, "notes": inputs.notes}
         out.mkdir(parents=True, exist_ok=True)
         (out / "diagnosis.json").write_text(json.dumps(_jsonable(diag), indent=2) + "\n")

@@ -18,7 +18,7 @@ cd sidecars/phone-gaze/engine
 .venv/bin/python -m phonegaze sweep ~/.phonegaze/recordings/collect-runs/RUN_ID.json
 .venv/bin/python -m phonegaze sweep ~/.phonegaze/recordings              # every recording there
 .venv/bin/python -m phonegaze sweep ~/.phonegaze/recordings/20261117-0930 --minutes 20
-.venv/bin/python -m phonegaze diagnose RUN_ID       # only the "why" part, in seconds
+.venv/bin/python -m phonegaze diagnose RUN_ID       # only the "why" part: the sweep's best setup (once swept) and the defaults
 ```
 
 Or the **Sweep** page (`http://127.0.0.1:8765/sweep.html`; the Collect page links to it): choose the run, set the
