@@ -95,8 +95,12 @@ async def test_rotation_from_gravity_portrait(tmp_path) -> None:
         assert d.intrinsics.cx == pytest.approx(1080 - 540)
         # Focus points come in upright 0-1 coordinates and go out as sensor 0-1.
         await engine.focus(0.25, 0.75, locked=True)
-        path, body = phone.requests[-1]
-        assert path == "/api/focus" and body["locked"] is True
+        # The engine keeps sending ROI updates (/api/stream/config) concurrently, so the focus
+        # request is not necessarily the last one the phone saw.
+        focus = [(p, b) for p, b in phone.requests if p == "/api/focus"]
+        assert focus, phone.requests
+        path, body = focus[-1]
+        assert body["locked"] is True
         assert (body["x"], body["y"]) == pytest.approx((0.75, 0.75))
     finally:
         await engine.stop()
