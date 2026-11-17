@@ -1051,8 +1051,9 @@ class Sweep:
         if not calls:
             return
         if self._pool is None:
-            if not _W:
+            if _W.get("owner") != id(self):
                 _worker_init(self.inputs.conditions, self.base, str(self.cache_dir), self.every)
+                _W["owner"] = id(self)
             for c in calls:
                 if self.out_of_time():
                     self.stopped_by = "time"
@@ -1104,8 +1105,11 @@ class Sweep:
                 self.progress(f"  {r['cond']}: {vision_name(self.visions[r['cond']][r['vision']])}: {r.get('error')}")
             self.state(stage="observations", done=count[0], total=total, message=f"observations: {count[0]} of {total} (condition, vision) sets")
 
-        self.progress(f"Stage 1: {total} observation set(s) to read ({sum(1 for _ in wanted) - total} known)")
+        self.progress(f"Stage 1: {total} observation set(s) (condition x vision settings)")
         self._map(_job_observe, todo, got)
+        new = [self.obs_stats[(c, vision_id(v))] for c, v in todo if (c, vision_id(v)) in self.obs_stats]
+        if new:
+            self.progress(f"  {sum(1 for r in new if r.get('cached'))} read from the cache, {sum(1 for r in new if r.get('ok') and not r.get('cached'))} decoded now, {sum(1 for r in new if not r.get('ok'))} failed")
 
     def usable_visions(self, cid: str) -> list[dict[str, Any]]:
         return [self.visions[cid][vid] for (c, vid), s in self.obs_stats.items() if c == cid and s.get("ok") and s.get("frames")]
@@ -1729,7 +1733,8 @@ def write_markdown(board: dict[str, Any]) -> str:
         L.append("")
     diag = {d["id"]: d for d in (board.get("diagnosis") or {}).get("conditions", [])}
     for c in board["conditions"]:
-        L += [f"## {c['label']}", "", f"Camera {c['camera_label']} ({c['camera_id']}), zoom {c.get('zoom') or '?'}; dots: {c['dots']}; {c['evaluated']} setups fitted ({_share(c.get('space_share') or 0)} of {c['space']:,}), {c['failed']} failed, {c['not_ranked']} predicted too few validation dots.", ""]
+        dots = ", ".join(f"{n} {k}" for k, n in c["dots"].items())
+        L += [f"## {c['label']}", "", f"Camera {c['camera_label']} ({c['camera_id']}), zoom {c.get('zoom') or '?'}; dots: {dots}; {c['evaluated']} setups fitted ({_share(c.get('space_share') or 0)} of {c['space']:,}), {c['failed']} failed, {c['not_ranked']} predicted too few validation dots.", ""]
         dg = diag.get(c["id"])
         if dg:
             L += [f"**Why:** {dg['verdict']}", "", f"**Next:** {dg['next_step']}", ""]
