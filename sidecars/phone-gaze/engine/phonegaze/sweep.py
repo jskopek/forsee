@@ -1027,6 +1027,9 @@ class Sweep:
         self.resumed = 0
         self.no_state = False  # the diagnose command borrows the pool without touching a sweep's state
         self._pool: Any = None
+        import uuid
+
+        self.token = uuid.uuid4().hex
         self._load()
 
     # -- persistence ----------------------------------------------------------------------
@@ -1101,9 +1104,9 @@ class Sweep:
         if not calls:
             return
         if self._pool is None:
-            if _W.get("owner") != id(self):
+            if _W.get("owner") != self.token:  # (not id(self): ids are reused after garbage collection)
                 _worker_init(self.inputs.conditions, self.base, str(self.cache_dir), self.every)
-                _W["owner"] = id(self)
+                _W["owner"] = self.token
             for c in calls:
                 if self.out_of_time():
                     self.stopped_by = "time"
