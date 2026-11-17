@@ -42,6 +42,8 @@ NOT_IN_PRESETS = (
     "diagnostics.",
     "lab.",
     "lens.camera_id",
+    "collect.",
+    "ui.simple_mode",
 )
 
 BUILTIN: list[dict[str, Any]] = [

@@ -362,6 +362,9 @@ def create_app(engine: Engine) -> web.Application:
     from .tuning import register as register_tuning
 
     register_tuning(app, engine)  # /api/tuning/* (Tuning page) and /api/presets/* (presets.py)
+    from .collect import register as register_collect
+
+    register_collect(app, engine)  # /api/collect/*: guided collection run (Collect page)
     r.add_get("/ws", ui_ws)
     r.add_get("/gaze", gaze_ws)
 

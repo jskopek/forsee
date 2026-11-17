@@ -25,6 +25,7 @@ sim             Simulator
 ui              UI
 lab             Lab (offline scoring: lab.py, tune.py)
 second_camera   second camera (experimental, ``phonegaze/second_camera``)
+collect         Core (guided collection run, ``collect.py``)
 ==============  ==========================================================================
 
 Use :func:`setting` to declare a field. Supported value types: ``bool``, ``int``, ``float``,
@@ -356,6 +357,7 @@ class UIConfig:
     glint_brightness_prompt: bool = setting(True, "Glint assist: remind you on the Tuning page to turn the screen brightness up (the browser cannot do it); a brighter screen gives a brighter reflection.")
     tuning_crop_px: int = setting(420, "Tuning page: width each eye crop is shown at.", min=160, max=1200, unit="px")
     tuning_rate_hz: float = setting(4.0, "Tuning page: how often the eye images refresh.", min=0.5, max=15, unit="Hz")
+    simple_mode: bool = setting(True, "Dashboard: show the five main actions (Collect data, Run sweep, Apply best preset, Calibrate, Validate) with everything else folded under Advanced. Off: the full dashboard, as before.")
 
 
 @dataclass
@@ -427,6 +429,18 @@ class SecondCameraConfig:
 
 
 @dataclass
+class CollectConfig:
+    """Guided collection run (``collect.py``, Collect page): record one fixed protocol per physical setup for the offline sweep."""
+
+    protocol: str = setting("medium", "Collection run: protocol length per condition: 'short' (about 1 minute), 'medium' (about 2) or 'long' (about 3). The same for every condition of a run.", choices=["short", "medium", "long"])
+    pursuit: bool = setting(True, "Collection run: end each condition with a short moving dot.")
+    settle_s: float = setting(1.5, "Collection run: focus and exposure must have stopped adjusting this long (on the requested camera and zoom) before a condition may start.", min=0, max=30, unit="s")
+    poor_eyes_pct: float = setting(80.0, "Collection run: a condition is flagged 'poor data' (and a redo offered) when both eyes were found in fewer than this percentage of its frames.", min=0, max=100, unit="%")
+    short_shutter_ms: float = setting(8.0, "Collection run: the shutter cap of the 'short shutter' conditions in the ready-made sets.", min=1, max=50, unit="ms")
+    setup_estimate_s: float = setting(30.0, "Collection run: time allowed per condition for switching camera and settling, in the run's time estimate.", min=0, max=600, unit="s")
+
+
+@dataclass
 class Config:
     """The whole tree. Sections are fixed; add new sections only through Foundation."""
 
@@ -446,6 +460,7 @@ class Config:
     diagnostics: DiagnosticsConfig = field(default_factory=DiagnosticsConfig)
     lab: LabConfig = field(default_factory=LabConfig)
     second_camera: SecondCameraConfig = field(default_factory=SecondCameraConfig)  # experimental, see SecondCameraConfig
+    collect: CollectConfig = field(default_factory=CollectConfig)  # guided collection run (collect.py)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
