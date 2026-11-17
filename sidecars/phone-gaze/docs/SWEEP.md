@@ -73,10 +73,10 @@ combinations were left out.
 
 **Stage 2, fitting.** For each cached observation set, combinations of _model and calibration_
 settings: the gaze model (`auto` = what live calibration does, or one of geometric, ridge,
-kernel, reflection, hybrid, blend, residual pinned), ridge regularisation, the geometric model's
+kernel, reflection, hybrid, blend, residual pinned), ridge regularisation, the eyelid opening as an extra feature for ridge, kernel and reflection (`models.eyelid_feature`; the upper lid follows vertical gaze where it hides the iris), the geometric model's
 eyeball centre, kappa prior and eye choice, per-dot sample handling (outlier rule, samples
 discarded after the dot appears, weighting), with or without the head-position (poses) block,
-with or without the moving dot merged, error-map correction (learned from the training dots'
+with or without the moving dot merged, error-map correction (affine gives vertical its own gain and offset; learned from the training dots'
 leave-one-dot-out errors), and the smoothing filter. Feature sets follow from the estimator
 chain and the model; there is no separate switch for them.
 

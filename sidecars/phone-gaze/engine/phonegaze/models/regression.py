@@ -40,6 +40,8 @@ class _FeatureModel(BaseModel):
     def _matrix(self, samples: list[CalibSample]) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[CalibSample]]:
         obs = [s.obs for s in samples]
         groups = F.available_groups(obs, list(self.eye_groups), self.min_fraction)
+        if groups and self.options.get("lid"):
+            groups += F.available_groups(obs, ["lid"], self.min_fraction)
         if not groups:
             raise ValueError(f"no usable features ({', '.join(self.eye_groups)}) in the calibration samples")
         self.table = F.FeatureTable(groups, head=bool(self.options["head"]))

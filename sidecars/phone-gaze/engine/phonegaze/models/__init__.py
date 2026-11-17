@@ -61,6 +61,8 @@ def _options(name: str, config: ModelsConfig) -> dict[str, Any]:
         opts["ref_lo"] = float(getattr(config, "hybrid_ref_lo", 0.3))
         opts["ref_hi"] = float(getattr(config, "hybrid_ref_hi", 0.7))
         opts["tau_s"] = float(getattr(config, "hybrid_tau_s", 0.25))
+    if name in ("ridge", "kernel", "reflection") and getattr(config, "eyelid_feature", False):
+        opts["lid"] = True
     if name == "ridge" and not getattr(config, "auto_alpha", True):
         opts["alpha"] = float(config.ridge_alpha)
     if name == "blend":

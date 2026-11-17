@@ -236,6 +236,7 @@ class ModelsConfig:
         choices=["both", "left", "right", "auto"],
     )
     eye_auto_margin: float = setting(0.15, "Eye 'auto': a single eye is chosen only if its held-out error is at least this fraction lower than both eyes together.", min=0, max=0.8)
+    eyelid_feature: bool = setting(False, "Ridge, kernel and reflection models: also use each eye's lid opening (lid gap / eye-corner span) as a feature. The upper lid follows the eye up and down, so it carries vertical gaze when the lid hides the top of the iris. Off: as before.")
     hybrid_ref_lo: float = setting(0.3, "Hybrid model (reflection + geometric): reflection score at or below which the reflection gets no weight.", min=0, max=1)
     hybrid_ref_hi: float = setting(0.7, "Hybrid model: reflection score at or above which the reflection gets its full weight.", min=0, max=1)
     hybrid_tau_s: float = setting(0.25, "Hybrid model: time constant over which the reflection weight follows detection, so the pointer does not jump when the reflection comes and goes.", min=0, max=3, unit="s")

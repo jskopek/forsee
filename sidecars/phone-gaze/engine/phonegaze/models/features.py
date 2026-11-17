@@ -167,7 +167,10 @@ EYE_GROUPS = {
     "gaze": 2,  # optical axis yaw, pitch (camera frame), radians
     "iris": 2,  # iris-vs-corner vector
     "reflection": 2,  # iris-to-reflection vector / iris radius
+    "lid": 2,  # lid opening / corner span, and a zero column (models.eyelid_feature)
 }
+EXTRA_GROUPS = ("lid",)
+"""Groups that add to the eye groups but never stand for an eye on their own."""
 HEAD_COLUMNS = ("head_yaw", "head_pitch", "head_roll", "head_rx", "head_ry", "inv_distance")
 
 
@@ -179,6 +182,10 @@ def eye_group(obs: Observation, side: str, group: str) -> tuple[float, float] | 
         return iris_corner_vector(obs, side)
     if group == "reflection":
         return reflection_vector(obs, side)
+    if group == "lid":
+        eye = obs.eye(side)
+        # the second column is constant (standardised to 0): groups are two columns wide
+        return None if eye.openness is None or eye.blink else (float(eye.openness), 0.0)
     raise ValueError(group)
 
 
@@ -217,6 +224,16 @@ class FeatureTable:
     def n_eye_columns(self) -> int:
         return sum(EYE_GROUPS[g] * 2 for g in self.groups)
 
+    def _main_columns(self) -> list[int]:
+        """Columns of the groups that stand for an eye (not the extra ones, such as the lid)."""
+        out, i = [], 0
+        for g in self.groups:
+            n = EYE_GROUPS[g] * 2
+            if g not in EXTRA_GROUPS:
+                out.extend(range(i, i + n))
+            i += n
+        return out or list(range(self.n_eye_columns))
+
     def raw(self, obs: Observation) -> np.ndarray | None:
         """One row (NaN = missing), or ``None`` if no eye group is available at all."""
         cols: list[float] = []
@@ -232,7 +249,7 @@ class FeatureTable:
             if left is None or right is None:
                 cols.extend([np.nan] * 4)
             else:
-                any_eye = True
+                any_eye = any_eye or g not in EXTRA_GROUPS
                 cols.extend([*left, *right])
         if not any_eye:
             return None
@@ -267,7 +284,7 @@ class FeatureTable:
     def transform_matrix(self, mat: np.ndarray) -> np.ndarray:
         assert self.mean is not None and self.std is not None
         z = (mat - self.mean) / self.std
-        bad_rows = ~np.any(np.isfinite(z[:, : self.n_eye_columns]), axis=1) if len(z) else np.zeros(0, bool)
+        bad_rows = ~np.any(np.isfinite(z[:, self._main_columns()]), axis=1) if len(z) else np.zeros(0, bool)
         z = np.where(np.isfinite(z), z, 0.0)
         z[bad_rows] = np.nan
         return z

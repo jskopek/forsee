@@ -555,6 +555,7 @@ FIT_AXES: dict[str, dict[str, Any]] = {
     "models.kappa_prior_sd_deg": {"values": [2.5, 1.0, 5.0], "models": GEOMETRIC_LIKE},
     "models.eyeball_centre": {"values": ["estimator", "per_eye", "head", "auto"], "models": GEOMETRIC_LIKE},
     "models.eye": {"values": ["both", "left", "right", "auto"], "models": GEOMETRIC_LIKE},
+    "models.eyelid_feature": {"values": [False, True], "models": {"auto", "ridge", "kernel", "reflection", "blend"}},
     "calibration.sample_weighting": {"values": ["per_dot", "precision", "per_sample"], "models": None},
     "calibration.outlier_mad": {"values": [3.0, 2.0, 5.0], "models": None},
     "calibration.settle_ms": {"values": ["protocol", 300, 450], "models": None},
