@@ -138,3 +138,71 @@ def test_missing_validation_holds_out_calibration_dots(tmp_path: Path, one: Path
     c = S.resolve(str(d), cfg_for(tmp_path)).conditions[0]
     assert c.held_out_from_calibration and len(c.phase("validation")) == 3
     assert any("held out" in n for n in c.notes)
+
+
+def test_search_finds_a_known_optimum_within_the_cap(one: Path, tmp_path: Path, monkeypatch) -> None:
+    """With a made-up score (ridge best; three settings each help a little), coarse pass, one
+    setting at a time and the greedy combination reach the optimum, and the cap holds."""
+    inp = S.resolve(str(one / "unit-clean"), cfg_for(one))
+    cond = inp.conditions[0]
+    calls: list[dict] = []
+
+    def score(fit: dict) -> float:
+        s = 0.5 if fit.get("model") == "ridge" else 1.0
+        s += 0.0 if fit.get("calibration.outlier_mad") == 5.0 else 0.3
+        s += 0.0 if fit.get("calibration.discard_ms") == 300 else 0.2
+        s += 0.0 if fit.get("calibration.error_map") == "affine" else 0.2
+        return s
+
+    def fake_fit(cid, vision, fit):
+        calls.append(fit)
+        v = score(fit)
+        per = [[d.uid, v, 0.0, 0.0, d.x, d.y, d.t0] for d in cond.phase("validation")]
+        return {"cond": cid, "vision": S.vision_id(vision), "fit": fit, "key": S.fit_key(fit), "v": S.SWEEP_VERSION, "rec": cond.signature, "search_deg": v, "acc_deg": v, "coverage": 1.0, "per_dot": per, "seconds": 0.0}
+
+    monkeypatch.setattr(S, "_job_fit", fake_fit)
+    monkeypatch.setattr(S, "_job_observe", lambda cid, v: {"cond": cid, "vision": S.vision_id(v), "ok": True, "frames": 10, "cached": True})
+    sw = S.Sweep(inp, Config(), tmp_path / "out", minutes=2, max_combos=120, workers=1, vision_mode="oracle")
+    board = sw.run(diagnose=False)
+    best = sw.best(cond.id)[0]
+    assert best["search_deg"] == pytest.approx(0.5)
+    assert best["fit"]["model"] == "ridge"
+    assert len(calls) <= 120 and sw.n_evaluated(cond.id) <= 120
+    assert board["conditions"][0]["winner"]["acc_deg"] == pytest.approx(0.5)
+    # a tiny cap stops it early and says so
+    calls.clear()
+    sw2 = S.Sweep(inp, Config(), tmp_path / "out2", minutes=2, max_combos=5, workers=1, vision_mode="oracle")
+    b2 = sw2.run(diagnose=False)
+    assert len(calls) == 5 and b2["stopped_by"] == "cap"
+
+
+def test_within_noise_marks_and_optimism(one: Path, tmp_path: Path, monkeypatch) -> None:
+    """Two setups whose per-dot errors differ by less than their scatter are 'within noise'."""
+    inp = S.resolve(str(one / "unit-clean"), cfg_for(one))
+    cond = inp.conditions[0]
+    rng = np.random.default_rng(0)
+    base = {d.uid: float(abs(rng.normal(2.0, 1.0))) for d in cond.phase("validation")}
+
+    def fake_fit(cid, vision, fit):
+        shift = {"ridge": 0.0, "kernel": 0.02, "reflection": 1.5}.get(fit.get("model"), 3.0)
+        wobble = (lambda i: 0.4 if i % 2 else -0.38) if fit.get("model") == "kernel" else (lambda i: 0.0)
+        per = [[u, e + shift + wobble(i), 0.0, 0.0, 0.0, 0.0, 0.0] for i, (u, e) in enumerate(base.items())]
+        acc = float(np.mean([p[1] for p in per]))
+        return {"cond": cid, "vision": S.vision_id(vision), "fit": fit, "key": S.fit_key(fit), "v": S.SWEEP_VERSION, "rec": cond.signature, "search_deg": acc, "acc_deg": acc, "coverage": 1.0, "per_dot": per, "seconds": 0.0}
+
+    monkeypatch.setattr(S, "_job_fit", fake_fit)
+    monkeypatch.setattr(S, "_job_observe", lambda cid, v: {"cond": cid, "vision": S.vision_id(v), "ok": True, "frames": 10, "cached": True})
+    sw = S.Sweep(inp, Config(), tmp_path / "o", minutes=1, max_combos=12, workers=1, vision_mode="oracle", models=["ridge", "kernel", "reflection"])
+    board = sw.run(diagnose=False)
+    top = board["conditions"][0]["top"]
+    by_model = {}
+    for t in top:
+        by_model.setdefault(t["fit"]["model"], t)
+    # ridge and kernel differ by noise only: whichever ranks first on its half of the dots, the
+    # other is marked within noise of it; reflection is really worse
+    first = top[0]["fit"]["model"]
+    assert first in ("ridge", "kernel")
+    other = by_model["kernel" if first == "ridge" else "ridge"]
+    assert other["within_noise"] is True
+    assert by_model["reflection"]["within_noise"] is False
+    assert board["conditions"][0]["optimism_deg"] is not None
