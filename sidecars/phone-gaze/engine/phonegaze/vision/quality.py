@@ -135,13 +135,17 @@ class QualityEstimator:
     name = "quality"
 
     def __init__(self, config: Any = None) -> None:
+        from .distance import DistanceSmoother
+
         self.config = config
+        self._distance = DistanceSmoother()
 
     def reset(self) -> None:
-        pass
+        self._distance.reset()
 
     def process(self, frame: DecodedFrame, previous: Observation | None) -> Observation | None:
         obs = previous if previous is not None else Observation.empty(frame)
+        self._distance.apply(obs, float(frame.frame.t), self.config, self.name)
         q = measure_quality(frame, obs)
         reasons = []
         if q["eyes_in_frame"] == 0:

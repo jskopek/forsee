@@ -366,3 +366,47 @@ def test_defaults_are_always_shown_even_on_few_dots(one: Path, tmp_path: Path, m
     assert "defaults 9.00 deg (on 2 of 6 validation dots only" in S.format_summary(board)
     # never fitted: words, not a dash
     assert S.defaults_text({"defaults_message": "not fitted in this sweep (the time ran out first)"}).startswith("not fitted")
+
+
+def _head_case(one: Path, z_noise_mm: float, drift_mm: float):
+    """The unit condition with made-up observations: the head still (or drifting sideways by
+    drift_mm over the run), its estimated distance scattering by z_noise_mm frame to frame."""
+    from phonegaze.types import Observation
+
+    cond = S.resolve(str(one / "unit-clean"), cfg_for(one)).conditions[0]
+    rng = np.random.default_rng(3)
+    t0, t1 = min(d.t0 for d in cond.dots), max(d.t1 for d in cond.dots)
+    ts = np.arange(t0, t1, 1 / 30)
+    obs = []
+    for t in ts:
+        o = Observation(seq=0, t=float(t))
+        x = drift_mm * (t - t0) / (t1 - t0) + rng.normal(0, 1.5)
+        o.head_position = (x / 1000, rng.normal(0, 1.5) / 1000, (600 + rng.normal(0, z_noise_mm)) / 1000)
+        obs.append(o)
+    return cond, S.ObsSet(t=ts, obs=obs, stats={})
+
+
+def test_distance_noise_is_not_head_movement(one: Path) -> None:
+    from phonegaze import signal_report as R
+
+    cond, os_ = _head_case(one, z_noise_mm=50.0, drift_mm=0.0)
+    hm = R.head_movement(cond, os_)
+    assert hm["noise_mm"][2] > 35 and hm["noise_mm"][0] < 3
+    assert hm["calibration"]["moved_mm"] < 30 < hm["calibration"]["raw_range_mm"][2]  # medians barely move
+    d = {"availability": {"usable": 1.0, "either_eye": 1.0}, "precision_floor": {"distance_m": 0.6}, "head": hm, "achieved_deg": 4.0, "bias": {"accuracy_deg": 4.0}, "ceiling": {"ceiling_deg": 3.5}}
+    v, nxt, findings = R.verdict(d)
+    kinds = [f["kind"] for f in findings]
+    assert "head" not in kinds and kinds[0] == "distance_noise"
+    assert "distance estimate is noisy" in v and "distance_smoothing_s" in nxt
+    text = R.format_text({"conditions": [{"label": "x", "verdict": v, "next_step": nxt, "head": hm}]})
+    assert "frame-to-frame noise of the estimated head position" in text and "really moved" in text
+
+
+def test_real_drift_is_still_head_movement(one: Path) -> None:
+    from phonegaze import signal_report as R
+
+    cond, os_ = _head_case(one, z_noise_mm=2.0, drift_mm=120.0)
+    hm = R.head_movement(cond, os_)
+    d = {"availability": {"usable": 1.0, "either_eye": 1.0}, "precision_floor": {"distance_m": 0.6}, "head": hm, "achieved_deg": 4.0, "bias": {"accuracy_deg": 4.0}, "ceiling": {"ceiling_deg": 1.0}}
+    _v, _n, findings = R.verdict(d)
+    assert findings[0]["kind"] == "head" and "distance_noise" not in [f["kind"] for f in findings]

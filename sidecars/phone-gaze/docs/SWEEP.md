@@ -180,7 +180,7 @@ winner's held-out result:
 - **Bias versus jitter**: the constant offset of the validation dots and how much of the error it
   explains, the scale (does the pointer cover the full distance the eyes moved), horizontal
   against vertical, error by screen region, left eye only against right eye only, drift during
-  validation (when it lasted half a minute or more), and how far the head moved in each phase and
+  validation (when it lasted half a minute or more), and how far the head really moved in each phase (the drift of its per-dot median position, per axis; the frame-to-frame noise of the estimated position is reported apart, and a noisy distance along the camera axis gets its own verdict naming `estimators.distance_smoothing_s`) and
   how far it sat from its calibration place during validation (the poses block moves it on
   purpose and is not counted).
 - **Verdict**: each problem found gets a rough size in degrees; the largest is the verdict, with

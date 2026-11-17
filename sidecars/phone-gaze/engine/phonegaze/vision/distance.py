@@ -10,6 +10,10 @@ holds the switch that decides which of those may set ``Observation.distance``:
 - ``head``: eye-corner span only (the iris fit leaves the distance alone);
 - ``fixed``: ``estimators.fixed_distance_m``.
 
+:class:`DistanceSmoother` (``estimators.distance_smoothing_s``) then smooths the chosen distance
+over time and moves the eyeball centres and head position with it (the quality estimator runs
+it, last in every chain).
+
 Every estimator that sets the distance records which cue it used in
 ``obs.extra["distance"] = {"source": ..., "cues": {...}}`` so the Tuning page can show it.
 """
@@ -54,3 +58,43 @@ def note(obs: Observation, src: str, cues: dict[str, Any] | None = None) -> None
     info["source"] = src
     if cues:
         info.setdefault("cues", {}).update({k: (None if v is None else float(v)) for k, v in cues.items()})
+
+
+class DistanceSmoother:
+    """Exponential smoothing of ``Observation.distance`` over time. A point placed at the noisy
+    distance is scaled about the camera to the smoothed one (its pixel stays), so the eyeball
+    centres and head position follow; the gaze directions are then recomputed. A gap of over a
+    second starts afresh. ARKit's distance and a fixed distance are left alone."""
+
+    def __init__(self) -> None:
+        self._state: tuple[float, float] | None = None
+
+    def reset(self) -> None:
+        self._state = None
+
+    def apply(self, obs: Observation, t: float, config: Any, estimator: str = "quality") -> None:
+        from .geometry import fill_eye_model
+
+        tau = float(opt(config, "distance_smoothing_s", 0.0) or 0.0)
+        d = obs.distance
+        if tau <= 0 or not d or obs.provenance.get("distance") == "arkit" or source(config) == "fixed":
+            self._state = None if tau <= 0 else self._state
+            return
+        prev = self._state
+        if prev is None or t < prev[0] or t - prev[0] > 1.0:
+            ds = float(d)
+        else:
+            a = 1.0 - math.exp(-(t - prev[0]) / tau)
+            ds = (1 - a) * prev[1] + a * float(d)
+        self._state = (t, ds)
+        k = ds / float(d)
+        if abs(k - 1.0) < 1e-9:
+            return
+        obs.set("distance", ds, estimator)
+        for side in ("left", "right"):
+            c = obs.eye(side).eyeball_center
+            if c is not None:
+                obs.set(f"{side}.eyeball_center", tuple(float(v) * k for v in c), estimator)
+        if obs.head_position is not None:
+            obs.set("head_position", tuple(float(v) * k for v in obs.head_position), estimator)
+        fill_eye_model(obs, estimator)

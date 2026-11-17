@@ -195,6 +195,7 @@ class EstimatorsConfig:
         choices=["auto", "depth", "iris", "head", "fixed"],
     )
     fixed_distance_m: float = setting(0.6, "Distance used when distance_source is 'fixed'.", min=0.15, max=2.0, unit="m")
+    distance_smoothing_s: float = setting(0.0, "Time constant for smoothing the viewing distance between frames (applied by the quality estimator, after every distance cue). The per-frame distance from iris size is noisy on the rear camera, and its noise moves the eyeball centres and head position; 2-10 s holds it near its recent average, 30 s nearly fixes it. 0 = off. ARKit distances are left alone.", min=0, max=60, unit="s")
     reflection_k_mad: float = setting(5.0, "Reflection: a pixel is a highlight candidate if its top-hat value is this many robust standard deviations (MAD) above the iris median. Lower finds dim reflections and more false ones.", min=1, max=20)
     reflection_min_contrast: float = setting(10.0, "Reflection: minimum brightness above the iris background (0-255 levels) for a highlight candidate.", min=1, max=80)
     reflection_min_confidence: float = setting(0.3, "Reflection: a detection with a lower score is dropped (never unsure: better nothing than the wrong highlight).", min=0, max=0.95)

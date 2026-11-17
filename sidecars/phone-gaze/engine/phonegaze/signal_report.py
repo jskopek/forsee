@@ -58,7 +58,8 @@ THRESHOLDS = {
     "noise_deg": 1.0,  # within-fixation scatter of the main signal above this is a problem
     "weak_signal": 0.6,  # between-dot share of variance below this is a problem
     "offset_deg": 0.8,  # constant offset above this (and most of the error) is a problem
-    "head_mm": 30.0,  # head movement within a phase or between phases above this is notable
+    "head_mm": 30.0,  # drift of the per-dot median head position within or between phases above this is movement
+    "distance_noise_mm": 15.0,  # frame-to-frame scatter of the head position along the camera axis above this (and twice sideways) is a noisy distance
     "drift_deg_per_min": 0.5,
     "scale": 0.2,  # |slope - 1| above this
 }
@@ -307,8 +308,13 @@ def signal_strength(cond: Any, os_: Any, floor: dict[str, Any]) -> dict[str, Any
 
 
 def head_movement(cond: Any, os_: Any) -> dict[str, Any]:
-    """Per phase: how far the head moved (5th-95th percentile range of the position, mm, and of
-    the rotation, degrees), and how far its median moved from the calibration phase."""
+    """Per phase, per axis (x sideways, y up/down, z distance; mm): **drift**, how far the
+    head's per-dot median position moved (5th-95th percentile of the medians; the moving dot in
+    one-second pieces), apart from **noise**, the frame-to-frame scatter of the estimated
+    position within a dot (median over dots of the standard deviation). Only drift is real
+    movement: on the rear camera the distance from iris size scatters by centimetres while the
+    person sits still (the first real recording showed 100-155 mm 'movement' that way). Also how
+    far the median sat from its calibration place."""
     from .sweep import _window
 
     out: dict[str, Any] = {}
@@ -317,17 +323,29 @@ def head_movement(cond: Any, os_: Any) -> dict[str, Any]:
         if ph == "pursuit":
             if cond.pursuit is None:
                 continue
-            fr = _window(os_, float(cond.pursuit[0, 0]), float(cond.pursuit[-1, 0]))
+            t0, t1 = float(cond.pursuit[0, 0]), float(cond.pursuit[-1, 0])
+            pieces = [_window(os_, a, min(t1, a + 1.0)) for a in np.arange(t0, t1, 1.0)]
         else:
-            fr = [o for d in cond.dots if d.phase == ph for o in _window(os_, d.t0, d.t1)]
-        ps = np.array([np.asarray(o.head_position, float) * 1000.0 for o in fr if o.head_position is not None])
-        angs = np.array([a for a in (_head_angles_deg(o) for o in fr) if a is not None])
-        e: dict[str, Any] = {"frames": len(fr)}
-        if len(ps) >= 5:
-            lo, hi = np.percentile(ps, [5, 95], axis=0)
-            e["range_mm"] = [float(v) for v in hi - lo]
+            pieces = [_window(os_, d.t0, d.t1) for d in cond.dots if d.phase == ph]
+        meds, sds, allp = [], [], []
+        for fr in pieces:
+            ps = np.array([np.asarray(o.head_position, float) * 1000.0 for o in fr if o.head_position is not None])
+            if len(ps) >= 3:
+                meds.append(np.median(ps, axis=0))
+                sds.append(np.std(ps, axis=0, ddof=1))
+                allp.append(ps)
+        e: dict[str, Any] = {"frames": sum(len(f) for f in pieces), "dots": len(meds)}
+        if len(meds) >= 2:
+            m = np.array(meds)
+            lo, hi = np.percentile(m, [5, 95], axis=0)
+            e["drift_mm"] = [float(v) for v in hi - lo]
             e["moved_mm"] = float(np.linalg.norm(hi - lo))
-            centre[ph] = np.median(ps, axis=0)
+            e["noise_mm"] = [float(v) for v in np.median(np.array(sds), axis=0)]
+            raw = np.concatenate(allp)
+            rlo, rhi = np.percentile(raw, [5, 95], axis=0)
+            e["raw_range_mm"] = [float(v) for v in rhi - rlo]
+            centre[ph] = np.median(m, axis=0)
+        angs = np.array([a for fr in pieces for a in (_head_angles_deg(o) for o in fr) if a is not None])
         if len(angs) >= 5:
             lo, hi = np.percentile(angs, [5, 95], axis=0)
             e["rotation_range_deg"] = [float(v) for v in hi - lo]
@@ -336,6 +354,9 @@ def head_movement(cond: Any, os_: Any) -> dict[str, Any]:
         for ph, c in centre.items():
             if ph != "calibration":
                 out[ph]["shift_from_calibration_mm"] = float(np.linalg.norm(c - centre["calibration"]))
+    noise = [v["noise_mm"] for k, v in out.items() if k != "poses" and isinstance(v, dict) and v.get("noise_mm")]
+    if noise:
+        out["noise_mm"] = [float(v) for v in np.median(np.array(noise), axis=0)]
     return out
 
 
@@ -487,18 +508,35 @@ def verdict(d: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
             }
         )
     # The poses block moves the head on purpose: only calibration, validation and the moving dot
-    # count, plus how far the head sat from its calibration place during validation.
+    # count, plus how far the head sat from its calibration place during validation. Movement is
+    # the drift of per-dot medians; frame-to-frame noise of the estimate is reported apart.
     still = [hm.get(k) or {} for k in ("calibration", "validation", "pursuit")]
     moved = max([v.get("moved_mm") or 0.0 for v in still] + [(hm.get("validation") or {}).get("shift_from_calibration_mm") or 0.0])
     gap = (ach - ce["ceiling_deg"]) if ach is not None and ce.get("ceiling_deg") is not None else None
+    nz = hm.get("noise_mm")
+    if nz and nz[2] > T["distance_noise_mm"] and nz[2] > 2.0 * max(nz[0], nz[1]):
+        # sized as the head-position jitter in degrees of gaze (precision floor), at most the error
+        jit = ((fl.get("signals") or {}).get("head_position") or {}).get("deg")
+        jit = jit if jit is not None else math.degrees(math.atan2(nz[2], (fl.get("distance_m") or 0.6) * 1000.0))
+        findings.append(
+            {
+                "kind": "distance_noise",
+                "size": min(ach, jit) if ach is not None else jit,
+                "text": f"the distance estimate is noisy, not the head: within a single dot the estimated head position scatters by {nz[2]:.0f} mm along the camera's axis but only {nz[0]:.0f} mm sideways and {nz[1]:.0f} mm up/down (the distance from iris size; real heads do not jump like that)",
+                "next": "estimators.distance_smoothing_s 3-30 (the sweep tries 3 and 30), estimators.head_smoothing_s 1, or estimators.distance_source head (eye-corner span) or fixed with estimators.fixed_distance_m set to your measured distance",
+            }
+        )
     if moved > T["head_mm"]:
         cross = d.get("cross_pose_deg")
         size = max(gap or 0.0, (cross or 0.0) - (ce.get("ceiling_deg") or 0.0), moved / 40.0)
+        dr = {k: (hm.get(k) or {}).get("drift_mm") for k in ("calibration", "validation")}
         findings.append(
             {
                 "kind": "head",
                 "size": size,
-                "text": f"the head moved {moved:.0f} mm while it should have been still (calibration {(hm.get('calibration') or {}).get('moved_mm') or 0:.0f} mm, validation {(hm.get('validation') or {}).get('moved_mm') or 0:.0f} mm)"
+                "text": f"the head moved {moved:.0f} mm while it should have been still (the median position from dot to dot; calibration {(hm.get('calibration') or {}).get('moved_mm') or 0:.0f} mm, validation {(hm.get('validation') or {}).get('moved_mm') or 0:.0f} mm"
+                + (f", sideways/up-down/distance in validation {'/'.join(f'{v:.0f}' for v in dr['validation'])} mm" if dr.get("validation") else "")
+                + ")"
                 + (
                     (": the signal is fine but the model does not generalise across head positions" if (main or 0) < T["noise_deg"] else "") + f" (held out {ach:.1f} degrees against {ce['ceiling_deg']:.1f} possible)"
                     if gap is not None and gap > 0.5
@@ -607,9 +645,11 @@ def format_text(diag: dict[str, Any]) -> str:
         elif bi.get("error"):
             L.append(f"  not scored: {bi['error']}")
         hm = d.get("head") or {}
-        mv = ", ".join(f"{k} {_fmt(v.get('moved_mm'), 0)} mm" for k, v in hm.items() if isinstance(v, dict) and v.get("moved_mm") is not None)
+        mv = ", ".join(f"{k} {'/'.join(_fmt(x, 0) for x in v['drift_mm'])}" for k, v in hm.items() if isinstance(v, dict) and v.get("drift_mm"))
         if mv:
-            L.append(f"  how far the head moved during each part: {mv}")
+            L.append(f"  how far the head really moved (its median from dot to dot), sideways/up-down/distance in mm: {mv}")
+        if hm.get("noise_mm"):
+            L.append(f"  frame-to-frame noise of the estimated head position within a dot (not movement), sideways/up-down/distance: {'/'.join(_fmt(x, 0) for x in hm['noise_mm'])} mm")
         ey = d.get("eyes") or {}
         if ey:
             L.append(f"  one eye only, held-out error: left {_fmt((ey.get('left') or {}).get('acc_deg'))} deg, right {_fmt((ey.get('right') or {}).get('acc_deg'))} deg")
