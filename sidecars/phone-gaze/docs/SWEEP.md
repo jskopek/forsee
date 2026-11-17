@@ -29,7 +29,7 @@ diagnosis, the text summary (**Copy**) and **Apply best preset**.
 
 Options: `--minutes` (time budget, default 45), `--max-combos` (setups fitted per condition,
 default 100 per minute of `--minutes`, at least 400: 4,500 for 45 minutes; when it stops a sweep with more than a quarter of the time left, the summary says so and how to raise it), `--workers` (default every core), `--models auto,ridge,...` (only these model
-setups), `--max-vision` (vision combinations per condition, default 16), `--every N` (every Nth
+setups), `--max-vision` (vision combinations per condition, default 32), `--every N` (every Nth
 frame; default every other frame, every frame below 20 fps), `--vision real|oracle` (oracle reads
 the simulator's truth), `--no-preset`, `--fresh` (forget earlier fits; caches are kept).
 
@@ -63,7 +63,7 @@ instead of the terminal.
 
 **Stage 1, observations.** For each condition and each combination of _vision_ settings
 (estimator chain; face detector confidence and tiles; iris fit, edge share, eyelid mask and
-minimum confidence; reflection threshold; distance source; head pose smoothing and source; crop
+minimum confidence; the reflection detector (threshold, contrast, minimum size, search region, ambiguity, confidence, smallest iris); distance source and distance smoothing; head pose smoothing and source; crop
 size for eye-capture sessions) the recording is decoded once and every frame inside a dot is run
 through the estimators. The observations are cached under `<recordings>/sweeps/cache/`, keyed by
 a hash of those settings and of the recording file, so nothing is decoded twice. The coarse list
@@ -201,7 +201,7 @@ leave-one-dot-out and leave-one-head-position-out scores, and are the slowest).
 Real recordings, by estimate only: fits cost about the same per dot (30 fps, every other frame,
 gives the same 15 frames per second), and scale with the number of dots. Stage 1 runs face
 landmarks and the iris fit on every frame inside a dot: perhaps 20-40 ms per frame, so about a
-minute per (condition, vision combination) for a 2-minute recording, 16 combinations per
+minute per (condition, vision combination) for a 2-minute recording, 32 combinations per
 condition, divided by the cores. With 6 conditions on a 4-core Mac: stage 1 15-25 minutes (capped
 at 40 % of the budget), then about 1,000-2,000 fits in the default 45 minutes. A second run of the
 same sweep reuses every cached observation set and every fit.

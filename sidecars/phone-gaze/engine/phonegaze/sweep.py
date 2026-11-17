@@ -568,16 +568,26 @@ FIT_AXES: dict[str, dict[str, Any]] = {
 chosen by grouped cross-validation (``auto``) or fixed."""
 
 VISION_AXES: dict[str, list[Any]] = {
+    # In order of how much they mattered on the first real recordings: the reflection detector
+    # (its detection rate is the main lever when iris minus reflection is the steady signal),
+    # then the distance and head pose (a noisy distance moves the eyeball centres), then the
+    # iris fit and the face detector. A short budget keeps the first ones.
+    "estimators.reflection_k_mad": [5.0, 3.5, 2.5],
+    "estimators.reflection_min_contrast": [10.0, 5.0],
+    "estimators.reflection_area_min": [0.25, 0.1],
+    "estimators.reflection_max_offset": [0.6, 0.9],
+    "estimators.reflection_ambiguity": [0.6, 0.8],
+    "estimators.reflection_min_confidence": [0.3, 0.15],
+    "estimators.reflection_min_iris_px": [12.0, 8.0],
+    "estimators.distance_smoothing_s": [0.0, 3.0, 30.0],
+    "estimators.distance_source": ["auto", "iris", "head", "fixed"],
+    "estimators.head_smoothing_s": [0.0, 0.2, 1.0],
     "estimators.iris_fit": ["ellipse", "circle"],
     "estimators.iris_lid_mask_upper_deg": [0.0, 45.0],
     "estimators.iris_edge_keep": [0.35, 0.5, 0.2],
     "estimators.iris_min_confidence": [0.05, 0.2],
-    "estimators.distance_source": ["auto", "iris", "head", "fixed"],
-    "estimators.head_smoothing_s": [0.0, 0.2, 1.0],
-    "estimators.distance_smoothing_s": [0.0, 3.0, 30.0],
     "estimators.face_confidence": [0.3, 0.15],
     "estimators.face_tiles": [True, False],
-    "estimators.reflection_k_mad": [5.0, 3.5],
 }
 """Stage-1 axes besides the estimator chain (one at a time around the condition's settings)."""
 
@@ -1045,7 +1055,7 @@ class Sweep:
     """One sweep: inputs, budgets, the result store (``results.jsonl``) and the progress file
     (``state.json``). :meth:`run` does everything and returns the leaderboard."""
 
-    def __init__(self, inputs: Inputs, base: Config, out_dir: Path, *, minutes: float = 45.0, max_combos: int | None = None, workers: int | None = None, vision_mode: str = "auto", every: int | None = None, max_vision: int = 16, progress: Any = None, seed: int = 0, models: list[str] | None = None) -> None:
+    def __init__(self, inputs: Inputs, base: Config, out_dir: Path, *, minutes: float = 45.0, max_combos: int | None = None, workers: int | None = None, vision_mode: str = "auto", every: int | None = None, max_vision: int = 32, progress: Any = None, seed: int = 0, models: list[str] | None = None) -> None:
         self.inputs = inputs
         self.base = base
         self.out = Path(out_dir)
@@ -2297,7 +2307,7 @@ def sweeps_dir(root: Path) -> Path:
     return Path(root) / "sweeps"
 
 
-def run_sweep(target: str, base: Config, *, config_path: str | None = None, out: str | None = None, minutes: float = 45.0, max_combos: int | None = None, workers: int | None = None, vision: str = "auto", every: int | None = None, write_preset: bool = True, fresh: bool = False, progress: Any = None, diagnose: bool = True, models: list[str] | None = None, max_vision: int = 16) -> dict[str, Any]:
+def run_sweep(target: str, base: Config, *, config_path: str | None = None, out: str | None = None, minutes: float = 45.0, max_combos: int | None = None, workers: int | None = None, vision: str = "auto", every: int | None = None, write_preset: bool = True, fresh: bool = False, progress: Any = None, diagnose: bool = True, models: list[str] | None = None, max_vision: int = 32) -> dict[str, Any]:
     """Resolve the inputs, sweep, diagnose, write the reports and the preset. Returns the
     leaderboard (with ``paths``)."""
     inputs = resolve(target, base)
@@ -2352,7 +2362,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--vision", choices=["auto", "real", "oracle"], default="auto", help="estimator chains: real vision, the simulator's truth (synthetic runs) or auto")
     p.add_argument("--every", type=int, help="use every Nth frame (default lab.every)")
     p.add_argument("--models", help="only these model setups, comma-separated (default all: " + ", ".join(MODEL_SETUPS) + ")")
-    p.add_argument("--max-vision", type=int, default=16, help="at most this many vision combinations per condition in stage 1 (default 16)")
+    p.add_argument("--max-vision", type=int, default=32, help="at most this many vision combinations per condition in stage 1 (default 32; stage 1 also stops at 40 %% of the time budget)")
     p.add_argument("--config", help="config file (default ~/.phonegaze/config.json); the preset is saved next to it")
     p.add_argument("--out", help="output folder (default <recordings>/sweeps/<name>)")
     p.add_argument("--no-preset", action="store_true", help="do not save the winner as the preset 'best from sweep'")

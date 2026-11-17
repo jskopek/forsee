@@ -59,6 +59,7 @@ THRESHOLDS = {
     "weak_signal": 0.6,  # between-dot share of variance below this is a problem
     "offset_deg": 0.8,  # constant offset above this (and most of the error) is a problem
     "head_mm": 30.0,  # drift of the per-dot median head position within or between phases above this is movement
+    "reflection_rate": 0.85,  # the reflection found in fewer frames than this while it is the steadier reference
     "distance_noise_mm": 15.0,  # frame-to-frame scatter of the head position along the camera axis above this (and twice sideways) is a noisy distance
     "drift_deg_per_min": 0.5,
     "scale": 0.2,  # |slope - 1| above this
@@ -482,6 +483,22 @@ def verdict(d: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
     if main is not None and main > T["noise_deg"] and (ach is None or ach > 0.5 * T["noise_deg"]):
         sig = {"iris_minus_corners": "the iris measurement (relative to the eye corners)", "iris": "the iris measurement", "gaze_dir": "the measured gaze direction"}.get(fl.get("main_signal"), "the main measurement")
         findings.append({"kind": "noise", "size": main if ach is None else min(main, ach), "text": f"{sig} is too noisy: {main:.1f} degrees of jitter from frame to frame within a fixation", "next": "more pixels and less blur on the eye: zoom in or move closer, more light or a shorter shutter (lens.max_exposure_ms 8-16), estimators.iris_fit circle; filters.preset steady hides jitter but not offsets"})
+    # The reflection-referenced signal much steadier than the corner-referenced one, but the
+    # reflection found too rarely to use: the detection rate is the lever.
+    sigs = fl.get("signals") or {}
+    rd = (sigs.get("iris_minus_reflection") or {}).get("deg")
+    cd = (sigs.get("iris_minus_corners") or {}).get("deg")
+    rate = av.get("reflection")
+    if rd is not None and cd is not None and rate is not None and rd < 0.5 * cd and rate < T["reflection_rate"]:
+        findings.append(
+            {
+                "kind": "reflection_rate",
+                # it explains the corner signal's jitter and is the fix for it: ranked just above it
+                "size": (min(ach, cd) if ach is not None else cd) + 0.01,
+                "text": f"the screen's reflection is found in only {rate:.0%} of frames, yet iris minus reflection is {cd / rd:.0f} times steadier than iris minus corners ({rd:.2f} against {cd:.2f} degrees of jitter within a fixation): finding the reflection more often is the main lever",
+                "next": "make the reflection easier to find: the reflection helper on the Collect page (a white border or corners on the screen, ui.glint_marker), the screen brighter, the room darker, zoom 2x; then the detector's settings estimators.reflection_k_mad 3.5 or 2.5, reflection_min_contrast 5, reflection_area_min 0.1, reflection_max_offset 0.9, reflection_ambiguity 0.8 (the sweep tries each); and the reflection model",
+            }
+        )
     main_ss = (st.get("signals") or {}).get(st.get("main_signal") or "")
     if main_ss:
         for ax in ("horizontal", "vertical"):

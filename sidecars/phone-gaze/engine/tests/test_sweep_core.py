@@ -410,3 +410,15 @@ def test_real_drift_is_still_head_movement(one: Path) -> None:
     d = {"availability": {"usable": 1.0, "either_eye": 1.0}, "precision_floor": {"distance_m": 0.6}, "head": hm, "achieved_deg": 4.0, "bias": {"accuracy_deg": 4.0}, "ceiling": {"ceiling_deg": 1.0}}
     _v, _n, findings = R.verdict(d)
     assert findings[0]["kind"] == "head" and "distance_noise" not in [f["kind"] for f in findings]
+
+
+def test_a_steady_but_rare_reflection_is_called_out() -> None:
+    from phonegaze import signal_report as R
+
+    fl = {"signals": {"iris_minus_reflection": {"deg": 0.57}, "iris_minus_corners": {"deg": 4.07}}, "main_deg": 4.07, "main_signal": "iris_minus_corners"}
+    d = {"availability": {"usable": 1.0, "either_eye": 1.0, "reflection": 0.09}, "precision_floor": fl, "achieved_deg": 4.0, "bias": {"accuracy_deg": 4.0}}
+    v, nxt, findings = R.verdict(d)
+    assert findings[0]["kind"] == "reflection_rate", [f["kind"] for f in findings]
+    assert "9% of frames" in v and "7 times steadier" in v and "reflection_k_mad" in nxt
+    d["availability"]["reflection"] = 0.95  # found nearly always: nothing to say about it
+    assert "reflection_rate" not in [f["kind"] for f in R.verdict(d)[2]]
