@@ -45,6 +45,20 @@ What it accepts:
   report says so;
 - **tools/eye-capture sessions**, as the lab reads them (no validation dots: the same hold-out).
 
+What it does with bad input (each case has a test in `tests/test_sweep_core.py`); the rest of the
+run is swept either way:
+
+| Input                                                      | What you get                                                                                                                     |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| No face found in any frame                                 | "no setup could be scored ... only 0 calibration dot(s) had enough frames with the eyes found"; the diagnosis: eyes found in 0 % |
+| A condition abandoned halfway (Esc, stop or skip)          | not swept; a note names it ("front ARKit: not finished (1 attempt(s), last: aborted (stop)); not swept")                         |
+| An empty validation phase, or a recording with no Validate | every third calibration dot is held out instead, and the note says so; such a condition ranks after those with real validation   |
+| A stream file cut short                                    | the dots after the last frame are dropped with a note ("the file looks cut short"); if most dots are gone, a plain refusal       |
+| Dot times that do not match the frames, a bad manifest     | the recording is skipped with the reason; if nothing is left, the command says so and exits                                      |
+
+The worker processes write MediaPipe's own start-up messages to `<recordings>/sweeps/cache/workers.log`
+instead of the terminal.
+
 ## What it does
 
 **Stage 1, observations.** For each condition and each combination of _vision_ settings

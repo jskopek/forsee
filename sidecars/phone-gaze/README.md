@@ -14,6 +14,15 @@ All commands run from the repository root unless a step says otherwise. Once it 
 accuracy is not good enough, do not tune switches by hand: [collect data, then let the machine
 search](#collect-data-then-let-the-machine-search).
 
+**Collect, sweep, send back** (once steps 1-5 below work):
+
+1. `sidecars/phone-gaze/run.sh --phone http://<phone-ip>:8080`, then **Collect data** on the Dashboard (`http://127.0.0.1:8765/#collect`). Tick **Quick comparison** (3 setups), press **Record the next condition** and follow the prompts: about 2½ minutes per setup with the 2-minute protocol.
+2. The last page shows the run id. In a second terminal: `sidecars/phone-gaze/run.sh sweep RUN_ID` (45 minutes by default, nobody needed; `--minutes 20` for less), or **Run sweep** on the Sweep page (`http://127.0.0.1:8765/sweep.html`).
+3. Send back the text the sweep prints at the end (also **Copy** on the Sweep page) and the output of `sidecars/phone-gaze/run.sh diagnose RUN_ID`. Neither holds images.
+4. Then **Apply best preset**, **Calibrate** and **Validate** on the camera it names.
+
+How the sweep works and how to read it: [docs/SWEEP.md](docs/SWEEP.md). What the iOS Simulator wire test found: [docs/WIRE_TEST_FINDINGS.md](docs/WIRE_TEST_FINDINGS.md).
+
 ### 1. Pull the branch
 
 ```sh
