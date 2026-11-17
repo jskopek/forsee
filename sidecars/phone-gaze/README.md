@@ -208,9 +208,11 @@ setup, and let the computer replay them through thousands of setting combination
 6. At the end: a table of the conditions, where the data is, and the command to analyse it:
 
    ```sh
-   cd sidecars/phone-gaze/engine
-   .venv/bin/python -m phonegaze sweep <run id>
+   sidecars/phone-gaze/run.sh sweep <run id>      # about 45 min, nobody needed
+   sidecars/phone-gaze/run.sh diagnose <run id>   # why each setup's error is what it is
    ```
+
+   (or **Run sweep** on the Dashboard). Send back the text both print at the end.
 
    Then press **Apply best preset** on the Dashboard: it applies the newest preset named
    **best from sweep** and says which camera and zoom it was found for.

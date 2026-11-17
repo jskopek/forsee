@@ -67,9 +67,9 @@
       <section class="card wide" aria-labelledby="h-cli">
         <h2 id="h-cli">From the terminal</h2>
         <pre class="cli">
-python -m phonegaze sweep RUN_ID                 # a collection run (collect-runs/RUN_ID.json)
-python -m phonegaze sweep ~/.phonegaze/recordings/SOME_RECORDING --minutes 20
-python -m phonegaze diagnose RUN_ID              # only the "why is the error what it is" part</pre>
+sidecars/phone-gaze/run.sh sweep RUN_ID          # a collection run (collect-runs/RUN_ID.json)
+sidecars/phone-gaze/run.sh sweep ~/.phonegaze/recordings/SOME_RECORDING --minutes 20
+sidecars/phone-gaze/run.sh diagnose RUN_ID       # only the "why is the error what it is" part</pre>
         <p class="small muted">How to read the results: <code>docs/SWEEP.md</code>.</p>
       </section>
     </main>

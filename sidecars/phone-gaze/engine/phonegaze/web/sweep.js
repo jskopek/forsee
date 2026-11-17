@@ -32,6 +32,13 @@ function duration(s) {
   return `${(s / 3600).toFixed(1)} h`;
 }
 
+/** Seconds since the sweep started (from its start time, so it moves between progress writes). */
+function runningFor(s) {
+  const t = Date.parse(s.started || '');
+  if (Number.isFinite(t)) return Math.max(0, (Date.now() - t) / 1000);
+  return typeof s.elapsed_s === 'number' ? s.elapsed_s : null;
+}
+
 function ci(v) {
   return Array.isArray(v) ? `${fmt(v[0], 2)}–${fmt(v[1], 2)}` : '–';
 }
@@ -179,9 +186,7 @@ function progressView(s) {
         'data-testid': 'sweep-eta',
         text:
           `${s.evaluated || 0} setups fitted so far` +
-          (typeof s.elapsed_s === 'number'
-            ? `; running for ${duration(s.elapsed_s)}`
-            : '; starting') +
+          (runningFor(s) !== null ? `; running for ${duration(runningFor(s))}` : '; starting') +
           (typeof s.eta_s === 'number' ? `, about ${duration(s.eta_s)} left in this step` : '') +
           (s.minutes ? ` (budget ${s.minutes} min)` : ''),
       }),

@@ -298,7 +298,7 @@ async function main() {
     await page.getByTestId('collect-finish').click();
     await page.getByTestId('collect-summary').waitFor({ timeout: 15000 });
     summary.command = await page.getByTestId('collect-command').textContent();
-    check(/phonegaze sweep \S+/.test(summary.command), 'no sweep command');
+    check(/run\.sh sweep \S+/.test(summary.command), 'no sweep command');
     check(
       (await page.locator('[data-testid^="sum-row-"]').count()) === 3,
       'summary does not list three conditions',

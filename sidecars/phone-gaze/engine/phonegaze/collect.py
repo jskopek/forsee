@@ -652,7 +652,7 @@ def recent_found(engine: Any, seconds: float = 1.0) -> dict[str, Any]:
 
 
 def sweep_command(run: Run) -> str:
-    return f"cd sidecars/phone-gaze/engine && .venv/bin/python -m phonegaze sweep {run.run_id}"
+    return f"sidecars/phone-gaze/run.sh sweep {run.run_id}      # about 45 min, nobody needed\nsidecars/phone-gaze/run.sh diagnose {run.run_id}   # why each setup's error is what it is"
 
 
 class Collector:

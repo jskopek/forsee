@@ -311,3 +311,26 @@ def test_verdict_does_not_blame_jitter_or_one_eye_when_the_error_is_small() -> N
     d["achieved_deg"] = d["bias"]["accuracy_deg"] = 4.0
     v, _next, findings = R.verdict(d)
     assert findings[0]["kind"] == "noise" and findings[0]["size"] == 2.0 and "too noisy" in v
+
+
+def test_fits_alternate_between_conditions_so_a_short_budget_reaches_all(tmp_path: Path, one: Path, monkeypatch) -> None:
+    a, b = _copy(one, tmp_path / "unit-a"), _copy(one, tmp_path / "unit-b")
+    for d, cid in ((a, "a"), (b, "b")):
+        m = json.loads((d / "collect.json").read_text())
+        m["condition"]["id"] = cid
+        (d / "collect.json").write_text(json.dumps(m))
+    inp = S.resolve(str(tmp_path), cfg_for(tmp_path))
+    order: list[str] = []
+
+    def fake_fit(cid, vision, fit):
+        order.append(cid)
+        return {"cond": cid, "vision": S.vision_id(vision), "fit": fit, "key": S.fit_key(fit), "v": S.SWEEP_VERSION, "rec": inp.conditions[0].signature, "error": "fake"}
+
+    monkeypatch.setattr(S, "_job_fit", fake_fit)
+    sw = S.Sweep(inp, Config(), tmp_path / "o", minutes=1, max_combos=50, workers=1, vision_mode="oracle")
+    v = {"chain": "sim_oracle_2d", "changes": {}}
+    tasks = [(c, v, {"model": m}) for c in ("a", "b") for m in ("ridge", "kernel", "geometric")]
+    sw.fit_batch(tasks, "test")
+    assert order == ["a", "b", "a", "b", "a", "b"]
+    board = S.build_leaderboard(sw)
+    assert all("message" in c for c in board["conditions"])

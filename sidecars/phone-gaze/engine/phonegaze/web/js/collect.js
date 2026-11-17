@@ -716,7 +716,9 @@ export default {
         h('h2', { text: `Run ${run.run_id}` }),
         h('p', {
           'data-testid': 'collect-estimate',
-          text: `${left} of ${conds.length} conditions to record: ${minutes(run.estimate_s)} (dots ${minutes(run.protocol_seconds)} per condition, "${run.protocol.length}"${run.protocol.pursuit ? ', with a moving dot' : ''}).`,
+          text: left
+            ? `${left} of ${conds.length} conditions to record: ${minutes(run.estimate_s)} (dots ${minutes(run.protocol_seconds)} per condition, "${run.protocol.length}"${run.protocol.pursuit ? ', with a moving dot' : ''}).`
+            : `Nothing left to record (${conds.filter((c) => c.status === 'done' || c.status === 'poor').length} of ${conds.length} conditions recorded). Press Finish the run for the sweep command.`,
         }),
         h(
           'div',
@@ -1001,7 +1003,11 @@ export default {
           h('tbody', {}, rows),
         ),
         h('p', {}, 'The run file: ', h('code', { text: sm.run_file })),
-        h('p', {}, 'Analyse it (from the repository root):'),
+        h(
+          'p',
+          {},
+          'Analyse it from a terminal at the repository root (or with the sweep page below), then send back the text both print at the end:',
+        ),
         h('pre', { class: 'collect-cmd', 'data-testid': 'collect-command', text: sm.command }),
         sm.sweep_page
           ? h(

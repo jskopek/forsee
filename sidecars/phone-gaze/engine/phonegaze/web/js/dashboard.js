@@ -6,8 +6,7 @@
 
 import { h, fill, fmt, deg, store, save, kbd } from './util.js';
 
-const SWEEP_COMMAND =
-  'cd sidecars/phone-gaze/engine && .venv/bin/python -m phonegaze sweep <run id>';
+const SWEEP_COMMAND = 'sidecars/phone-gaze/run.sh sweep <run id>';
 let doctorLine = null; // the doctor's last verdict, kept for this page load
 let doctorRunning = false;
 let sweepPage = null; // 'sweep.html' when the sweep page is installed

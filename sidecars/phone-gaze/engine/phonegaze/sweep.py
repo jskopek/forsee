@@ -1202,6 +1202,8 @@ class Sweep:
             self.state(stage="observations", done=count[0], total=total, message=f"observations: {count[0]} of {total} (condition, vision) sets")
 
         self.progress(f"Stage 1: {total} observation set(s) (condition x vision settings)")
+        if total:
+            self.state(stage="observations", done=0, total=total, message=f"observations: decoding the recordings, 0 of {total} (condition, vision) sets done; the first ones take longest")
         self._map(_job_observe, todo, got)
         new = [self.obs_stats[(c, vision_id(v))] for c, v in todo if (c, vision_id(v)) in self.obs_stats]
         if new:
@@ -1234,6 +1236,13 @@ class Sweep:
             if todo:
                 self.stopped_by = "time"
             return out
+        # Round robin over the conditions, so a short time budget still fits every condition
+        # (in plan order, the last conditions got nothing when time ran out).
+        by_cond: dict[str, list[tuple[str, dict[str, Any], dict[str, Any]]]] = {}
+        for t in todo:
+            by_cond.setdefault(t[0], []).append(t)
+        queues = list(by_cond.values())
+        todo = [q[i] for i in range(max(len(q) for q in queues)) for q in queues if i < len(q)]
         total = len(todo)
         n = [0]
 
@@ -1273,7 +1282,8 @@ class Sweep:
                     top = top_by_validation(self, cid, 1)
                     row = top[0] if top else None
                     vision = (row or {}).get("vision_def") or vision_space(cond, self.vision_mode)[0]
-                    tasks[cid] = (cid, vision, row, (row or {}).get("fit"))
+                    # nothing scored (or not reached): diagnose the live defaults, as `diagnose` does
+                    tasks[cid] = (cid, vision, row, (row or {}).get("fit") or {"model": "auto"})
                 board["diagnosis"] = {"conditions": self.diagnose_all(list(tasks.values()))}
         finally:
             if self._pool is not None:
@@ -1622,6 +1632,9 @@ def build_leaderboard(sw: Sweep) -> dict[str, Any]:
         }
         board["conditions"].append(entry)
         top = top_by_validation(sw, cid, 10)
+        if not top and not rows:
+            entry["message"] = "not reached: the time budget ran out before any setup of this condition was fitted; run the sweep again with more --minutes (it resumes)"
+            continue
         if not top:
             entry["message"] = "no setup could be scored on this condition's validation dots" + (
                 f" ({entry['not_ranked']} predicted fewer than {MIN_COVERAGE:.0%} of them: too few usable frames per dot?)" if entry["not_ranked"] else (f" ({entry['errors'][0]})" if entry["errors"] else "")
