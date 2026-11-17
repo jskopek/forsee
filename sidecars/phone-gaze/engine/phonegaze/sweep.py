@@ -2054,6 +2054,11 @@ def register(app: Any, engine: Any) -> None:
             cmd += ["--config", str(engine.config_path)]
         if b.get("vision") in ("auto", "real", "oracle"):
             cmd += ["--vision", str(b["vision"])]
+        for key, flag in (("max_vision", "--max-vision"), ("workers", "--workers")):  # (tests and the terminal)
+            if isinstance(b.get(key), int) and not isinstance(b.get(key), bool) and b[key] > 0:
+                cmd += [flag, str(b[key])]
+        if isinstance(b.get("models"), list) and all(m in MODEL_SETUPS for m in b["models"]) and b["models"]:
+            cmd += ["--models", ",".join(b["models"])]
         logf = open(out / "sweep.log", "a", encoding="utf-8")  # noqa: SIM115 - the child owns it
         logf.write(f"\n--- {_dt.datetime.now().isoformat(timespec='seconds')}: {' '.join(cmd)}\n")
         logf.flush()
