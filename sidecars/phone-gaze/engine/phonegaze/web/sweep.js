@@ -179,7 +179,9 @@ function progressView(s) {
         'data-testid': 'sweep-eta',
         text:
           `${s.evaluated || 0} setups fitted so far` +
-          (typeof s.elapsed_s === 'number' ? `; running for ${duration(s.elapsed_s)}` : '; starting') +
+          (typeof s.elapsed_s === 'number'
+            ? `; running for ${duration(s.elapsed_s)}`
+            : '; starting') +
           (typeof s.eta_s === 'number' ? `, about ${duration(s.eta_s)} left in this step` : '') +
           (s.minutes ? ` (budget ${s.minutes} min)` : ''),
       }),
