@@ -156,6 +156,7 @@ diagnostics, lab settings or the phone-specific camera id. User presets live in
 - Settings: `engine/phonegaze/config.py`. Presets: `presets.py`.
 - Diagnostics page, `doctor` and `bundle`: `doctor.py`, `diagnostics.py`.
 - Lab, tune, A/B: `lab.py`, `tune.py`, page `web/lab.html`.
+- Unattended sweep of recorded setups and "why is the error what it is": [SWEEP.md](SWEEP.md).
 - Tuning page: `tuning.py`, `web/js/tuning.js`.
 - Calibration options (head sweep, quality gate, moving-dot merge, error map, touch-up):
   `calibration.py`; models in `models/`.

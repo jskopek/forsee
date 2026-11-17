@@ -1229,7 +1229,18 @@ class Sweep:
         for c in conds:
             for v in vision_space(c, self.vision_mode)[: self.max_vision]:
                 wanted.append((c.id, v))
-        self.observe_all(wanted)
+        # Stage 1 may use at most 40 % of the time: the chains come first in the list, so a
+        # cut keeps them and drops single vision settings.
+        full, self.deadline = self.deadline, min(self.deadline, self.t_start + 0.4 * self.minutes * 60.0)
+        try:
+            self.observe_all(wanted)
+        finally:
+            self.deadline = full
+        missing = sum(1 for cid, v in wanted if (cid, vision_id(v)) not in self.obs_stats)
+        if missing:
+            self.stopped_by = None
+            self.inputs.notes.append(f"stage 1 used its share of the time (40 %): {missing} of {len(wanted)} vision combinations were not tried; give the sweep more --minutes, or fewer --max-vision")
+            self.progress(f"  {missing} vision combination(s) skipped for time")
         # Stage 2, A: every model, with and without poses, under every vision combination.
         models = list(self.models)
         tasks = []
