@@ -87,6 +87,7 @@ def make_condition(
     pt_per_deg = dist_mm * math.tan(math.radians(1.0)) / mm_per_pt
     head_offset = np.zeros(3)
     drop_until = -1.0
+    state = {"lost": True}
 
     def frame() -> None:
         nonlocal seq, t_engine, drop_until
@@ -105,10 +106,11 @@ def make_condition(
             "parts": [{"name": "wide", "kind": "wide", "format": "jpeg", "bytes": len(data), "width": width // 4, "height": height // 4, "rect": [0, 0, width, height]}],
         }
         drop = False
-        if problem == "halfeyes":
-            if t_engine >= drop_until and rng.random() < 0.5:
+        if problem == "halfeyes":  # alternate found / lost stretches of 0.2-0.6 s: about half lost
+            if t_engine >= drop_until:
+                state["lost"] = not state["lost"]
                 drop_until = t_engine + float(rng.uniform(0.2, 0.6))
-            drop = t_engine < drop_until
+            drop = state["lost"]
         if not drop:
             header["sim"] = cap.truth
         rec.write_message(Message(header, [data]), t_engine)

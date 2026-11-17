@@ -911,6 +911,20 @@ def _job_observe(cond_id: str, vision: dict[str, Any]) -> dict[str, Any]:
         return {"cond": cond_id, "vision": vision_id(vision), "ok": False, "error": f"{type(exc).__name__}: {exc}" if not isinstance(exc, LabError) else str(exc)}
 
 
+def _job_diagnose(cond_id: str, vision: dict[str, Any], row: dict[str, Any] | None, fit: dict[str, Any] | None) -> dict[str, Any]:
+    from .signal_report import diagnose_condition
+
+    cond = _W["conds"][cond_id]
+    try:
+        os_ = _obsset(cond_id, vision)
+        if row is None and fit is not None:
+            row = evaluate(cond, os_, _W["base"], vision, fit)
+        return diagnose_condition(cond, os_, _W["base"], vision, row, fit if row is not None and not row.get("error") else None)
+    except Exception as exc:  # noqa: BLE001 - reported in the diagnosis
+        log.exception("diagnosis of %s failed", cond_id)
+        return {"id": cond_id, "label": cond.label, "camera_id": cond.camera_id, "zoom": cond.zoom, "verdict": f"the diagnosis failed: {type(exc).__name__}: {exc}", "next_step": "report this with the recording's session.json", "findings": []}
+
+
 def _job_fit(cond_id: str, vision: dict[str, Any], fit: dict[str, Any]) -> dict[str, Any]:
     try:
         return evaluate(_W["conds"][cond_id], _obsset(cond_id, vision), _W["base"], vision, fit)
@@ -932,7 +946,7 @@ class Sweep:
     """One sweep: inputs, budgets, the result store (``results.jsonl``) and the progress file
     (``state.json``). :meth:`run` does everything and returns the leaderboard."""
 
-    def __init__(self, inputs: Inputs, base: Config, out_dir: Path, *, minutes: float = 45.0, max_combos: int = 400, workers: int | None = None, vision_mode: str = "auto", every: int | None = None, max_vision: int = 16, progress: Any = None, seed: int = 0) -> None:
+    def __init__(self, inputs: Inputs, base: Config, out_dir: Path, *, minutes: float = 45.0, max_combos: int = 400, workers: int | None = None, vision_mode: str = "auto", every: int | None = None, max_vision: int = 16, progress: Any = None, seed: int = 0, models: list[str] | None = None) -> None:
         self.inputs = inputs
         self.base = base
         self.out = Path(out_dir)
@@ -944,6 +958,10 @@ class Sweep:
         self.vision_mode = vision_mode
         self.every = int(every if every is not None else base.lab.every)
         self.max_vision = int(max_vision)
+        bad = [m for m in models or [] if m not in MODEL_SETUPS]
+        if bad:
+            raise SweepError(f"unknown model setup(s) {', '.join(bad)}; known: {', '.join(MODEL_SETUPS)}")
+        self.models = list(models or MODEL_SETUPS)
         self.progress = progress or (lambda s: None)
         self.rng = random.Random(seed)
         self.conds = {c.id: c for c in inputs.conditions}
@@ -957,6 +975,8 @@ class Sweep:
         self.done = 0
         self.fit_seconds: list[float] = []
         self.resumed = 0
+        self.no_state = False  # the diagnose command borrows the pool without touching a sweep's state
+        self._pool: Any = None
         self._load()
 
     # -- persistence ----------------------------------------------------------------------
@@ -984,6 +1004,8 @@ class Sweep:
             f.write(json.dumps(_jsonable(row)) + "\n")
 
     def state(self, **kw: Any) -> None:
+        if self.no_state:
+            return
         path = self.out / "state.json"
         try:
             cur = json.loads(path.read_text()) if path.exists() else {}
@@ -1138,18 +1160,44 @@ class Sweep:
 
     # -- the plan -------------------------------------------------------------------------
 
-    def run(self) -> dict[str, Any]:
+    def run(self, diagnose: bool = True) -> dict[str, Any]:
         self._pool = self._executor()
         self.state(stage="starting", started=_dt.datetime.now().isoformat(timespec="seconds"), finished=None, error=None, minutes=self.minutes, max_combos=self.max_combos, workers=self.workers, conditions=[c.describe() for c in self.inputs.conditions], resumed=self.resumed)
         try:
             self._search()
+            self.state(stage="reports", message="writing the leaderboard")
+            board = build_leaderboard(self)
+            if diagnose:
+                tasks = {}
+                for cid, cond in self.conds.items():
+                    top = top_by_validation(self, cid, 1)
+                    row = top[0] if top else None
+                    vision = (row or {}).get("vision_def") or vision_space(cond, self.vision_mode)[0]
+                    tasks[cid] = (cid, vision, row, (row or {}).get("fit"))
+                board["diagnosis"] = {"conditions": self.diagnose_all(list(tasks.values()))}
         finally:
             if self._pool is not None:
                 self._pool.shutdown(wait=True, cancel_futures=True)
                 self._pool = None
-        self.state(stage="reports", message="writing the leaderboard and the diagnosis")
-        board = build_leaderboard(self)
         return board
+
+    def diagnose_all(self, tasks: list[tuple[str, dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]]) -> list[dict[str, Any]]:
+        """The diagnosis of each (condition, vision, row, fit), in the pool; with no row, the fit
+        is evaluated first. In the order of ``tasks``."""
+        got: dict[str, dict[str, Any]] = {}
+        n = [0]
+
+        def done(d: dict[str, Any]) -> None:
+            n[0] += 1
+            got[d["id"]] = d
+            self.state(stage="reports", message=f"diagnosing: {n[0]} of {len(tasks)} conditions")
+
+        deadline, self.deadline = self.deadline, float("inf")  # the diagnosis always runs
+        try:
+            self._map(_job_diagnose, tasks, done)
+        finally:
+            self.deadline = deadline
+        return [got[t[0]] for t in tasks if t[0] in got]
 
     def _search(self) -> None:
         conds = list(self.conds.values())
@@ -1160,7 +1208,7 @@ class Sweep:
                 wanted.append((c.id, v))
         self.observe_all(wanted)
         # Stage 2, A: every model, with and without poses, under every vision combination.
-        models = list(MODEL_SETUPS)
+        models = list(self.models)
         tasks = []
         for c in conds:
             for v in self.usable_visions(c.id):
@@ -1278,7 +1326,7 @@ class Sweep:
             for a in self.rng.sample(axes, k=min(len(axes), self.rng.choice([1, 2, 2, 3]))):
                 fit[a] = self.rng.choice(FIT_AXES[a]["values"])
             if self.rng.random() < 0.15:
-                fit["model"] = self.rng.choice(list(MODEL_SETUPS))
+                fit["model"] = self.rng.choice(self.models)
             nf = normalise_fit(fit, self.has[cid])
             if (cid, vision_id(v), fit_key(nf)) not in self.results and nf != normalise_fit(base_fit, self.has[cid]):
                 out.append((cid, v, nf))
@@ -1603,10 +1651,18 @@ def _stopped(board: dict[str, Any]) -> str:
     return {"time": "stopped by the time budget", "cap": "stopped at the cap on combinations", None: "finished the plan"}.get(board.get("stopped_by"), str(board.get("stopped_by")))
 
 
+def _share(x: float) -> str:
+    """A share of the search space, readable when tiny (0.0019 %)."""
+    pct = 100.0 * x
+    if pct == 0:
+        return "0 %"
+    return f"{pct:.{max(0, min(6, 1 - int(math.floor(math.log10(pct)))))}f} %"
+
+
 def _coverage_line(board: dict[str, Any]) -> str:
     ev = sum(c.get("evaluated", 0) for c in board["conditions"])
     sp = sum(c.get("space", 0) or 0 for c in board["conditions"])
-    share = f"{ev / sp:.2%}" if sp else "-"
+    share = _share(ev / sp) if sp else "-"
     return f"{ev} setups fitted ({share} of {sp:,} possible combinations) in {board['elapsed_s'] / 60:.1f} min on {board['workers']} core(s); {_stopped(board)}"
 
 
@@ -1673,7 +1729,7 @@ def write_markdown(board: dict[str, Any]) -> str:
         L.append("")
     diag = {d["id"]: d for d in (board.get("diagnosis") or {}).get("conditions", [])}
     for c in board["conditions"]:
-        L += [f"## {c['label']}", "", f"Camera {c['camera_label']} ({c['camera_id']}), zoom {c.get('zoom') or '?'}; dots: {c['dots']}; {c['evaluated']} setups fitted ({_f((c.get('space_share') or 0) * 100, 2)} % of {c['space']:,}), {c['failed']} failed, {c['not_ranked']} predicted too few validation dots.", ""]
+        L += [f"## {c['label']}", "", f"Camera {c['camera_label']} ({c['camera_id']}), zoom {c.get('zoom') or '?'}; dots: {c['dots']}; {c['evaluated']} setups fitted ({_share(c.get('space_share') or 0)} of {c['space']:,}), {c['failed']} failed, {c['not_ranked']} predicted too few validation dots.", ""]
         dg = diag.get(c["id"])
         if dg:
             L += [f"**Why:** {dg['verdict']}", "", f"**Next:** {dg['next_step']}", ""]
@@ -1736,7 +1792,7 @@ def write_html(board: dict[str, Any]) -> str:
         parts.append("</table>")
     diag = {d["id"]: d for d in (board.get("diagnosis") or {}).get("conditions", [])}
     for c in board["conditions"]:
-        parts.append(f"<h2>{esc(c['label'])}</h2><p>Camera {esc(c['camera_label'])}, zoom {esc(c.get('zoom') or '?')}; {c['evaluated']} setups fitted ({_f((c.get('space_share') or 0) * 100, 2)} % of {c['space']:,}), {c['failed']} failed.</p>")
+        parts.append(f"<h2>{esc(c['label'])}</h2><p>Camera {esc(c['camera_label'])}, zoom {esc(c.get('zoom') or '?')}; {c['evaluated']} setups fitted ({_share(c.get('space_share') or 0)} of {c['space']:,}), {c['failed']} failed.</p>")
         dg = diag.get(c["id"])
         if dg:
             parts.append(f"<p class='verdict'>Why: {esc(dg['verdict'])}</p><p>Next: {esc(dg['next_step'])}</p>")
@@ -2011,7 +2067,7 @@ def sweeps_dir(root: Path) -> Path:
     return Path(root) / "sweeps"
 
 
-def run_sweep(target: str, base: Config, *, config_path: str | None = None, out: str | None = None, minutes: float = 45.0, max_combos: int = 400, workers: int | None = None, vision: str = "auto", every: int | None = None, write_preset: bool = True, fresh: bool = False, progress: Any = None, diagnose: bool = True) -> dict[str, Any]:
+def run_sweep(target: str, base: Config, *, config_path: str | None = None, out: str | None = None, minutes: float = 45.0, max_combos: int = 400, workers: int | None = None, vision: str = "auto", every: int | None = None, write_preset: bool = True, fresh: bool = False, progress: Any = None, diagnose: bool = True, models: list[str] | None = None, max_vision: int = 16) -> dict[str, Any]:
     """Resolve the inputs, sweep, diagnose, write the reports and the preset. Returns the
     leaderboard (with ``paths``)."""
     inputs = resolve(target, base)
@@ -2022,22 +2078,11 @@ def run_sweep(target: str, base: Config, *, config_path: str | None = None, out:
     progress(f"Sweeping {len(inputs.conditions)} condition(s) from {inputs.root} into {out_dir}")
     for n in inputs.notes:
         progress(f"  note: {n}")
-    sw = Sweep(inputs, base, out_dir, minutes=minutes, max_combos=max_combos, workers=workers, vision_mode=vision, every=every, progress=progress)
+    sw = Sweep(inputs, base, out_dir, minutes=minutes, max_combos=max_combos, workers=workers, vision_mode=vision, every=every, progress=progress, models=models, max_vision=max_vision)
     if sw.resumed:
         progress(f"Resuming: {sw.resumed} setup(s) already fitted")
     try:
-        board = sw.run()
-        if diagnose:
-            try:
-                from .signal_report import diagnose_sweep
-
-                sw.state(stage="reports", message="diagnosing each condition")
-                board["diagnosis"] = diagnose_sweep(sw, board)
-            except ImportError:
-                pass
-            except Exception as exc:  # noqa: BLE001 - the leaderboard is still worth writing
-                log.exception("diagnosis failed")
-                board["diagnosis_error"] = f"{type(exc).__name__}: {exc}"
+        board = sw.run(diagnose=diagnose)
         if write_preset:
             preset = make_preset(board, sw)
             if preset is not None:
@@ -2076,6 +2121,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--workers", type=int, help="processes (default: every CPU core)")
     p.add_argument("--vision", choices=["auto", "real", "oracle"], default="auto", help="estimator chains: real vision, the simulator's truth (synthetic runs) or auto")
     p.add_argument("--every", type=int, help="use every Nth frame (default lab.every)")
+    p.add_argument("--models", help="only these model setups, comma-separated (default all: " + ", ".join(MODEL_SETUPS) + ")")
+    p.add_argument("--max-vision", type=int, default=16, help="at most this many vision combinations per condition in stage 1 (default 16)")
     p.add_argument("--config", help="config file (default ~/.phonegaze/config.json); the preset is saved next to it")
     p.add_argument("--out", help="output folder (default <recordings>/sweeps/<name>)")
     p.add_argument("--no-preset", action="store_true", help="do not save the winner as the preset 'best from sweep'")
@@ -2089,7 +2136,7 @@ def main(argv: list[str] | None = None) -> int:
         cfg, _ = build_config(args.config, None, None)
         from .config import DEFAULT_PATH
 
-        board = run_sweep(args.target, cfg, config_path=args.config or str(DEFAULT_PATH), out=args.out, minutes=args.minutes, max_combos=args.max_combos, workers=args.workers, vision=args.vision, every=args.every, write_preset=not args.no_preset, fresh=args.fresh, progress=None if args.json else (lambda s: print(s, file=sys.stderr, flush=True)))
+        board = run_sweep(args.target, cfg, config_path=args.config or str(DEFAULT_PATH), out=args.out, minutes=args.minutes, max_combos=args.max_combos, workers=args.workers, vision=args.vision, every=args.every, write_preset=not args.no_preset, fresh=args.fresh, models=[m.strip() for m in args.models.split(",") if m.strip()] if args.models else None, max_vision=args.max_vision, progress=None if args.json else (lambda s: print(s, file=sys.stderr, flush=True)))
     except LabError as exc:
         print(f"sweep: {exc}", file=sys.stderr)
         return 2

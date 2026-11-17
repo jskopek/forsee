@@ -347,7 +347,7 @@ def ceiling(cond: Any, os_: Any, base: Config, vision: dict[str, Any]) -> dict[s
     if len({s.dot_id for s in allsamp}) < 5:
         return {"error": "too few usable dots"}
     out: dict[str, Any] = {}
-    for name in ("ridge", "kernel", "geometric"):
+    for name in ("ridge", "geometric"):  # (the kernel model interpolates every dot exactly: no bound)
         m = copy.deepcopy(cfg.models)
         m.candidates = [name]
         try:
@@ -380,7 +380,7 @@ def bias(cond: Any, row: dict[str, Any] | None) -> dict[str, Any]:
     out["offset_size_deg"] = float(math.hypot(*off))
     resid = np.hypot(dx - off[0], dy - off[1])
     out["error_without_offset_deg"] = float(np.mean(resid))
-    out["offset_share"] = 1.0 - out["error_without_offset_deg"] / out["accuracy_deg"] if out["accuracy_deg"] > 0 else 0.0
+    out["offset_share"] = max(0.0, 1.0 - out["error_without_offset_deg"] / out["accuracy_deg"]) if out["accuracy_deg"] > 0 else 0.0
     b = breakdown(row or {}, cond.screen)
     out["horizontal_deg"], out["vertical_deg"], out["regions"] = b["horizontal_deg"], b["vertical_deg"], b["regions"]
     mm = cond.screen.mm_per_point
@@ -476,7 +476,10 @@ def verdict(d: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
                 "next": "Quick refine after calibrating (calibration.refine_points 1-3) or calibration.drift_correction; keep the phone and chair fixed between calibration and use",
             }
         )
-    moved = max([v.get("moved_mm") or 0.0 for v in hm.values() if isinstance(v, dict)] + [v.get("shift_from_calibration_mm") or 0.0 for k, v in hm.items() if isinstance(v, dict) and k == "validation"] or [0.0])
+    # The poses block moves the head on purpose: only calibration, validation and the moving dot
+    # count, plus how far the head sat from its calibration place during validation.
+    still = [hm.get(k) or {} for k in ("calibration", "validation", "pursuit")]
+    moved = max([v.get("moved_mm") or 0.0 for v in still] + [(hm.get("validation") or {}).get("shift_from_calibration_mm") or 0.0])
     gap = (ach - ce["ceiling_deg"]) if ach is not None and ce.get("ceiling_deg") is not None else None
     if moved > T["head_mm"]:
         cross = d.get("cross_pose_deg")
@@ -485,7 +488,12 @@ def verdict(d: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
             {
                 "kind": "head",
                 "size": size,
-                "text": f"the head moved {moved:.0f} mm" + (f" and the model loses {gap:.1f} degrees to it on validation" if gap is not None and gap > 0.5 else "") + ": the signal is fine but the model does not generalise across head positions" * bool(gap is not None and gap > 0.5 and (main or 0) < T["noise_deg"]),
+                "text": f"the head moved {moved:.0f} mm while it should have been still (calibration {(hm.get('calibration') or {}).get('moved_mm') or 0:.0f} mm, validation {(hm.get('validation') or {}).get('moved_mm') or 0:.0f} mm)"
+                + (
+                    (": the signal is fine but the model does not generalise across head positions" if (main or 0) < T["noise_deg"] else "") + f" (held out {ach:.1f} degrees against {ce['ceiling_deg']:.1f} possible)"
+                    if gap is not None and gap > 0.5
+                    else (f"; the model coped this time ({ach:.1f} degrees held out)" if ach is not None else "")
+                ),
                 "next": "calibrate from several head positions (the poses block; calibration.pose_rounds 3) with the geometric model and models.eyeball_centre per_eye, or keep the head still (a chin rest or headrest)",
             }
         )
@@ -497,7 +505,7 @@ def verdict(d: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
     elif h is not None and v is not None and h > 1.5 * v and h - v > 0.7:
         findings.append({"kind": "horizontal", "size": h - v, "text": f"horizontal is the problem: {h:.1f} degrees sideways against {v:.1f} up/down", "next": "check the eye corners on the Tuning page; models.eye left or right if one eye is worse"})
     dr = bi.get("drift_deg_per_min")
-    if dr and bi.get("validation_minutes"):
+    if dr and (bi.get("validation_minutes") or 0) >= 0.5:
         rate = math.hypot(*dr)
         if rate > T["drift_deg_per_min"]:
             findings.append({"kind": "drift", "size": rate * bi["validation_minutes"], "text": f"the error drifts by {rate:.1f} degrees per minute during validation", "next": "calibration.drift_correction on; keep the phone still; check whether the head slid down"})
@@ -550,24 +558,6 @@ def diagnose_condition(cond: Any, os_: Any, base: Config, vision: dict[str, Any]
     return _r(d)
 
 
-def diagnose_sweep(sw: Any, board: dict[str, Any]) -> dict[str, Any]:
-    """The diagnosis of each condition of a finished sweep, explaining its winner."""
-    from .sweep import observe, top_by_validation, vision_space
-
-    out: dict[str, Any] = {"conditions": []}
-    for cid, cond in sw.conds.items():
-        top = top_by_validation(sw, cid, 1)
-        row = top[0] if top else None
-        vision = (row or {}).get("vision_def") or vision_space(cond, sw.vision_mode)[0]
-        try:
-            os_ = observe(cond, vision, sw.base, sw.cache_dir, sw.every)
-        except LabError as exc:
-            out["conditions"].append({"id": cid, "label": cond.label, "verdict": f"could not read the observations: {exc}", "next_step": "check the recording", "findings": []})
-            continue
-        out["conditions"].append(diagnose_condition(cond, os_, sw.base, vision, row, (row or {}).get("fit")))
-    return out
-
-
 def format_text(diag: dict[str, Any]) -> str:
     L = []
     for d in diag.get("conditions", []):
@@ -614,7 +604,7 @@ def _pct(v: Any) -> str:
 def main(argv: list[str] | None = None) -> int:
     """``python -m phonegaze diagnose TARGET``"""
     from .lab import build_config, quiet_native_logs
-    from .sweep import SweepError, evaluate, observe, resolve, safe_name, sweeps_dir, vision_space
+    from .sweep import Sweep, resolve, safe_name, sweeps_dir, vision_space
 
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "diagnose":
@@ -624,6 +614,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--vision", choices=["auto", "real", "oracle"], default="auto")
     p.add_argument("--config", help="config file (default ~/.phonegaze/config.json)")
     p.add_argument("--out", help="output folder (default <recordings>/sweeps/<name>)")
+    p.add_argument("--workers", type=int, help="processes (default: every CPU core)")
     p.add_argument("--json", action="store_true")
     p.add_argument("--log-level", default="WARNING")
     args = p.parse_args(argv)
@@ -633,19 +624,18 @@ def main(argv: list[str] | None = None) -> int:
         cfg, _ = build_config(args.config, None, None)
         inputs = resolve(args.target, cfg)
         out = Path(args.out).expanduser() if args.out else sweeps_dir(inputs.root) / safe_name(inputs.name)
-        cache = out.parent / "cache"
-        diag: dict[str, Any] = {"name": inputs.name, "conditions": [], "notes": inputs.notes}
-        for cond in inputs.conditions:
-            vision = vision_space(cond, args.vision)[0]
-            print(f"{cond.label}: reading observations ({vision.get('chain')})", file=sys.stderr, flush=True)
-            try:
-                os_ = observe(cond, vision, cfg, cache, int(cfg.lab.every))
-            except SweepError as exc:
-                diag["conditions"].append({"id": cond.id, "label": cond.label, "verdict": f"could not read the observations: {exc}", "next_step": "check the recording", "findings": []})
-                continue
-            fit = {"model": "auto"}
-            row = evaluate(cond, os_, cfg, vision, fit)
-            diag["conditions"].append(diagnose_condition(cond, os_, cfg, vision, row, fit))
+        sw = Sweep(inputs, cfg, out, vision_mode=args.vision, workers=args.workers, progress=lambda m: print(m, file=sys.stderr, flush=True))
+        tasks = [(c.id, vision_space(c, args.vision)[0], None, {"model": "auto"}) for c in inputs.conditions]
+        for c, t in zip(inputs.conditions, tasks):
+            print(f"{c.label}: diagnosing with the {t[1].get('chain')} estimators and the default models", file=sys.stderr, flush=True)
+        sw.no_state = True
+        sw._pool = sw._executor()
+        try:
+            conds = sw.diagnose_all(tasks)
+        finally:
+            if sw._pool is not None:
+                sw._pool.shutdown(wait=True, cancel_futures=True)
+        diag: dict[str, Any] = {"name": inputs.name, "conditions": conds, "notes": inputs.notes}
         out.mkdir(parents=True, exist_ok=True)
         (out / "diagnosis.json").write_text(json.dumps(_jsonable(diag), indent=2) + "\n")
         text = format_text(diag)
