@@ -95,12 +95,15 @@ recording changes.
 - **Accuracy** is degrees of gaze between each validation dot and the mean of the predictions
   while it was shown, averaged over the dots. **Precision** is the RMS change between consecutive
   predictions within a dot (after the filter): jitter.
-- **Ranked** and **Confirmed.** With hundreds of setups, the best validation score is flattered:
-  some setups are lucky on these particular dots. So the validation dots are split, alternately
-  in time, into two halves. Setups are **ranked** on the first half; the **confirmed** column is
-  the same setup on the second half, which played no part in choosing it. A confirmed number much
-  worse than the ranked one means the ranking is mostly luck. "Optimism" in the report is that
-  difference for the winner.
+- **Confirmed.** With hundreds of setups, the best validation score is flattered: some setups
+  are lucky on these particular dots. So the validation dots are split, alternately in time, into
+  two halves (**Half A**, **Half B** columns). The best setup is picked on half A and scored on
+  half B, and the other way round; **confirmed** is the mean of those two scores, on dots that
+  played no part in the pick: what to expect from "sweep, then use the winner". Next to it, the
+  same picks on the half they were picked on; the difference is the optimism. The leaderboard
+  itself is ordered by all the validation dots, so the winner is chosen on the most data. If the
+  confirmed number is much worse than the winner's accuracy, the ranking is mostly luck: record
+  more validation dots (a longer protocol) before trusting it.
 - **95 %** is a bootstrap interval over dots (resampling which dots were shown). With 8-12
   validation dots it is wide: a 0.3 degree difference is usually inside it.
 - **(noise)** marks a setup whose difference from the best, dot by dot, has a 95 % interval that

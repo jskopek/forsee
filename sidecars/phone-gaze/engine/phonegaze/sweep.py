@@ -1441,10 +1441,36 @@ def eligible(row: dict[str, Any]) -> bool:
 
 
 def top_by_validation(sw: Sweep, cid: str, k: int = 10) -> list[dict[str, Any]]:
-    a, _ = split_dots(sw.conds[cid])
+    """The best setups by accuracy on all the validation dots."""
     rows = [r for (c, _, _), r in sw.results.items() if c == cid and eligible(r)]
-    rows.sort(key=lambda r: (_mean_over(r, a) if _mean_over(r, a) is not None else float("inf"), r["acc_deg"], r["key"]))
+    rows.sort(key=lambda r: (r["acc_deg"], r["key"], r["vision"]))
     return rows[:k]
+
+
+def two_fold_check(sw: Sweep, cid: str) -> dict[str, Any] | None:
+    """How much picking the best flatters it: pick the best setup on one half of the validation
+    dots and score it on the other half, both ways. ``ranked_deg`` is the picks' scores on the
+    half they were picked on, ``confirmed_deg`` on the other half (the honest number)."""
+    a, b = split_dots(sw.conds[cid])
+    rows = [r for (c, _, _), r in sw.results.items() if c == cid and eligible(r)]
+    if not rows or not a or not b:
+        return None
+
+    def best_on(h: set[int]) -> dict[str, Any]:
+        return min(rows, key=lambda r: (_mean_over(r, h) if _mean_over(r, h) is not None else float("inf"), r["key"], r["vision"]))
+
+    wa, wb = best_on(a), best_on(b)
+    ranked = [v for v in (_mean_over(wa, a), _mean_over(wb, b)) if v is not None]
+    conf = [v for v in (_mean_over(wa, b), _mean_over(wb, a)) if v is not None]
+    if not ranked or not conf:
+        return None
+    return {
+        "ranked_deg": float(np.mean(ranked)),
+        "confirmed_deg": float(np.mean(conf)),
+        "pick_a": fit_name(wa["fit"]) + " | " + vision_name(wa.get("vision_def") or {}),
+        "pick_b": fit_name(wb["fit"]) + " | " + vision_name(wb.get("vision_def") or {}),
+        "same_pick": (wa["key"], wa["vision"]) == (wb["key"], wb["vision"]),
+    }
 
 
 REGIONS = [["top left", "top", "top right"], ["left", "middle", "right"], ["bottom left", "bottom", "bottom right"]]
@@ -1492,8 +1518,8 @@ def _row_summary(sw: Sweep, row: dict[str, Any], a: set[int], b: set[int]) -> di
         "model_used": row.get("model_used"),
         "acc_deg": row.get("acc_deg"),
         "ci": list(ci) if ci else None,
-        "rank_deg": _mean_over(row, a),
-        "confirm_deg": _mean_over(row, b),
+        "half_a_deg": _mean_over(row, a),
+        "half_b_deg": _mean_over(row, b),
         "prec_deg": row.get("prec_deg"),
         "sample_deg": row.get("sample_deg"),
         "search_deg": row.get("search_deg"),
@@ -1566,7 +1592,11 @@ def build_leaderboard(sw: Sweep) -> dict[str, Any]:
             entry["top"].append(s)
         w = entry["top"][0]
         entry["winner"] = w
-        entry["optimism_deg"] = (w["confirm_deg"] - w["rank_deg"]) if w["confirm_deg"] is not None and w["rank_deg"] is not None else None
+        chk = two_fold_check(sw, cid)
+        entry["check"] = chk
+        w["rank_deg"] = chk["ranked_deg"] if chk else None
+        w["confirm_deg"] = chk["confirmed_deg"] if chk else None
+        entry["optimism_deg"] = (chk["confirmed_deg"] - chk["ranked_deg"]) if chk else None
         entry["n_within_noise"] = sum(1 for s in entry["top"][1:] if s.get("within_noise"))
         # what the defaults give, and what the calibration-only search alone would have picked
         defaults = [r for r in rows if eligible(r) and r["fit"] == {"model": "auto"} and not (r.get("vision_def") or {}).get("changes") and (r.get("vision_def") or {}).get("chain") in ("default", ORACLE_CHAINS[0])]
@@ -1679,7 +1709,7 @@ def make_preset(board: dict[str, Any], sw: Sweep) -> dict[str, Any] | None:
     ci = o.get("ci")
     desc = (
         f"From the sweep '{sw.inputs.name}' ({board['created'][:10]}): {cond.camera_label} at {cond.zoom or '?'}x, setup '{cond.label}'. "
-        f"Validation {o.get('acc_deg', 0):.2f} deg" + (f" (95% {ci[0]:.2f}-{ci[1]:.2f})" if ci else "") + (f", {o['confirm_deg']:.2f} deg on held-back dots" if o.get("confirm_deg") is not None else "") + ". "
+        f"Validation {o.get('acc_deg', 0):.2f} deg" + (f" (95% {ci[0]:.2f}-{ci[1]:.2f})" if ci else "") + (f", {o['confirm_deg']:.2f} deg when picked on half the validation dots and scored on the other" if o.get("confirm_deg") is not None else "") + ". "
         f"Applies to camera {cond.camera_id} at zoom {cond.zoom or '?'}x; on another camera, sweep that one."
     )
     try:
@@ -1745,7 +1775,7 @@ def _coverage_line(board: dict[str, Any]) -> str:
 def format_summary(board: dict[str, Any]) -> str:
     """Compact plain text for a chat: no images, a few lines per condition."""
     L = [f"Phone Gaze sweep '{board['name']}' ({board['created'][:16].replace('T', ' ')})", _coverage_line(board)]
-    L.append("Errors are degrees of gaze on VALIDATION dots no fit ever saw; 95% intervals over dots. 'Confirmed' = the same setup on the half of the validation dots it was not ranked on.")
+    L.append("Errors are degrees of gaze on VALIDATION dots no fit ever saw; 95% intervals over dots. 'Confirmed' = pick the best setup on half of the validation dots, score it on the other half (both ways): what to expect from the winner.")
     o = board.get("overall")
     if o:
         L.append("")
@@ -1793,7 +1823,7 @@ def format_summary(board: dict[str, Any]) -> str:
 
 def write_markdown(board: dict[str, Any]) -> str:
     L = [f"# Sweep: {board['name']}", "", f"{_coverage_line(board)}. Created {board['created']}.", ""]
-    L.append("Errors are degrees of gaze on validation dots no fit saw. **Ranked** on half the validation dots, **confirmed** on the other half; 95 % intervals are bootstrap over dots. Rows marked *noise* are not distinguishable from the best.")
+    L.append("Errors are degrees of gaze on validation dots no fit saw, averaged over the dots; 95 % intervals are bootstrap over dots. **Half A / Half B**: the same setup on alternate validation dots. **Confirmed**: pick the best on one half, score it on the other (both ways) - what to expect from the winner. Rows marked *noise* are not distinguishable from the best.")
     L.append("")
     o = board.get("overall")
     if o:
@@ -1813,10 +1843,10 @@ def write_markdown(board: dict[str, Any]) -> str:
         if not c.get("top"):
             L += [c.get("message", "Nothing could be scored."), ""]
             continue
-        L += ["| # | Accuracy | 95 % | Ranked | Confirmed | Precision | Horiz. | Vert. | Cross-pose | Calib. score | Model | Setup |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+        L += ["| # | Accuracy | 95 % | Half A | Half B | Precision | Horiz. | Vert. | Cross-pose | Calib. score | Model | Setup |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
         for s in c["top"]:
             mark = " (noise)" if s.get("within_noise") else ""
-            L.append(f"| {s['rank']}{mark} | {_f(s['acc_deg'])} | {_ci(s['ci'])} | {_f(s['rank_deg'])} | {_f(s['confirm_deg'])} | {_f(s['prec_deg'])} | {_f(s['horizontal_deg'])} | {_f(s['vertical_deg'])} | {_f(s['cross_pose_deg'])} | {_f(s['search_deg'])} | {s.get('model_used') or '-'} | {s['fit_name']}; {s['vision_name']} |")
+            L.append(f"| {s['rank']}{mark} | {_f(s['acc_deg'])} | {_ci(s['ci'])} | {_f(s['half_a_deg'])} | {_f(s['half_b_deg'])} | {_f(s['prec_deg'])} | {_f(s['horizontal_deg'])} | {_f(s['vertical_deg'])} | {_f(s['cross_pose_deg'])} | {_f(s['search_deg'])} | {s.get('model_used') or '-'} | {s['fit_name']}; {s['vision_name']} |")
         L.append("")
         w = c["winner"]
         if w.get("regions"):
@@ -1826,8 +1856,9 @@ def write_markdown(board: dict[str, Any]) -> str:
         if c.get("search_pick"):
             sp = c["search_pick"]
             L.append(f"Picked by calibration data alone (no validation): {_f(sp['acc_deg'])} deg ({sp['fit_name']}).")
-        if c.get("optimism_deg") is not None:
-            L.append(f"Optimism of picking the best of {c['evaluated']}: confirmed minus ranked = {c['optimism_deg']:+.2f} deg.")
+        if c.get("check"):
+            k = c["check"]
+            L.append(f"Picked on one half of the validation dots, scored on the other: {_f(k['confirmed_deg'])} deg, against {_f(k['ranked_deg'])} on the half it was picked on (optimism {c['optimism_deg']:+.2f}); " + ("both halves picked the same setup." if k["same_pick"] else f"the halves picked different setups ({k['pick_a']}; {k['pick_b']})."))
         for n in c.get("notes") or []:
             L.append(f"- Note: {n}")
         if c.get("errors"):
@@ -1858,7 +1889,7 @@ def write_html(board: dict[str, Any]) -> str:
 
     parts = [f"<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Sweep {esc(board['name'])}</title><style>{HTML_STYLE} td.noise{{opacity:.75}} .verdict{{font-weight:600}}</style></head><body>"]
     parts.append(f"<h1>Sweep: {esc(board['name'])}</h1><p>{esc(_coverage_line(board))}.</p>")
-    parts.append("<p>Degrees of gaze on validation dots no fit saw. Ranked on half of them, confirmed on the other half; 95 % intervals are bootstrap over dots. Rows marked <em>noise</em> are not distinguishable from the best.</p>")
+    parts.append("<p>Degrees of gaze on validation dots no fit saw; 95 % intervals are bootstrap over dots. Half A / Half B: the same setup on alternate validation dots. Confirmed: pick the best on one half, score it on the other (both ways). Rows marked <em>noise</em> are not distinguishable from the best.</p>")
     o = board.get("overall")
     if o:
         parts.append(f"<h2>Best overall</h2><p><b>{esc(o['label'])}</b> ({esc(o['camera_label'])}, {esc(o.get('zoom') or '?')}x): {_f(o['acc_deg'])}&deg; (95&nbsp;% {_ci(o['ci'])}), confirmed {_f(o['confirm_deg'])}&deg;, precision {_f(o['prec_deg'])}&deg;.<br>Setup: <code>{esc(o['fit_name'])}</code> with <code>{esc(o['vision_name'])}</code></p>")
@@ -1876,10 +1907,10 @@ def write_html(board: dict[str, Any]) -> str:
         if not c.get("top"):
             parts.append(f"<p>{esc(c.get('message', 'Nothing could be scored.'))}</p>")
             continue
-        parts.append("<table><tr><th>#</th><th>Accuracy</th><th>95 %</th><th>Ranked</th><th>Confirmed</th><th>Precision</th><th>Horiz.</th><th>Vert.</th><th>Cross-pose</th><th>Calib. score</th><th>Model</th><th>Setup</th></tr>")
+        parts.append("<table><tr><th>#</th><th>Accuracy</th><th>95 %</th><th>Half A</th><th>Half B</th><th>Precision</th><th>Horiz.</th><th>Vert.</th><th>Cross-pose</th><th>Calib. score</th><th>Model</th><th>Setup</th></tr>")
         for s in c["top"]:
             cls = " class='noise'" if s.get("within_noise") else ""
-            parts.append(f"<tr{cls}><td>{s['rank']}{' noise' if s.get('within_noise') else ''}</td><td>{_f(s['acc_deg'])}</td><td>{_ci(s['ci'])}</td><td>{_f(s['rank_deg'])}</td><td>{_f(s['confirm_deg'])}</td><td>{_f(s['prec_deg'])}</td><td>{_f(s['horizontal_deg'])}</td><td>{_f(s['vertical_deg'])}</td><td>{_f(s['cross_pose_deg'])}</td><td>{_f(s['search_deg'])}</td><td>{esc(s.get('model_used') or '-')}</td><td>{esc(s['fit_name'])}; {esc(s['vision_name'])}</td></tr>")
+            parts.append(f"<tr{cls}><td>{s['rank']}{' noise' if s.get('within_noise') else ''}</td><td>{_f(s['acc_deg'])}</td><td>{_ci(s['ci'])}</td><td>{_f(s['half_a_deg'])}</td><td>{_f(s['half_b_deg'])}</td><td>{_f(s['prec_deg'])}</td><td>{_f(s['horizontal_deg'])}</td><td>{_f(s['vertical_deg'])}</td><td>{_f(s['cross_pose_deg'])}</td><td>{_f(s['search_deg'])}</td><td>{esc(s.get('model_used') or '-')}</td><td>{esc(s['fit_name'])}; {esc(s['vision_name'])}</td></tr>")
         parts.append("</table>")
         w = c["winner"]
         extra = []
@@ -1889,8 +1920,8 @@ def write_html(board: dict[str, Any]) -> str:
             extra.append(f"Live defaults: {_f(c['defaults']['acc_deg'])}&deg;")
         if c.get("search_pick"):
             extra.append(f"Picked by calibration data alone: {_f(c['search_pick']['acc_deg'])}&deg;")
-        if c.get("optimism_deg") is not None:
-            extra.append(f"Confirmed minus ranked: {c['optimism_deg']:+.2f}&deg;")
+        if c.get("check"):
+            extra.append(f"Picked on one half of the validation dots, scored on the other: {_f(c['check']['confirmed_deg'])}&deg; (on its own half {_f(c['check']['ranked_deg'])}&deg;)")
         extra += [f"Note: {esc(n)}" for n in c.get("notes") or []]
         parts.append("<ul>" + "".join(f"<li>{x}</li>" for x in extra) + "</ul>")
     p = board.get("preset")
