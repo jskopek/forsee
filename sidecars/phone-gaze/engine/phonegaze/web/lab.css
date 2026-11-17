@@ -1,0 +1,67 @@
+/* Lab page (lab.html). Builds on style.css's colours and cards. */
+
+.lab {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.lab .card {
+  margin-bottom: 16px;
+}
+
+.lab table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.lab th,
+.lab td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.lab .table-wrap {
+  overflow-x: auto;
+}
+
+.lab .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+}
+
+.lab .changes {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.lab .cli {
+  overflow-x: auto;
+  font-size: 12px;
+}
+
+.lab .job-failed {
+  color: var(--bad, #c53030);
+}
+
+.lab .row label {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.lab .row input[type='text'] {
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 12em;
+}

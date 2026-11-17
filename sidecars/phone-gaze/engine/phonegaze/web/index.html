@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Phone Gaze</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="style.css" />
+    <script type="module" src="js/app.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">Phone Gaze</div>
+      <nav id="nav" aria-label="Sections"></nav>
+      <div class="topstatus">
+        <span id="conn-pill" class="pill">Engine: connecting…</span>
+        <span id="phone-pill" class="pill">Phone: –</span>
+      </div>
+    </header>
+    <main id="view" tabindex="-1"></main>
+    <div id="toasts" aria-live="polite"></div>
+  </body>
+</html>

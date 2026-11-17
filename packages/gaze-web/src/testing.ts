@@ -257,3 +257,5 @@ export class PointerScript {
     }
   }
 }
+
+export { FakePhoneGazeServer, FakePhoneGazeSocket } from './phone-gaze-testing';

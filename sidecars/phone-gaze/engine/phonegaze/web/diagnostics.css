@@ -1,0 +1,141 @@
+/* Diagnostics page (diagnostics.html). Builds on style.css's colours and cards. */
+
+.diag {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.diag .card {
+  margin-bottom: 16px;
+}
+
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.stage {
+  min-width: 96px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-left-width: 6px;
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.stage .label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.stage .pct {
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.stage.good {
+  border-left-color: var(--good);
+}
+
+.stage.warn {
+  border-left-color: var(--warn);
+}
+
+.stage.bad {
+  border-left-color: var(--bad);
+}
+
+.stage.na {
+  opacity: 0.55;
+}
+
+.numbers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.numbers b {
+  font-weight: 600;
+}
+
+.checks {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+
+.checks th,
+.checks td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.checks tr.group th {
+  padding-top: 14px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.badge {
+  display: inline-block;
+  min-width: 44px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--accent-text);
+  background: var(--muted);
+}
+
+.badge.ok {
+  background: var(--good);
+}
+
+.badge.warn {
+  background: var(--warn);
+}
+
+.badge.fail {
+  background: var(--bad);
+}
+
+.badge.info,
+.badge.skip {
+  color: var(--text);
+  background: var(--code);
+}
+
+.fix {
+  margin-top: 2px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.images-box {
+  display: block;
+  margin: 8px 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+}
+
+.summary,
+.log {
+  max-height: 360px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--code);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+}

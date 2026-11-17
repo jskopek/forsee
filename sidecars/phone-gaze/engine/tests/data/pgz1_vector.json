@@ -1,0 +1,144 @@
+[
+  {
+    "header": {
+      "type": "hello",
+      "protocol": 1,
+      "t": 1000.0,
+      "app": {
+        "name": "EyeCapture",
+        "version": "0.2"
+      },
+      "device": {
+        "model": "iPhone16,2",
+        "system": "iOS 18.1"
+      },
+      "capabilities": {
+        "arkit": true,
+        "depth": false,
+        "roiSources": ["mac", "arkit"],
+        "formats": ["jpeg", "gray8"],
+        "maxRois": 4
+      },
+      "streamConfig": {
+        "maxFps": 30,
+        "wide": {
+          "enabled": true,
+          "width": 4,
+          "quality": 0.6,
+          "every": 1
+        },
+        "rois": [
+          {
+            "name": "left_eye",
+            "x": 0.5,
+            "y": 0.25,
+            "w": 0.25,
+            "h": 0.5
+          }
+        ],
+        "roiQuality": 0.9,
+        "roiSource": "mac",
+        "roiSize": {
+          "w": 0.1,
+          "h": 0.06
+        },
+        "arkit": true,
+        "depth": false
+      }
+    },
+    "parts": []
+  },
+  {
+    "header": {
+      "type": "frame",
+      "seq": 42,
+      "t": 1000.5,
+      "tSent": 1000.512,
+      "mode": "arkit",
+      "dropped": 0,
+      "camera": {
+        "id": "arkit-face",
+        "position": "front",
+        "type": "arkit",
+        "zoom": 1.0,
+        "width": 8,
+        "height": 4,
+        "fx": 8.0,
+        "fy": 8.0,
+        "cx": 4.0,
+        "cy": 2.0,
+        "intrinsicsSource": "arkit",
+        "intrinsicsIncludeZoom": true,
+        "fieldOfView": 53.13
+      },
+      "lens": {
+        "position": 0.5,
+        "adjustingFocus": false,
+        "adjustingExposure": false,
+        "iso": 100.0,
+        "exposureS": 0.008,
+        "focusLocked": false
+      },
+      "gravity": [0.0, -1.0, 0.0],
+      "rotationRate": [0.0, 0.0, 0.0],
+      "parts": [
+        {
+          "name": "wide",
+          "kind": "wide",
+          "format": "gray8",
+          "width": 4,
+          "height": 2,
+          "rect": [0, 0, 8, 4],
+          "bytes": 8
+        },
+        {
+          "name": "left_eye",
+          "kind": "roi",
+          "format": "gray8",
+          "width": 2,
+          "height": 2,
+          "rect": [4, 1, 2, 2],
+          "bytes": 4
+        }
+      ],
+      "arkit": {
+        "tracked": true,
+        "face": [
+          1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.01, -0.02, -0.55, 1.0
+        ],
+        "leftEye": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+        "rightEye": [
+          1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0
+        ],
+        "camera": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+        "lookAt": [0.0, 0.0, 1.0],
+        "blendShapes": {
+          "blink_left": 0.1,
+          "blink_right": 0.2
+        },
+        "eyePixels": {
+          "left": [5.0, 2.0],
+          "right": [3.0, 2.0]
+        }
+      }
+    },
+    "parts": ["0001020304050607", "c8c9cacb"]
+  },
+  {
+    "header": {
+      "type": "status",
+      "t": 1001.0,
+      "state": {
+        "mode": "arkit",
+        "cameraId": "arkit-face",
+        "measuredFps": 29.9
+      },
+      "stream": {
+        "clients": 1,
+        "sent": 42,
+        "dropped": 3
+      }
+    },
+    "parts": []
+  }
+]

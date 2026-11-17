@@ -1,0 +1,780 @@
+"""Error diagnosis: why is the error what it is, per condition, in numbers. Owner: Sweep.
+
+For each condition of a run (see ``sweep.py`` for the inputs) it answers, from the recorded
+observations (stage 1 of the sweep, cached):
+
+- **availability**: share of frames with the face, each eye, the iris fit, the reflection and a
+  distance; the recording's frame rate and its gaps;
+- **precision floor**: the scatter of each raw measurement within a fixation (iris centre,
+  reflection, eye corners, head rotation and position, the gaze direction an estimator gives),
+  converted into degrees of gaze with the measured geometry (focal length, distance, and the
+  eye's ~10 mm from rotation centre to iris), so each signal's noise is in the same unit;
+- **signal strength**: how much of each measurement's variation is explained by where the dot
+  was (between-dot share of variance, horizontal and vertical separately), and the observed
+  pixels per degree against what the camera geometry predicts;
+- **ceiling versus achieved**: a flexible model fitted on ALL dots, validation included (a lower
+  bound on what any calibration could reach with this signal), next to the held-out error;
+- **bias versus jitter**: constant offset, scale error, screen-region pattern, left eye versus
+  right eye, drift over the session, and how much the head moved in each phase;
+- a plain-language **verdict** naming the dominant limit and the most promising next step.
+
+Command line::
+
+    python -m phonegaze diagnose <run id | run file | folder of recordings | recording>
+        [--vision auto|real|oracle] [--config PATH] [--out DIR] [--json]
+
+The sweep runs the same diagnosis on its winner and puts it in its leaderboard and summary.
+Nothing here has seen a real recording yet.
+"""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import json
+import logging
+import math
+import sys
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from .config import Config
+from .lab import LabError
+from .types import Observation, _jsonable
+
+log = logging.getLogger(__name__)
+
+SETTLE_S = 0.3
+"""Frames this long after a recorded calibration dot starts collecting are left out of the
+within-fixation numbers."""
+COLLECT_SETTLE_S = 0.6
+"""The same for a collection run, whose dot times start when the dot appeared (live waits
+``calibration.settle_ms``, 600 ms, before collecting)."""
+
+THRESHOLDS = {
+    "availability": 0.8,  # usable-eye share below this is a problem
+    "noise_deg": 1.0,  # within-fixation scatter of the main signal above this is a problem
+    "weak_signal": 0.6,  # between-dot share of variance below this is a problem
+    "offset_deg": 0.8,  # constant offset above this (and most of the error) is a problem
+    "head_mm": 30.0,  # drift of the per-dot median head position within or between phases above this is movement
+    "reflection_rate": 0.85,  # the reflection found in fewer frames than this while it is the steadier reference
+    "distance_noise_mm": 15.0,  # frame-to-frame scatter of the head position along the camera axis above this (and twice sideways) is a noisy distance
+    "drift_deg_per_min": 0.5,
+    "scale": 0.2,  # |slope - 1| above this
+}
+
+
+# --------------------------------------------------------------------------------------------
+# Small helpers
+# --------------------------------------------------------------------------------------------
+
+
+def _eye_radius_m() -> float:
+    from .models.features import EYE_IRIS_DISTANCE_M
+
+    return float(EYE_IRIS_DISTANCE_M)
+
+
+def _px_per_deg(obs: Observation) -> float | None:
+    """Pixels the iris centre moves per degree of eye rotation, from the camera geometry."""
+    if obs.intrinsics is None or not obs.distance:
+        return None
+    fx = float(obs.intrinsics.fx)
+    return fx * _eye_radius_m() * math.pi / 180.0 / float(obs.distance)
+
+
+def _median(v: list[float]) -> float | None:
+    v = [x for x in v if x is not None and math.isfinite(x)]
+    return float(np.median(v)) if v else None
+
+
+def _r(v: Any, nd: int = 3) -> Any:
+    if isinstance(v, float):
+        return round(v, nd) if math.isfinite(v) else None
+    if isinstance(v, dict):
+        return {k: _r(x, nd) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_r(x, nd) for x in v]
+    return v
+
+
+def _head_angles_deg(o: Observation) -> tuple[float, float] | None:
+    from .models.features import head_angles
+
+    a = head_angles(o)
+    return None if a is None else (math.degrees(a[0]), math.degrees(a[1]))
+
+
+def _gaze_angles_deg(o: Observation, side: str) -> tuple[float, float] | None:
+    from .models.features import dir_angles, unit
+
+    g = o.eye(side).gaze_dir
+    if g is None:
+        return None
+    u = unit(np.asarray(g, float))
+    if u is None:
+        return None
+    a = dir_angles(u)
+    return math.degrees(a[0]), math.degrees(a[1])
+
+
+def _feature(o: Observation, name: str, side: str) -> tuple[float, float] | None:
+    """A raw measurement of one eye (pixels, or degrees for angles)."""
+    e = o.eye(side)
+    if name == "iris":
+        return None if e.iris_center is None or e.blink else (float(e.iris_center[0]), float(e.iris_center[1]))
+    if name == "reflection":
+        return None if e.reflection_center is None else (float(e.reflection_center[0]), float(e.reflection_center[1]))
+    if name == "corners":
+        if e.inner_corner is None or e.outer_corner is None:
+            return None
+        return ((e.inner_corner[0] + e.outer_corner[0]) / 2.0, (e.inner_corner[1] + e.outer_corner[1]) / 2.0)
+    if name == "iris_minus_corners":
+        a, b = _feature(o, "iris", side), _feature(o, "corners", side)
+        return None if a is None or b is None else (a[0] - b[0], a[1] - b[1])
+    if name == "iris_minus_reflection":
+        a, b = _feature(o, "iris", side), _feature(o, "reflection", side)
+        return None if a is None or b is None else (a[0] - b[0], a[1] - b[1])
+    if name == "gaze_dir":
+        return _gaze_angles_deg(o, side)
+    raise ValueError(name)
+
+
+PIXEL_SIGNALS = ("iris", "reflection", "corners", "iris_minus_corners", "iris_minus_reflection")
+ANGLE_SIGNALS = ("gaze_dir",)
+
+
+# --------------------------------------------------------------------------------------------
+# The parts of the report
+# --------------------------------------------------------------------------------------------
+
+
+def availability(cond: Any, os_: Any) -> dict[str, Any]:
+    obs: list[Observation] = os_.obs
+    n = len(obs)
+    out: dict[str, Any] = {"frames": n}
+    if n:
+
+        def share(fn: Any) -> float:
+            return sum(1 for o in obs if fn(o)) / n
+
+        out["face"] = share(lambda o: o.face_rect is not None or o.head_rotation is not None or o.left.found or o.right.found)
+        out["left_eye"] = share(lambda o: bool(o.left.found))
+        out["right_eye"] = share(lambda o: bool(o.right.found))
+        out["either_eye"] = share(lambda o: bool(o.left.found or o.right.found))
+        out["iris_fit"] = share(lambda o: o.left.iris_center is not None or o.right.iris_center is not None)
+        out["iris_edge"] = share(lambda o: any(o.provenance.get(f"{s}.iris_center") == "iris_edge" for s in ("left", "right")))
+        out["reflection"] = share(lambda o: o.left.reflection_center is not None or o.right.reflection_center is not None)
+        out["distance"] = share(lambda o: bool(o.distance))
+        out["blink"] = share(lambda o: bool(o.left.blink and o.right.blink))
+        out["gaze_dir"] = share(lambda o: o.left.gaze_dir is not None or o.right.gaze_dir is not None)
+        out["usable"] = share(lambda o: any((o.eye(s).iris_center is not None or o.eye(s).gaze_dir is not None) and not o.eye(s).blink for s in ("left", "right")))
+    seg = getattr(cond, "segment", None)
+    if seg is not None and seg.n_rows > 2:
+        dt = np.diff(np.asarray(seg.times, float))
+        dt = dt[np.isfinite(dt) & (dt > 0)]
+        if len(dt):
+            med = float(np.median(dt))
+            out["fps"] = 1.0 / med if med > 0 else None
+            gaps = dt[dt > 3 * med]
+            out["gaps"] = int(len(gaps))
+            out["longest_gap_s"] = float(gaps.max()) if len(gaps) else 0.0
+            out["seconds"] = float(seg.times[-1] - seg.times[0])
+    return out
+
+
+def _dot_frames(cond: Any, os_: Any, phases: tuple[str, ...]) -> list[tuple[Any, list[Observation]]]:
+    from .sweep import _window
+
+    # a collection run's dot times start when the dot appeared: wait for the eyes as live does
+    settle = ((getattr(cond, "settle_ms", None) or COLLECT_SETTLE_S * 1000.0) / 1000.0) if getattr(cond, "kind", "") == "collect" else SETTLE_S
+    return [(d, _window(os_, d.t0 + settle, d.t1)) for d in cond.dots if d.phase in phases]
+
+
+def precision_floor(cond: Any, os_: Any) -> dict[str, Any]:
+    """Median over dots of each measurement's within-dot standard deviation, in its own unit and
+    in degrees of gaze."""
+    dots = _dot_frames(cond, os_, ("calibration", "poses", "validation"))
+    ppd = _median([_px_per_deg(o) for _, fr in dots for o in fr[::5]])
+    dist = _median([o.distance for _, fr in dots for o in fr[::5] if o.distance])
+    out: dict[str, Any] = {"px_per_deg_geometry": ppd, "distance_m": dist, "eye_radius_mm": _eye_radius_m() * 1000.0, "signals": {}}
+    for name in PIXEL_SIGNALS + ANGLE_SIGNALS:
+        sds: dict[str, list[float]] = {"x": [], "y": []}
+        for _, fr in dots:
+            for side in ("left", "right"):
+                vals = [v for v in (_feature(o, name, side) for o in fr) if v is not None]
+                if len(vals) >= 4:
+                    a = np.array(vals, float)
+                    sds["x"].append(float(np.std(a[:, 0], ddof=1)))
+                    sds["y"].append(float(np.std(a[:, 1], ddof=1)))
+        if not sds["x"]:
+            continue
+        sx, sy = _median(sds["x"]), _median(sds["y"])
+        unit = "deg" if name in ANGLE_SIGNALS else "px"
+        e: dict[str, Any] = {"unit": unit, "sd_x": sx, "sd_y": sy}
+        if unit == "deg":
+            e["deg_x"], e["deg_y"] = sx, sy
+        elif ppd:
+            e["deg_x"], e["deg_y"] = sx / ppd, sy / ppd
+        if e.get("deg_x") is not None:
+            e["deg"] = float(math.hypot(e["deg_x"], e["deg_y"]))
+        out["signals"][name] = e
+    # head pose
+    rot: list[float] = []
+    pos: list[float] = []
+    for _, fr in dots:
+        angs = [a for a in (_head_angles_deg(o) for o in fr) if a is not None]
+        if len(angs) >= 4:
+            a = np.array(angs)
+            rot.append(float(math.hypot(np.std(a[:, 0], ddof=1), np.std(a[:, 1], ddof=1))))
+        ps = [np.asarray(o.head_position, float) * 1000.0 for o in fr if o.head_position is not None]
+        if len(ps) >= 4:
+            pos.append(float(np.linalg.norm(np.std(np.array(ps), axis=0, ddof=1))))
+    if rot:
+        out["signals"]["head_rotation"] = {"unit": "deg", "sd": _median(rot), "deg": _median(rot)}
+    if pos:
+        mm = _median(pos)
+        out["signals"]["head_position"] = {"unit": "mm", "sd": mm, "deg": math.degrees(math.atan2(mm, (dist or 0.6) * 1000.0)) if mm is not None else None}
+    main = out["signals"].get("iris_minus_corners") or out["signals"].get("iris") or out["signals"].get("gaze_dir")
+    out["main_signal"] = next((k for k in ("iris_minus_corners", "iris", "gaze_dir") if k in out["signals"]), None)
+    out["main_deg"] = main.get("deg") if main else None
+    return out
+
+
+def _target_angles(cond: Any, d: Any, dist_m: float) -> tuple[float, float] | None:
+    mm = cond.screen.mm_per_point
+    if mm is None:
+        return None
+    x = (d.x - cond.screen.width / 2) * mm[0]
+    y = (d.y - cond.screen.height / 2) * mm[1]
+    return math.degrees(math.atan2(x, dist_m * 1000.0)), math.degrees(math.atan2(y, dist_m * 1000.0))
+
+
+def signal_strength(cond: Any, os_: Any, floor: dict[str, Any]) -> dict[str, Any]:
+    """Between-dot share of variance per measurement and axis (head still: the first head
+    position's dots and validation), and observed pixels per degree versus the geometry."""
+    dots = [(d, fr) for d, fr in _dot_frames(cond, os_, ("calibration", "validation")) if d.pose_group == 0]
+    dist = floor.get("distance_m") or 0.6
+    out: dict[str, Any] = {"signals": {}, "px_per_deg_geometry": floor.get("px_per_deg_geometry")}
+    names = list(PIXEL_SIGNALS + ANGLE_SIGNALS) + ["head_rotation"]
+    for name in names:
+        res: dict[str, Any] = {}
+        for ax, k in (("horizontal", 0), ("vertical", 1)):
+            per_side = []
+            for side in ("left", "right") if name != "head_rotation" else ("head",):
+                means, tang, allv, groups = [], [], [], []
+                for gi, (d, fr) in enumerate(dots):
+                    if name == "head_rotation":
+                        vals = [a[k] for a in (_head_angles_deg(o) for o in fr) if a is not None]
+                    else:
+                        vals = [v[k] for v in (_feature(o, name, side) for o in fr) if v is not None]
+                    ta = _target_angles(cond, d, dist)
+                    if len(vals) < 3 or ta is None:
+                        continue
+                    means.append(float(np.mean(vals)))
+                    tang.append(ta[k])
+                    allv += vals
+                    groups += [gi] * len(vals)
+                if len(means) < 4:
+                    continue
+                a = np.array(allv)
+                total = float(np.var(a))
+                g = np.array(groups)
+                within = float(np.mean([np.var(a[g == i]) for i in np.unique(g)]))
+                share = 1.0 - within / total if total > 0 else 0.0
+                t = np.array(tang)
+                if np.ptp(t) < 1.0:
+                    continue
+                slope = float(np.polyfit(t, np.array(means), 1)[0])
+                r2 = float(np.corrcoef(t, np.array(means))[0, 1] ** 2) if np.std(means) > 0 else 0.0
+                per_side.append({"side": side, "explained": max(0.0, share), "r2_with_target": r2, "per_deg": abs(slope)})
+            if per_side:
+                res[ax] = {
+                    "explained": float(np.mean([p["explained"] for p in per_side])),
+                    "r2_with_target": float(np.mean([p["r2_with_target"] for p in per_side])),
+                    "per_deg": float(np.mean([p["per_deg"] for p in per_side])),
+                    "sides": per_side,
+                }
+        if res:
+            res["unit"] = "deg" if name in ANGLE_SIGNALS or name == "head_rotation" else "px"
+            out["signals"][name] = res
+    ppd = floor.get("px_per_deg_geometry")
+    main = out["signals"].get("iris_minus_corners") or out["signals"].get("iris")
+    if main and ppd:
+        out["sensitivity_vs_geometry"] = {ax: main[ax]["per_deg"] / ppd for ax in ("horizontal", "vertical") if ax in main}
+    out["main_signal"] = "iris_minus_corners" if "iris_minus_corners" in out["signals"] else ("iris" if "iris" in out["signals"] else ("gaze_dir" if "gaze_dir" in out["signals"] else None))
+    return out
+
+
+def head_movement(cond: Any, os_: Any) -> dict[str, Any]:
+    """Per phase, per axis (x sideways, y up/down, z distance; mm): **drift**, how far the
+    head's per-dot median position moved (5th-95th percentile of the medians; the moving dot in
+    one-second pieces), apart from **noise**, the frame-to-frame scatter of the estimated
+    position within a dot (median over dots of the standard deviation). Only drift is real
+    movement: on the rear camera the distance from iris size scatters by centimetres while the
+    person sits still (the first real recording showed 100-155 mm 'movement' that way). Also how
+    far the median sat from its calibration place."""
+    from .sweep import _window
+
+    out: dict[str, Any] = {}
+    centre: dict[str, np.ndarray] = {}
+    for ph in ("calibration", "poses", "validation", "pursuit"):
+        if ph == "pursuit":
+            if cond.pursuit is None:
+                continue
+            t0, t1 = float(cond.pursuit[0, 0]), float(cond.pursuit[-1, 0])
+            pieces = [_window(os_, a, min(t1, a + 1.0)) for a in np.arange(t0, t1, 1.0)]
+        else:
+            pieces = [_window(os_, d.t0, d.t1) for d in cond.dots if d.phase == ph]
+        meds, sds, allp = [], [], []
+        for fr in pieces:
+            ps = np.array([np.asarray(o.head_position, float) * 1000.0 for o in fr if o.head_position is not None])
+            if len(ps) >= 3:
+                meds.append(np.median(ps, axis=0))
+                sds.append(np.std(ps, axis=0, ddof=1))
+                allp.append(ps)
+        e: dict[str, Any] = {"frames": sum(len(f) for f in pieces), "dots": len(meds)}
+        if len(meds) >= 2:
+            m = np.array(meds)
+            lo, hi = np.percentile(m, [5, 95], axis=0)
+            e["drift_mm"] = [float(v) for v in hi - lo]
+            e["moved_mm"] = float(np.linalg.norm(hi - lo))
+            e["noise_mm"] = [float(v) for v in np.median(np.array(sds), axis=0)]
+            raw = np.concatenate(allp)
+            rlo, rhi = np.percentile(raw, [5, 95], axis=0)
+            e["raw_range_mm"] = [float(v) for v in rhi - rlo]
+            centre[ph] = np.median(m, axis=0)
+        angs = np.array([a for fr in pieces for a in (_head_angles_deg(o) for o in fr) if a is not None])
+        if len(angs) >= 5:
+            lo, hi = np.percentile(angs, [5, 95], axis=0)
+            e["rotation_range_deg"] = [float(v) for v in hi - lo]
+        out[ph] = e
+    if "calibration" in centre:
+        for ph, c in centre.items():
+            if ph != "calibration":
+                out[ph]["shift_from_calibration_mm"] = float(np.linalg.norm(c - centre["calibration"]))
+    noise = [v["noise_mm"] for k, v in out.items() if k != "poses" and isinstance(v, dict) and v.get("noise_mm")]
+    if noise:
+        out["noise_mm"] = [float(v) for v in np.median(np.array(noise), axis=0)]
+    return out
+
+
+def ceiling(cond: Any, os_: Any, base: Config, vision: dict[str, Any]) -> dict[str, Any]:
+    """In-sample error of flexible models fitted on every dot (validation included)."""
+    from dataclasses import replace
+
+    from . import calibration as calib
+    from .models import build_models
+    from .sweep import build_samples, condition_config
+
+    cfg = condition_config(base, cond, vision, {"model": "auto"})
+    ss = build_samples(cond, os_, cfg)
+    allsamp = ss["calibration"] + ss["poses"] + [replace(s, kind="grid") for s in ss["validation"]]
+    if len({s.dot_id for s in allsamp}) < 5:
+        return {"error": "too few usable dots"}
+    out: dict[str, Any] = {}
+    for name in ("ridge", "geometric"):  # (the kernel model interpolates every dot exactly: no bound)
+        m = copy.deepcopy(cfg.models)
+        m.candidates = [name]
+        try:
+            res = calib.fit_all(allsamp, cond.screen, build_models(m))
+        except Exception as exc:  # noqa: BLE001
+            out[name] = {"error": str(exc)}
+            continue
+        rep = res.reports[0] if res.reports else None
+        if rep is not None and rep.ok:
+            out[name] = {"train_deg": rep.train_error_deg, "loo_deg": rep.loo_error_deg}
+    ok = [v["train_deg"] for v in out.values() if isinstance(v, dict) and v.get("train_deg") is not None]
+    out["ceiling_deg"] = min(ok) if ok else None
+    return out
+
+
+def bias(cond: Any, row: dict[str, Any] | None) -> dict[str, Any]:
+    """From a setup's validation dots: constant offset, scale, region pattern, drift."""
+    from .sweep import breakdown
+
+    out: dict[str, Any] = {}
+    per = (row or {}).get("per_dot") or []
+    if len(per) < 3:
+        n_val = len(cond.phase("validation")) if cond is not None else len(per)
+        return {"error": f"only {len(per)} of {n_val} validation dots could be predicted (the others had too few usable frames): too few to split the error into offset, scale and regions"}
+    err = np.array([p[1] for p in per], float)
+    dx = np.array([p[2] for p in per], float)
+    dy = np.array([p[3] for p in per], float)
+    off = (float(np.mean(dx)), float(np.mean(dy)))
+    out["accuracy_deg"] = float(np.mean(err))
+    out["offset_deg"] = list(off)
+    out["offset_size_deg"] = float(math.hypot(*off))
+    resid = np.hypot(dx - off[0], dy - off[1])
+    out["error_without_offset_deg"] = float(np.mean(resid))
+    out["offset_share"] = max(0.0, 1.0 - out["error_without_offset_deg"] / out["accuracy_deg"]) if out["accuracy_deg"] > 0 else 0.0
+    b = breakdown(row or {}, cond.screen)
+    out["horizontal_deg"], out["vertical_deg"], out["regions"] = b["horizontal_deg"], b["vertical_deg"], b["regions"]
+    mm = cond.screen.mm_per_point
+    dist = 0.6
+    if mm is not None:
+        tx = np.array([math.degrees(math.atan2((p[4] - cond.screen.width / 2) * mm[0], dist * 1000.0)) for p in per])
+        ty = np.array([math.degrees(math.atan2((p[5] - cond.screen.height / 2) * mm[1], dist * 1000.0)) for p in per])
+        sc = {}
+        for ax, t, d in (("horizontal", tx, dx), ("vertical", ty, dy)):
+            if np.ptp(t) >= 2.0:
+                sc[ax] = float(np.polyfit(t, t + d, 1)[0])
+        out["scale"] = sc
+    t = np.array([p[6] for p in per], float)
+    if np.ptp(t) > 10:
+        mins = (t - t.min()) / 60.0
+        out["drift_deg_per_min"] = [float(np.polyfit(mins, dx, 1)[0]), float(np.polyfit(mins, dy, 1)[0])]
+        out["validation_minutes"] = float(mins.max())
+    out["precision_deg"] = (row or {}).get("prec_deg")
+    return out
+
+
+def eye_comparison(cond: Any, os_: Any, base: Config, vision: dict[str, Any], fit: dict[str, Any]) -> dict[str, Any]:
+    """The same setup with only the left eye, then only the right eye."""
+    from .lab import _blank_eye
+    from .sweep import ObsSet, evaluate
+
+    out: dict[str, Any] = {}
+    for side in ("left", "right"):
+        blanked = ObsSet(t=os_.t, obs=[_blank_eye(o, side) for o in os_.obs], stats=os_.stats)
+        try:
+            r = evaluate(cond, blanked, base, vision, fit)
+        except Exception as exc:  # noqa: BLE001
+            out[side] = {"error": str(exc)}
+            continue
+        out[side] = {"acc_deg": r.get("acc_deg"), "coverage": r.get("coverage"), "error": r.get("error")}
+    return out
+
+
+# --------------------------------------------------------------------------------------------
+# The verdict
+# --------------------------------------------------------------------------------------------
+
+
+def verdict(d: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
+    """``(verdict, next step, findings)``: every finding has a rough size in degrees; the
+    largest is the verdict."""
+    T = THRESHOLDS
+    findings: list[dict[str, Any]] = []
+    av = d.get("availability") or {}
+    fl = d.get("precision_floor") or {}
+    st = d.get("signal_strength") or {}
+    ce = d.get("ceiling") or {}
+    bi = d.get("bias") or {}
+    hm = d.get("head") or {}
+    ach = d.get("achieved_deg")
+    usable = av.get("usable")
+    if usable is not None and usable < T["availability"]:
+        what = "eyes" if (av.get("either_eye") or 0) < T["availability"] else "an iris measurement"
+        findings.append(
+            {
+                "kind": "availability",
+                "size": (1 - usable) * 6.0,
+                "text": f"{what} were found in only {usable:.0%} of frames (face {av.get('face', 0):.0%}, left eye {av.get('left_eye', 0):.0%}, right eye {av.get('right_eye', 0):.0%})",
+                "next": "make the eyes easy to find first: check the Aim page framing, more light, a lower zoom or estimators.face_confidence 0.15 with face_tiles on, then record this setup again",
+            }
+        )
+    main = fl.get("main_deg")
+    # Frame-to-frame jitter is averaged over each dot's frames: with a small held-out error it is
+    # not what limits accuracy (the simulator's rendered eyes jitter 2-3 degrees per frame and
+    # still reach 0.3), so it only counts up to the error actually measured.
+    if main is not None and main > T["noise_deg"] and (ach is None or ach > 0.5 * T["noise_deg"]):
+        sig = {"iris_minus_corners": "the iris measurement (relative to the eye corners)", "iris": "the iris measurement", "gaze_dir": "the measured gaze direction"}.get(fl.get("main_signal"), "the main measurement")
+        findings.append({"kind": "noise", "size": main if ach is None else min(main, ach), "text": f"{sig} is too noisy: {main:.1f} degrees of jitter from frame to frame within a fixation", "next": "more pixels and less blur on the eye: zoom in or move closer, more light or a shorter shutter (lens.max_exposure_ms 8-16), estimators.iris_fit circle; filters.preset steady hides jitter but not offsets"})
+    # The reflection-referenced signal much steadier than the corner-referenced one, but the
+    # reflection found too rarely to use: the detection rate is the lever.
+    sigs = fl.get("signals") or {}
+    rd = (sigs.get("iris_minus_reflection") or {}).get("deg")
+    cd = (sigs.get("iris_minus_corners") or {}).get("deg")
+    rate = av.get("reflection")
+    if rd is not None and cd is not None and rate is not None and rd < 0.5 * cd and rate < T["reflection_rate"]:
+        findings.append(
+            {
+                "kind": "reflection_rate",
+                # it explains the corner signal's jitter and is the fix for it: ranked just above it
+                "size": (min(ach, cd) if ach is not None else cd) + 0.01,
+                "text": f"the screen's reflection is found in only {rate:.0%} of frames, yet iris minus reflection is {cd / rd:.0f} times steadier than iris minus corners ({rd:.2f} against {cd:.2f} degrees of jitter within a fixation): finding the reflection more often is the main lever",
+                "next": "make the reflection easier to find: the reflection helper on the Collect page (a white border or corners on the screen, ui.glint_marker), the screen brighter, the room darker, zoom 2x; then the detector's settings estimators.reflection_k_mad 3.5 or 2.5, reflection_min_contrast 5, reflection_area_min 0.1, reflection_max_offset 0.9, reflection_ambiguity 0.8 (the sweep tries each); and the reflection model",
+            }
+        )
+    main_ss = (st.get("signals") or {}).get(st.get("main_signal") or "")
+    if main_ss:
+        for ax in ("horizontal", "vertical"):
+            e = (main_ss.get(ax) or {}).get("explained")
+            if e is not None and e < T["weak_signal"]:
+                eyelid = " (eyelids cover the top of the iris)" if ax == "vertical" else ""
+                findings.append(
+                    {
+                        "kind": f"weak_{ax}",
+                        "size": (1 - e) * 4.0,
+                        "text": f"the {ax} iris signal barely follows the dot: where the dot was explains only {e:.0%} of its variation{eyelid}",
+                        "next": "estimators.iris_lid_mask_upper_deg 45 and calibration.layout edges for more vertical range" if ax == "vertical" else "more eye detail (zoom) or a different estimator chain; check the Tuning page's iris fit",
+                    }
+                )
+    if bi.get("offset_size_deg") is not None and bi["offset_size_deg"] > T["offset_deg"] and (bi.get("offset_share") or 0) > 0.4:
+        ox, oy = bi["offset_deg"]
+        dirn = ", ".join(x for x in (("right" if ox > 0 else "left") if abs(ox) > 0.3 else "", ("below" if oy > 0 else "above") if abs(oy) > 0.3 else "") if x)
+        findings.append(
+            {
+                "kind": "offset",
+                "size": bi["offset_size_deg"],
+                "text": f"a constant offset of {bi['offset_size_deg']:.1f} degrees ({dirn or 'small'} of the dots) on validation that the calibration did not have: something moved between calibrating and validating",
+                "next": "Quick refine after calibrating (calibration.refine_points 1-3) or calibration.drift_correction; keep the phone and chair fixed between calibration and use",
+            }
+        )
+    # The poses block moves the head on purpose: only calibration, validation and the moving dot
+    # count, plus how far the head sat from its calibration place during validation. Movement is
+    # the drift of per-dot medians; frame-to-frame noise of the estimate is reported apart.
+    still = [hm.get(k) or {} for k in ("calibration", "validation", "pursuit")]
+    moved = max([v.get("moved_mm") or 0.0 for v in still] + [(hm.get("validation") or {}).get("shift_from_calibration_mm") or 0.0])
+    gap = (ach - ce["ceiling_deg"]) if ach is not None and ce.get("ceiling_deg") is not None else None
+    nz = hm.get("noise_mm")
+    if nz and nz[2] > T["distance_noise_mm"] and nz[2] > 2.0 * max(nz[0], nz[1]):
+        # sized as the head-position jitter in degrees of gaze (precision floor), at most the error
+        jit = ((fl.get("signals") or {}).get("head_position") or {}).get("deg")
+        jit = jit if jit is not None else math.degrees(math.atan2(nz[2], (fl.get("distance_m") or 0.6) * 1000.0))
+        findings.append(
+            {
+                "kind": "distance_noise",
+                "size": min(ach, jit) if ach is not None else jit,
+                "text": f"the distance estimate is noisy, not the head: within a single dot the estimated head position scatters by {nz[2]:.0f} mm along the camera's axis but only {nz[0]:.0f} mm sideways and {nz[1]:.0f} mm up/down (the distance from iris size; real heads do not jump like that)",
+                "next": "estimators.distance_smoothing_s 3-30 (the sweep tries 3 and 30), estimators.head_smoothing_s 1, or estimators.distance_source head (eye-corner span) or fixed with estimators.fixed_distance_m set to your measured distance",
+            }
+        )
+    if moved > T["head_mm"]:
+        cross = d.get("cross_pose_deg")
+        size = max(gap or 0.0, (cross or 0.0) - (ce.get("ceiling_deg") or 0.0), moved / 40.0)
+        dr = {k: (hm.get(k) or {}).get("drift_mm") for k in ("calibration", "validation")}
+        findings.append(
+            {
+                "kind": "head",
+                "size": size,
+                "text": f"the head moved {moved:.0f} mm while it should have been still (the median position from dot to dot; calibration {(hm.get('calibration') or {}).get('moved_mm') or 0:.0f} mm, validation {(hm.get('validation') or {}).get('moved_mm') or 0:.0f} mm"
+                + (f", sideways/up-down/distance in validation {'/'.join(f'{v:.0f}' for v in dr['validation'])} mm" if dr.get("validation") else "")
+                + ")"
+                + (
+                    (": the signal is fine but the model does not generalise across head positions" if (main or 0) < T["noise_deg"] else "") + f" (held out {ach:.1f} degrees against {ce['ceiling_deg']:.1f} possible)"
+                    if gap is not None and gap > 0.5
+                    else (f"; the model coped this time ({ach:.1f} degrees held out)" if ach is not None else "")
+                ),
+                "next": "calibrate from several head positions (the poses block; calibration.pose_rounds 3) with the geometric model and models.eyeball_centre per_eye, or keep the head still (a chin rest or headrest)",
+            }
+        )
+    elif gap is not None and gap > 1.0 and (ce.get("ceiling_deg") or 0) < 0.6 * ach:
+        findings.append({"kind": "generalisation", "size": gap, "text": f"the signal could reach {ce['ceiling_deg']:.1f} degrees but calibration reaches only {ach:.1f}: the limit is the calibration, not the signal", "next": "more calibration dots (calibration.grid 4x4), the poses block, and pin the model the sweep ranked first"})
+    h, v = bi.get("horizontal_deg"), bi.get("vertical_deg")
+    if h is not None and v is not None and v > 1.5 * h and v - h > 0.7:
+        findings.append({"kind": "vertical", "size": v - h, "text": f"vertical is the problem: {v:.1f} degrees up/down against {h:.1f} sideways (eyelids, or too little vertical range in the iris image)", "next": "estimators.iris_lid_mask_upper_deg 45, the phone lower so it looks up at the eyes, calibration.layout edges"})
+    elif h is not None and v is not None and h > 1.5 * v and h - v > 0.7:
+        findings.append({"kind": "horizontal", "size": h - v, "text": f"horizontal is the problem: {h:.1f} degrees sideways against {v:.1f} up/down", "next": "check the eye corners on the Tuning page; models.eye left or right if one eye is worse"})
+    dr = bi.get("drift_deg_per_min")
+    if dr and (bi.get("validation_minutes") or 0) >= 0.5:
+        rate = math.hypot(*dr)
+        if rate > T["drift_deg_per_min"]:
+            findings.append({"kind": "drift", "size": rate * bi["validation_minutes"], "text": f"the error drifts by {rate:.1f} degrees per minute during validation", "next": "calibration.drift_correction on; keep the phone still; check whether the head slid down"})
+    sc = bi.get("scale") or {}
+    for ax, s in sc.items():
+        if abs(s - 1) > T["scale"]:
+            findings.append({"kind": f"scale_{ax}", "size": abs(s - 1) * 3.0, "text": f"{ax} scale is off: the pointer covers {s:.0%} of the distance the eyes moved", "next": "more dots towards the edges (calibration.layout edges) and calibration.error_map affine"})
+    eyes = d.get("eyes") or {}
+    la, ra = (eyes.get("left") or {}).get("acc_deg"), (eyes.get("right") or {}).get("acc_deg")
+    if la is not None and ra is not None and abs(la - ra) > 1.0 and max(la, ra) > 1.5 * min(la, ra):
+        good = "left" if la < ra else "right"
+        findings.append({"kind": "eye", "size": abs(la - ra) / 2, "text": f"one eye is much worse: left alone {la:.1f}, right alone {ra:.1f} degrees", "next": f"models.eye {good} (geometric), and look at the other eye on the Tuning page"})
+    findings.sort(key=lambda f: -f["size"])
+    if not findings:
+        acc = bi.get("accuracy_deg", ach)
+        if acc is None:
+            why = bi.get("error") or "too little was scored"
+            return (f"nothing could be scored on this recording's validation dots ({why}); see the notes", "check the notes below, then record this setup again", [])
+        return (f"no single dominant limit: {acc:.1f} degrees off on average, {(bi.get('precision_deg') or 0):.1f} degrees of jitter, eyes found in {(usable or 0):.0%} of frames", "record this setup again to see whether the numbers hold; then sweep the next physical change", [])
+    top = findings[0]
+    if ach is not None and ach < 0.5 * T["noise_deg"] and top["kind"] not in ("availability", "head"):
+        # Already good on held-out dots: what was found is listed under "also", not the verdict
+        # (eyes not found and a moving head stay the verdict: they matter live whatever the score).
+        return (f"already good: {ach:.2f} degrees off on average on held-out dots; nothing found limits it much", "record this setup again to see whether the numbers hold; the notes below are what is left", [{"kind": "good", "size": 0.0, "text": "already good"}] + findings)
+    return top["text"][0].upper() + top["text"][1:], top["next"][0].upper() + top["next"][1:], findings
+
+
+# --------------------------------------------------------------------------------------------
+# Putting it together
+# --------------------------------------------------------------------------------------------
+
+
+def diagnose_condition(cond: Any, os_: Any, base: Config, vision: dict[str, Any], row: dict[str, Any] | None, fit: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Every part of the report for one condition; ``row`` is the held-out result of the setup
+    to explain (the sweep's winner, or the defaults)."""
+    d: dict[str, Any] = {"id": cond.id, "label": cond.label, "camera_id": cond.camera_id, "camera_label": cond.camera_label, "zoom": cond.zoom, "vision": vision, "setup": None}
+    d["notes"] = [n for n in cond.notes if not n.startswith("notes:")]
+    d["availability"] = availability(cond, os_)
+    d["precision_floor"] = precision_floor(cond, os_)
+    d["signal_strength"] = signal_strength(cond, os_, d["precision_floor"])
+    d["head"] = head_movement(cond, os_)
+    try:
+        d["ceiling"] = ceiling(cond, os_, base, vision)
+    except Exception as exc:  # noqa: BLE001
+        d["ceiling"] = {"error": f"{type(exc).__name__}: {exc}"}
+    if row is not None and not row.get("error"):
+        from .sweep import fit_name
+
+        d["setup"] = fit_name(row.get("fit") or {})
+        d["achieved_deg"] = row.get("acc_deg")
+        d["achieved_dots"] = [len(row.get("per_dot") or []), len(cond.phase("validation"))]
+        d["cross_pose_deg"] = row.get("cross_pose_deg")
+        d["bias"] = bias(cond, row)
+        if fit is not None:
+            d["eyes"] = eye_comparison(cond, os_, base, vision, fit)
+    else:
+        d["bias"] = {"error": (row or {}).get("error") or "no setup could be scored"}
+    d["verdict"], d["next_step"], d["findings"] = verdict(d)
+    return _r(d)
+
+
+def format_text(diag: dict[str, Any]) -> str:
+    """Plain text for a chat; every number with its unit and what it means."""
+    L = []
+    for d in diag.get("conditions", []):
+        L.append(f"{d['label']} [{d.get('camera_label') or d.get('camera_id', '?')} {d.get('zoom') or '?'}x]" + (f", {d['which']}" if d.get("which") else ""))
+        L.append(f"  why: {d['verdict']}")
+        L.append(f"  next: {d['next_step']}")
+        av = d.get("availability") or {}
+        if av.get("frames"):
+            L.append(f"  found in the frames: face {av.get('face', 0):.0%}, left eye {av.get('left_eye', 0):.0%}, right eye {av.get('right_eye', 0):.0%}, iris fit {av.get('iris_fit', 0):.0%}, screen reflection {av.get('reflection', 0):.0%}; {_fmt(av.get('fps'), 1)} frames per second, {av.get('gaps', 0)} gap(s) with no frames, longest {_fmt(av.get('longest_gap_s'), 2)} s")
+        fl = d.get("precision_floor") or {}
+        sig = fl.get("signals") or {}
+        if sig:
+            L.append("  jitter while looking at one dot, in degrees of gaze (lower is steadier): " + ", ".join(f"{k.replace('_', ' ')} {_fmt(v.get('deg'))}" for k, v in sig.items() if v.get("deg") is not None))
+            if fl.get("px_per_deg_geometry") is not None:
+                L.append(f"    (one degree of eye rotation moves the iris about {_fmt(fl.get('px_per_deg_geometry'))} pixels in this image)")
+        ss = d.get("signal_strength") or {}
+        m = (ss.get("signals") or {}).get(ss.get("main_signal") or "")
+        if m:
+            sens = ", ".join(f"{k} {_fmt(v)}x" for k, v in (ss.get("sensitivity_vs_geometry") or {}).items())
+            L.append(f"  how well {str(ss['main_signal']).replace('_', ' ')} follows the dot: the dot explains {_pct((m.get('horizontal') or {}).get('explained'))} of its sideways and {_pct((m.get('vertical') or {}).get('explained'))} of its up/down variation (100 % = all of it)" + (f"; it moves {sens} as much as the geometry predicts (1.00x = right)" if sens else ""))
+        ce = d.get("ceiling") or {}
+        if ce.get("ceiling_deg") is not None or d.get("achieved_deg") is not None:
+            L.append(f"  rough ceiling, a plain ridge or geometric fit on every dot with validation included {_fmt(ce.get('ceiling_deg'))} deg{_ceiling_note(ce.get('ceiling_deg'), d.get('achieved_deg'))}; achieved on held-out validation dots {_fmt(d.get('achieved_deg'))} deg{_dots_note(d.get('achieved_dots'))}" + (f"; on head positions the fit did not see {_fmt(d.get('cross_pose_deg'))} deg" if d.get("cross_pose_deg") is not None else ""))
+        bi = d.get("bias") or {}
+        if bi.get("accuracy_deg") is not None:
+            L.append(f"  constant offset {_fmt(bi.get('offset_size_deg'))} deg ({_pct(bi.get('offset_share'))} of the error); error sideways {_fmt(bi.get('horizontal_deg'))} deg, up/down {_fmt(bi.get('vertical_deg'))} deg" + ("; pointer travel against eye travel " + ", ".join(f"{k} {_fmt(v)}x" for k, v in (bi.get("scale") or {}).items()) + " (1.00x = right)" if bi.get("scale") else ""))
+        elif bi.get("error"):
+            L.append(f"  not scored: {bi['error']}")
+        hm = d.get("head") or {}
+        mv = ", ".join(f"{k} {'/'.join(_fmt(x, 0) for x in v['drift_mm'])}" for k, v in hm.items() if isinstance(v, dict) and v.get("drift_mm"))
+        if mv:
+            L.append(f"  how far the head really moved (its median from dot to dot), sideways/up-down/distance in mm: {mv}")
+        if hm.get("noise_mm"):
+            L.append(f"  frame-to-frame noise of the estimated head position within a dot (not movement), sideways/up-down/distance: {'/'.join(_fmt(x, 0) for x in hm['noise_mm'])} mm")
+        ey = d.get("eyes") or {}
+        if ey:
+            L.append(f"  one eye only, held-out error: left {_fmt((ey.get('left') or {}).get('acc_deg'))} deg, right {_fmt((ey.get('right') or {}).get('acc_deg'))} deg")
+        for f in (d.get("findings") or [])[1:3]:
+            L.append(f"  also: {f['text']}")
+        for n in d.get("notes") or []:
+            L.append(f"  note: {n}")
+    if diag.get("notes"):
+        L.append("Notes:")
+        L += [f"  {n}" for n in diag["notes"]]
+    return "\n".join(L)
+
+
+def _dots_note(nd: Any) -> str:
+    if not nd or nd[0] >= nd[1]:
+        return ""
+    return f" (on only {nd[0]} of {nd[1]} dots: treat it as rough)"
+
+
+def _ceiling_note(ceiling: Any, achieved: Any) -> str:
+    if ceiling is None or achieved is None:
+        return ""
+    if achieved > 2 * ceiling + 0.5:
+        return " (far below the achieved error: calibration is the limit, not the signal)"
+    return " (close to the achieved error: the signal is the limit)"
+
+
+def _fmt(v: Any, nd: int = 2) -> str:
+    return "-" if v is None or (isinstance(v, float) and not math.isfinite(v)) else f"{v:.{nd}f}"
+
+
+def _pct(v: Any) -> str:
+    return "-" if v is None else f"{v:.0%}"
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``python -m phonegaze diagnose TARGET``"""
+    from .lab import build_config, quiet_native_logs
+    from .sweep import Sweep, resolve, safe_name, sweeps_dir, vision_space
+
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "diagnose":
+        argv = argv[1:]
+    p = argparse.ArgumentParser(prog="python -m phonegaze diagnose", description="Why is the error what it is: availability, noise, signal strength, ceiling, bias, per condition (see docs/SWEEP.md).")
+    p.add_argument("target", help="a collection run id, a run file, a folder of recordings, or one recording")
+    p.add_argument("--vision", choices=["auto", "real", "oracle"], default="auto")
+    p.add_argument("--config", help="config file (default ~/.phonegaze/config.json)")
+    p.add_argument("--out", help="output folder (default <recordings>/sweeps/<name>)")
+    p.add_argument("--workers", type=int, help="processes (default: every CPU core)")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--log-level", default="WARNING")
+    args = p.parse_args(argv)
+    quiet_native_logs()
+    logging.basicConfig(level=getattr(logging, str(args.log_level).upper(), logging.WARNING), format="%(levelname)s %(name)s: %(message)s")
+    try:
+        cfg, _ = build_config(args.config, None, None)
+        inputs = resolve(args.target, cfg)
+        out = Path(args.out).expanduser() if args.out else sweeps_dir(inputs.root) / safe_name(inputs.name)
+        sw = Sweep(inputs, cfg, out, vision_mode=args.vision, workers=args.workers, progress=lambda m: print(m, file=sys.stderr, flush=True))
+        from .sweep import fit_name, top_by_validation, vision_name
+
+        defaults = [(c.id, vision_space(c, args.vision)[0], None, {"model": "auto"}) for c in inputs.conditions]
+        # A sweep of this run already fitted: diagnose its best setup too, and lead with it.
+        best = []
+        for c in inputs.conditions:
+            top = top_by_validation(sw, c.id, 1)
+            if top:
+                r = top[0]
+                best.append((c.id, r.get("vision_def") or sw.visions[c.id].get(r["vision"]) or vision_space(c, args.vision)[0], r, r["fit"]))
+        if best:
+            print(f"Found the sweep of this run in {out} ({len(sw.results)} setups): diagnosing its best setup and today's defaults", file=sys.stderr, flush=True)
+        else:
+            print("No sweep of this run yet: diagnosing today's default settings only (run the sweep for its best setup)", file=sys.stderr, flush=True)
+        sw.no_state = True
+        sw._pool = sw._executor()
+        try:
+            got_best = {d["id"]: d for d in sw.diagnose_all(best)} if best else {}
+            got_def = {d["id"]: d for d in sw.diagnose_all(defaults)}
+        finally:
+            if sw._pool is not None:
+                sw._pool.shutdown(wait=True, cancel_futures=True)
+        conds = []
+        for c in inputs.conditions:
+            if c.id in got_best:
+                t = next(t for t in best if t[0] == c.id)
+                conds.append({**got_best[c.id], "which": f"with the sweep's best setup ({fit_name(t[3])} | {vision_name(t[1])})"})
+            if c.id in got_def:
+                conds.append({**got_def[c.id], "which": f"with today's defaults ({vision_name(defaults[[x.id for x in inputs.conditions].index(c.id)][1])}, default models)"})
+        diag: dict[str, Any] = {"name": inputs.name, "conditions": conds, "notes": inputs.notes}
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "diagnosis.json").write_text(json.dumps(_jsonable(diag), indent=2) + "\n")
+        text = format_text(diag)
+        (out / "diagnosis.txt").write_text(text + "\n")
+    except LabError as exc:
+        print(f"diagnose: {exc}", file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        return 130
+    except OSError as exc:
+        print(f"diagnose: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(_jsonable(diag), indent=2))
+    else:
+        print(text)
+        print(f"\nWritten: {out / 'diagnosis.json'}\n         {out / 'diagnosis.txt'}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

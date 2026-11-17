@@ -22,6 +22,8 @@ import {
 } from '@forsee/gaze';
 import {
   createAutoPointerSource,
+  createPhoneGazeSource,
+  reportSelections,
   selectionMethodForMode,
   type AutoPointerSource,
 } from '@forsee/gaze-web';
@@ -431,6 +433,20 @@ export async function createForseeRuntime(
     onDispose('gaze.source', () => pipeline.setSource(null));
   } catch (error) {
     issue('gaze', error);
+  }
+  if (options.phoneGazeUrl) {
+    // Opt-in: the Phone Gaze engine replaces the pointer as the gaze source.
+    try {
+      const phone = createPhoneGazeSource({ clock, url: options.phoneGazeUrl });
+      // Selections go back to the engine as known look-points (drift correction); a
+      // selection removed straight away (backspace, undo) is taken back.
+      gazeSubscriptions.add(
+        reportSelections(pipeline, targets, phone, { edits: kernel.composition.events, clock }),
+      );
+      pipeline.setSource(phone);
+    } catch (error) {
+      issue('gaze', error);
+    }
   }
 
   const adjust = async (direction: 'faster' | 'slower'): Promise<void> => {

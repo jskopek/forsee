@@ -1,0 +1,12 @@
+# Recordings copied from the phone
+captures/
+
+# Xcode per-user state
+xcuserdata/
+*.xcuserstate
+DerivedData/
+
+# Analysis environment and downloaded model
+analysis/.venv/
+analysis/models/
+__pycache__/

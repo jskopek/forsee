@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Diagnostics · Phone Gaze</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="diagnostics.css" />
+    <script type="module" src="diagnostics.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">Phone Gaze</div>
+      <nav aria-label="Sections">
+        <a href="/#dashboard">← Back to the app</a>
+        <a href="diagnostics.html" aria-current="page">Diagnostics</a>
+        <a href="lab.html">Lab</a>
+      </nav>
+    </header>
+    <main id="diag" class="diag">
+      <h1>Diagnostics</h1>
+      <p class="muted">
+        When something does not work, start here. The health strip shows, live, how often each stage
+        succeeds. <strong>Run the checks</strong> for a verdict and a fix for each item.
+        <strong>Write a bundle</strong> to send the developers numbers instead of guesses.
+      </p>
+
+      <section class="card wide" aria-labelledby="h-health">
+        <h2 id="h-health">Health strip <span id="health-window" class="muted small"></span></h2>
+        <div id="strip" class="strip" data-testid="health-strip">Waiting for frames…</div>
+        <div id="health-numbers" class="numbers"></div>
+        <div id="health-geometry" class="small"></div>
+      </section>
+
+      <section class="card wide" aria-labelledby="h-doctor">
+        <h2 id="h-doctor">Checklist</h2>
+        <div class="row">
+          <label
+            >Watch live frames for
+            <input id="doctor-seconds" type="number" min="1" max="30" step="1" value="5" />
+            s</label
+          >
+          <button id="doctor-run" class="primary" data-testid="doctor-run">Run the checks</button>
+          <button id="doctor-copy" disabled>Copy as text</button>
+          <span id="doctor-status" class="muted"></span>
+        </div>
+        <div id="doctor-out" data-testid="doctor-out"></div>
+      </section>
+
+      <section class="card wide" aria-labelledby="h-bundle">
+        <h2 id="h-bundle">Diagnostics bundle</h2>
+        <p>
+          Writes one folder on this Mac (in <code>~/.phonegaze/diagnostics</code>) with the log,
+          settings, calibration scores, the checklist, stream statistics, timings and the last few
+          seconds of measurements (numbers only), plus a short summary to paste into a chat. Nothing
+          is uploaded: the folder stays on this Mac until you send it to someone.
+        </p>
+        <label class="images-box">
+          <input id="bundle-images" type="checkbox" data-testid="bundle-images" />
+          Include images from the camera.
+          <strong>These show your face.</strong> Leave this off unless a developer asks for them.
+        </label>
+        <div class="row">
+          <button id="bundle-run" class="primary" data-testid="bundle-run">Write bundle</button>
+          <button id="bundle-reveal" disabled>Show in Finder</button>
+          <button id="bundle-copy" disabled>Copy summary</button>
+          <span id="bundle-status" class="muted"></span>
+        </div>
+        <pre id="bundle-summary" class="summary" hidden data-testid="bundle-summary"></pre>
+        <p class="muted small">
+          From a terminal: <code>python -m phonegaze doctor</code> and
+          <code>python -m phonegaze bundle [--images]</code> (in sidecars/phone-gaze/engine, with
+          <code>.venv/bin/python</code>).
+        </p>
+      </section>
+
+      <section class="card wide" aria-labelledby="h-log">
+        <h2 id="h-log">Log <span id="log-path" class="muted small"></span></h2>
+        <div class="row">
+          <button id="log-refresh">Refresh</button>
+          <label><input id="log-problems" type="checkbox" /> Only warnings and errors</label>
+        </div>
+        <pre id="log-out" class="log"></pre>
+      </section>
+    </main>
+  </body>
+</html>
