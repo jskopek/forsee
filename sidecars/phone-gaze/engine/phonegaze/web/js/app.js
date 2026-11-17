@@ -12,8 +12,11 @@ import recordings from './recordings.js';
 import tuning from './tuning.js';
 import { installGlint } from './glint.js';
 import secondCamera from './second-camera.js'; // second camera (experimental)
+import collect, { collectRunning } from './collect.js';
 
-const VIEWS = [dashboard, aim, tuning, live, experiments, recordings, secondCamera];
+const VIEWS = [dashboard, collect, live, aim, tuning, experiments, recordings, secondCamera];
+// Shown after an "Advanced" label in the navigation (simple mode: ui.simple_mode).
+const ADVANCED = new Set(['aim', 'tuning', 'experiments', 'recordings', 'second-camera']);
 
 const ctx = {
   api,
@@ -94,7 +97,7 @@ function updatePills() {
 }
 
 function onKey(ev) {
-  if (flowRunning()) return;
+  if (flowRunning() || collectRunning()) return;
   const t = ev.target;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
   if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
@@ -109,7 +112,14 @@ function onKey(ev) {
 
 function init() {
   const nav = document.getElementById('nav');
-  for (const v of VIEWS) nav.appendChild(h('a', { href: `#${v.id}`, text: v.title }));
+  let advanced = false;
+  for (const v of VIEWS) {
+    if (ADVANCED.has(v.id) && !advanced) {
+      advanced = true;
+      nav.appendChild(h('span', { class: 'nav-advanced muted small', text: 'Advanced:' }));
+    }
+    nav.appendChild(h('a', { href: `#${v.id}`, text: v.title }));
+  }
   api.on('open', () => {
     updatePills();
     api.sendScreen();
@@ -121,6 +131,7 @@ function init() {
     if (m.level === 'warning' || m.level === 'error') toast(m.message, m.level);
   });
   api.on('hotkey', (m) => {
+    if (collectRunning()) return; // a collection run is recording: no calibration on top of it
     if (m.action === 'recalibrate') ctx.calibrate('full');
     else if (m.action === 'quick_refine') ctx.calibrate('refine');
     else if (m.action === 'validate') ctx.calibrate('validate');

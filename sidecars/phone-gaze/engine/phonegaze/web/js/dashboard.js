@@ -1,7 +1,172 @@
-// Dashboard: phone connection, health, camera, estimators, models and their errors, the big
-// action buttons and the shortcut legend.
+/* global window */
+// Dashboard: in simple mode (ui.simple_mode, the default) five big actions (Collect data, Run
+// sweep, Apply best preset, Calibrate, Validate), the phone connection and the doctor's verdict in
+// one line, with everything else folded under "Advanced": health, camera, estimators, models and
+// their errors, more actions and the shortcut legend.
 
 import { h, fill, fmt, deg, store, save, kbd } from './util.js';
+
+const SWEEP_COMMAND =
+  'cd sidecars/phone-gaze/engine && .venv/bin/python -m phonegaze sweep <run id>';
+let doctorLine = null; // the doctor's last verdict, kept for this page load
+let doctorRunning = false;
+let sweepPage = null; // 'sweep.html' when the sweep page is installed
+
+async function findSweepPage() {
+  if (sweepPage !== null) return sweepPage;
+  try {
+    const res = await window.fetch('sweep.html', { method: 'HEAD' });
+    sweepPage = res.ok ? 'sweep.html' : '';
+  } catch {
+    sweepPage = '';
+  }
+  return sweepPage;
+}
+
+function doctorText(rep) {
+  const c = rep.counts || {};
+  const worst = (rep.checks || []).find((x) => x.status === rep.worst);
+  if (rep.worst === 'ok')
+    return { cls: 'good', text: `Doctor: all ${(rep.checks || []).length} checks OK.` };
+  const label = rep.worst === 'fail' ? 'FAIL' : 'WARN';
+  return {
+    cls: rep.worst === 'fail' ? 'bad' : 'warn',
+    text: `Doctor: ${c.fail || 0} FAIL, ${c.warn || 0} WARN. ${label}: ${worst ? `${worst.title}: ${worst.verdict}` : ''}`,
+  };
+}
+
+function simpleCard(ctx) {
+  const { api } = ctx;
+  const conn = h('p', { class: 'simple-line', 'data-testid': 'simple-connection' });
+  const doctor = h('p', { class: 'simple-line small muted', 'data-testid': 'simple-doctor' });
+  const message = h('p', { class: 'simple-line', 'data-testid': 'simple-message' });
+  const sweep = h('a', {
+    class: 'button',
+    href: '#dashboard',
+    text: 'Run sweep',
+    'data-testid': 'simple-sweep',
+    onclick: (e) => {
+      if (sweep.getAttribute('href') === '#dashboard') {
+        e.preventDefault();
+        fill(
+          message,
+          'The sweep page is not installed yet. Run the sweep from a terminal, at the repository root: ',
+          h('code', { text: SWEEP_COMMAND }),
+        );
+      }
+    },
+  });
+  findSweepPage().then((pg) => {
+    if (pg) sweep.setAttribute('href', pg);
+  });
+  async function applyBest() {
+    try {
+      const ans = await api.post('/api/collect/best-preset/apply');
+      const p = ans.preset || {};
+      const where = [p.camera, p.zoom ? `${p.zoom}x` : ''].filter(Boolean).join(' at ');
+      message.textContent = `Applied "${p.name}"${where ? `, found for the ${where}` : ''}${p.description ? `: ${p.description}` : '.'}`;
+      message.className = 'simple-line good';
+      ctx.loadConfig(true).catch(() => {});
+      api.refreshState().catch(() => {});
+    } catch (err) {
+      message.textContent = err.message;
+      message.className = 'simple-line bad';
+    }
+  }
+  async function runDoctor() {
+    if (doctorRunning) return;
+    doctorRunning = true;
+    doctor.textContent = 'Doctor: checking…';
+    try {
+      const rep = await api.post('/api/diagnostics/doctor', { seconds: 2 });
+      doctorLine = doctorText(rep);
+    } catch (err) {
+      doctorLine = { cls: 'bad', text: `Doctor: could not run (${err.message})` };
+    } finally {
+      doctorRunning = false;
+    }
+    showDoctor();
+  }
+  function showDoctor() {
+    if (!doctorLine) return;
+    fill(
+      doctor,
+      `${doctorLine.text} `,
+      h('a', { href: 'diagnostics.html', text: 'Details' }),
+      ' · ',
+      h('a', {
+        href: '#dashboard',
+        text: 'Check again',
+        'data-testid': 'simple-doctor-again',
+        onclick: (e) => {
+          e.preventDefault();
+          runDoctor();
+        },
+      }),
+    );
+    doctor.className = `simple-line small ${doctorLine.cls}`;
+  }
+  const el = h(
+    'section',
+    { class: 'card wide simple', 'data-testid': 'simple' },
+    h('h2', { text: 'Start here' }),
+    h(
+      'div',
+      { class: 'bigbuttons' },
+      h('a', {
+        class: 'button primary',
+        href: '#collect',
+        text: 'Collect data',
+        'data-testid': 'simple-collect',
+      }),
+      sweep,
+      h('button', {
+        class: 'big',
+        text: 'Apply best preset',
+        'data-testid': 'simple-best',
+        onclick: applyBest,
+      }),
+      h('button', {
+        class: 'primary big',
+        text: 'Calibrate',
+        'data-testid': 'calibrate',
+        onclick: () => ctx.calibrate('full'),
+      }),
+      h('button', {
+        class: 'big',
+        text: 'Validate',
+        'data-testid': 'validate',
+        onclick: () => ctx.calibrate('validate'),
+      }),
+    ),
+    conn,
+    doctor,
+    message,
+  );
+  let asked = false;
+  return {
+    el,
+    update(st) {
+      const p = st.phone || {};
+      const pl = st.pipeline || {};
+      const state = p.state || (p.connected ? 'connected' : 'disconnected');
+      const what = p.simulated ? 'simulator' : p.replay ? 'replay' : 'phone';
+      conn.textContent =
+        state === 'connected'
+          ? `Connected to the ${what}: ${fmt(pl.fps, 0, ' fps')}, ${fmt(pl.latency_ms, 0, ' ms')} latency${st.paused ? ', paused' : ''}.`
+          : state === 'connecting'
+            ? 'Connecting to the phone…'
+            : 'No phone connected: type its address below, or use the simulator.';
+      conn.className = `simple-line ${state === 'connected' ? 'good' : state === 'connecting' ? 'warn' : 'bad'}`;
+      if (doctorLine) showDoctor();
+      else if (!asked && state === 'connected') {
+        asked = true;
+        runDoctor();
+      } else if (!doctorLine && !doctorRunning)
+        doctor.textContent = 'Doctor: runs once the phone is connected.';
+    },
+  };
+}
 
 function connectionCard(ctx) {
   const { api } = ctx;
@@ -122,7 +287,7 @@ function statBox(label, value, testid) {
   );
 }
 
-function actionsCard(ctx) {
+function actionsCard(ctx, simple) {
   const pause = h('button', {
     class: 'big',
     text: 'Pause',
@@ -139,7 +304,7 @@ function actionsCard(ctx) {
       h('button', {
         class: 'primary big',
         text: 'Calibrate',
-        'data-testid': 'calibrate',
+        'data-testid': simple ? 'calibrate-advanced' : 'calibrate',
         onclick: () => ctx.calibrate('full'),
       }),
       h('button', {
@@ -151,7 +316,7 @@ function actionsCard(ctx) {
       h('button', {
         class: 'big',
         text: 'Validate',
-        'data-testid': 'validate',
+        'data-testid': simple ? 'validate-advanced' : 'validate',
         onclick: () => ctx.calibrate('validate'),
       }),
       h('button', {
@@ -482,36 +647,80 @@ export default {
   id: 'dashboard',
   title: 'Dashboard',
   mount(root, ctx) {
-    const cards = [
-      actionsCard(ctx),
-      connectionCard(ctx),
+    const values = ctx.config && ctx.config.values;
+    const simple = !values || !values.ui || values.ui.simple_mode !== false;
+    if (!simple) {
+      const cards = [
+        actionsCard(ctx, false),
+        connectionCard(ctx),
+        cameraCard(ctx),
+        outputsCard(ctx),
+        modelsCard(ctx),
+        logCard(ctx),
+        diagnosticsCard(ctx),
+      ];
+      root.appendChild(
+        h(
+          'div',
+          { class: 'grid' },
+          cards.map((c) => c.el),
+        ),
+      );
+      return listen(ctx, cards);
+    }
+    // Simple mode: the five actions and the connection on top, the rest under "Advanced".
+    const top = [simpleCard(ctx), connectionCard(ctx)];
+    const rest = [
+      actionsCard(ctx, true),
       cameraCard(ctx),
       outputsCard(ctx),
       modelsCard(ctx),
       logCard(ctx),
       diagnosticsCard(ctx),
     ];
+    const details = h(
+      'details',
+      {
+        class: 'advanced',
+        'data-testid': 'advanced',
+        open: Boolean(store('dashboardAdvanced', false)),
+        ontoggle: () => save('dashboardAdvanced', details.open),
+      },
+      h('summary', {
+        text: 'Advanced: more actions, camera, models, outputs, diagnostics and the lab',
+      }),
+      h(
+        'div',
+        { class: 'grid' },
+        rest.map((c) => c.el),
+      ),
+    );
     root.appendChild(
       h(
         'div',
         { class: 'grid' },
-        cards.map((c) => c.el),
+        top.map((c) => c.el),
       ),
     );
-    const update = () => {
-      if (!ctx.api.state) return;
-      for (const c of cards) c.update(ctx.api.state);
-    };
-    update();
-    ctx.loadConfig().then(update, () => {});
-    const offs = [
-      ctx.api.on('state', update),
-      ctx.api.on('hello', update),
-      ctx.api.on('calib.report', update),
-    ];
-    return () => {
-      offs.forEach((f) => f());
-      cards.forEach((c) => c.off && c.off());
-    };
+    root.appendChild(details);
+    return listen(ctx, [...top, ...rest]);
   },
 };
+
+function listen(ctx, cards) {
+  const update = () => {
+    if (!ctx.api.state) return;
+    for (const c of cards) c.update(ctx.api.state);
+  };
+  update();
+  ctx.loadConfig().then(update, () => {});
+  const offs = [
+    ctx.api.on('state', update),
+    ctx.api.on('hello', update),
+    ctx.api.on('calib.report', update),
+  ];
+  return () => {
+    offs.forEach((f) => f());
+    cards.forEach((c) => c.off && c.off());
+  };
+}

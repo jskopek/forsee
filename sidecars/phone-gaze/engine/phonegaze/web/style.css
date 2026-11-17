@@ -864,3 +864,94 @@ a.button {
   gap: 16px;
   grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
 }
+
+/* ---- simple dashboard and the Collect page ---- */
+
+.nav-advanced {
+  margin-left: 10px;
+  align-self: center;
+}
+
+.simple .bigbuttons button,
+.simple .bigbuttons a.button {
+  min-width: 170px;
+}
+
+a.button {
+  display: inline-block;
+  padding: 16px 22px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  font-size: 1.15rem;
+  font-weight: 600;
+  text-decoration: none;
+  color: inherit;
+  text-align: center;
+}
+
+a.button:hover {
+  border-color: var(--accent);
+}
+
+a.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.simple-line {
+  margin: 8px 0 0;
+}
+
+details.advanced > summary {
+  cursor: pointer;
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 16px 0 10px;
+}
+
+.collect-set {
+  display: block;
+  margin: 6px 0;
+}
+
+.collect-setup-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.collect-setup-body img {
+  width: 100%;
+  height: auto;
+}
+
+.collect-ready {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.collect-checks {
+  list-style: none;
+  padding: 0;
+}
+
+.collect-cmd {
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 10px;
+  border-radius: 6px;
+  background: rgba(127, 127, 127, 0.15);
+}
+
+.collect-poor {
+  border-color: #d73027;
+}
+
+@media (max-width: 800px) {
+  .collect-setup-body {
+    grid-template-columns: 1fr;
+  }
+}

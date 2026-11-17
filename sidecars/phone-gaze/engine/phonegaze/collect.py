@@ -819,8 +819,15 @@ class Collector:
             run.save()
         eng.set_paused(True)  # no cursor, no dwell clicks, no gaze to Forsee while collecting
         previous = eng.last_frame.camera.position if eng.last_frame is not None else None
-        live = {k: v for k, v in changes.items() if k not in ("lens.zoom", "lens.fps")}
-        errors = await eng.apply_config(live)
+        from .config import get_value, update
+        from .lens import LENS_CONTROL_SETTINGS
+
+        # Camera controls go to the phone after the camera switch (ARKit refuses them); zoom and
+        # frame rate go with the switch itself; the rest is applied live.
+        controls = {k: v for k, v in changes.items() if k in LENS_CONTROL_SETTINGS}
+        live = {k: v for k, v in changes.items() if k not in controls and k not in ("lens.zoom", "lens.fps") and get_value(eng.config, k) != v}
+        errors = update(eng.config, controls)
+        errors.update(await eng.apply_config(live) if live else {})
         if errors:
             raise CollectError("; ".join(f"{k}: {v}" for k, v in errors.items()))
         await eng.set_camera(cam["id"], 1.0 if cam.get("type") == "arkit" else float(cond["zoom"]), float(cond["fps"]))
@@ -893,6 +900,7 @@ class Collector:
         if not r["face"]:
             raise CollectError(f"Not starting: no face found in the last second ({r['message']})", 409)
         proto = self.protocol()
+        proto["screen"]["source"] = getattr(eng.screen, "source", "")
         cond = run.conditions[i]
         attempt_no = len(cond.get("attempts", [])) + 1
         rec = eng.start_recording(f"collect-{run.run_id}-{cond['id']}-a{attempt_no}")
@@ -1038,7 +1046,7 @@ class Collector:
         a = cond["attempts"][-1]
         a.update({"outcome": "completed", "quality": q, "poor": poor, "seconds": out["summary"].get("seconds")})
         run.save()
-        result = {"index": i, "condition": cond, "quality": q, "poor": poor, "path": self.recording["path"], "recording_id": self.recording["id"], "run": None}
+        result = {"index": i, "condition": cond, "quality": q, "poor": poor, "poor_below_pct": float(self.cfg.poor_eyes_pct), "path": self.recording["path"], "recording_id": self.recording["id"], "run": None}
         self.recording, self.manifest = None, None
         result["run"] = self.run_view()
         return result
@@ -1076,7 +1084,15 @@ class Collector:
         saved = run.data.get("restore") or {}
         errors: dict[str, str] = {}
         if restore and saved.get("settings"):
-            errors = await eng.apply_config(saved["settings"])
+            from .config import update
+            from .lens import LENS_CONTROL_SETTINGS
+
+            values = saved["settings"]
+            errors = update(eng.config, {k: v for k, v in values.items() if k in LENS_CONTROL_SETTINGS})
+            errors.update(await eng.apply_config({k: v for k, v in values.items() if k not in LENS_CONTROL_SETTINGS}))
+            last = eng.last_frame
+            if last is not None and last.camera.type != "arkit":
+                await eng.send_lens_controls()
             run.data["restore"] = None
         if restore:
             eng.set_paused(bool(saved.get("paused", False)))
