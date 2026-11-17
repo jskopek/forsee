@@ -124,6 +124,7 @@ class Condition:
     started: str | None = None
     held_out_from_calibration: bool = False
     has_sim_truth: bool = False
+    signature: str = ""  # changes when the recording or its manifest changes (old fits are then redone)
 
     @property
     def setup_key(self) -> str:
@@ -457,6 +458,9 @@ def _finish(c: Condition) -> None:
             c.notes.append(f"{len(c.dots) - inside} dot(s) lie outside the recorded frames")
     if c.kind != "eye-capture" and c.folder.joinpath("stream.pgz1").exists():
         c.has_sim_truth = _stream_has_sim(c.folder)
+    from .lab import _file_sig
+
+    c.signature = _hash([_file_sig(c.folder / n) for n in ("stream.pgz1", "collect.json", "events.jsonl", "meta.json")] + [c.segment.name if c.segment is not None else None, len(c.dots)])
 
 
 def _stream_has_sim(folder: Path) -> bool:
@@ -765,7 +769,7 @@ def evaluate(cond: Condition, os_: ObsSet, base: Config, vision: dict[str, Any],
 
     t_start = time.perf_counter()
     cfg = condition_config(base, cond, vision, fit)
-    row: dict[str, Any] = {"cond": cond.id, "vision": vision_id(vision), "fit": fit, "key": fit_key(fit), "v": SWEEP_VERSION}
+    row: dict[str, Any] = {"cond": cond.id, "vision": vision_id(vision), "fit": fit, "key": fit_key(fit), "v": SWEEP_VERSION, "rec": cond.signature}
     ss = build_samples(cond, os_, cfg)
     use_poses = bool(fit.get("poses", True)) and bool(ss["poses"])
     train = ss["calibration"] + (ss["poses"] if use_poses else [])
@@ -877,6 +881,15 @@ def _error_map_from_training(result: Any, name: str, model: Any, train: list[Cal
     return {"kept": emap is not None, **{k: v for k, v in info.items() if isinstance(v, (int, float, str, bool)) or v is None}}
 
 
+def _fps(cond: Condition) -> float | None:
+    seg = cond.segment
+    if seg is None or seg.n_rows < 3:
+        return None
+    dt = np.diff(np.asarray(seg.times, float))
+    dt = dt[np.isfinite(dt) & (dt > 0)]
+    return float(1.0 / np.median(dt)) if len(dt) else None
+
+
 # --------------------------------------------------------------------------------------------
 # Workers (separate processes: all CPU cores)
 # --------------------------------------------------------------------------------------------
@@ -929,7 +942,7 @@ def _job_fit(cond_id: str, vision: dict[str, Any], fit: dict[str, Any]) -> dict[
     try:
         return evaluate(_W["conds"][cond_id], _obsset(cond_id, vision), _W["base"], vision, fit)
     except Exception as exc:  # noqa: BLE001
-        return {"cond": cond_id, "vision": vision_id(vision), "fit": fit, "key": fit_key(fit), "v": SWEEP_VERSION, "error": f"{type(exc).__name__}: {exc}"}
+        return {"cond": cond_id, "vision": vision_id(vision), "fit": fit, "key": fit_key(fit), "v": SWEEP_VERSION, "rec": _W["conds"][cond_id].signature, "error": f"{type(exc).__name__}: {exc}"}
 
 
 # --------------------------------------------------------------------------------------------
@@ -956,7 +969,13 @@ class Sweep:
         self.max_combos = int(max_combos)
         self.workers = max(1, int(workers or os.cpu_count() or 1))
         self.vision_mode = vision_mode
-        self.every = int(every if every is not None else base.lab.every)
+        if every is None:
+            # every other frame at 30 fps; every frame when a recording is slower (dots would be
+            # left with too few samples to keep)
+            fps = [_fps(c) for c in inputs.conditions]
+            slow = any(f is not None and f < 20 for f in fps)
+            every = 1 if slow else int(base.lab.every)
+        self.every = int(every)
         self.max_vision = int(max_vision)
         bad = [m for m in models or [] if m not in MODEL_SETUPS]
         if bad:
@@ -994,8 +1013,8 @@ class Sweep:
                     r = json.loads(line)
                 except ValueError:
                     continue  # a line cut short by an interruption
-                if r.get("v") != SWEEP_VERSION or r.get("cond") not in self.conds:
-                    continue
+                if r.get("v") != SWEEP_VERSION or r.get("cond") not in self.conds or r.get("rec") != self.conds[r["cond"]].signature:
+                    continue  # another version, or the recording changed since
                 self.results[(r["cond"], r["vision"], r["key"])] = r
         self.resumed = len(self.results)
 
@@ -1481,7 +1500,9 @@ def build_leaderboard(sw: Sweep) -> dict[str, Any]:
         board["conditions"].append(entry)
         top = top_by_validation(sw, cid, 10)
         if not top:
-            entry["message"] = "no setup could be scored on this condition's validation dots" + (f" ({entry['errors'][0]})" if entry["errors"] else "")
+            entry["message"] = "no setup could be scored on this condition's validation dots" + (
+                f" ({entry['not_ranked']} predicted fewer than {MIN_COVERAGE:.0%} of them: too few usable frames per dot?)" if entry["not_ranked"] else (f" ({entry['errors'][0]})" if entry["errors"] else "")
+            )
             continue
         win = top[0]
         for i, r in enumerate(top):
