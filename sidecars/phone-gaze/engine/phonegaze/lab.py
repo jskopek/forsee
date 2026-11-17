@@ -1862,6 +1862,10 @@ def register(app: Any, engine: Any) -> None:
     r.add_post("/api/lab/run", run)
     r.add_get("/api/lab/jobs", job_list)
 
+    from .sweep import register as register_sweep
+
+    register_sweep(app, engine)  # /api/sweep/*: the offline sweep (web/sweep.html)
+
 
 # --------------------------------------------------------------------------------------------
 # Command line

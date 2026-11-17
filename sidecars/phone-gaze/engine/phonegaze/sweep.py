@@ -1779,6 +1779,226 @@ def write_outputs(board: dict[str, Any], out: Path) -> dict[str, Path]:
 
 
 # --------------------------------------------------------------------------------------------
+# Sweep page (web/sweep.html): /api/sweep/*
+# --------------------------------------------------------------------------------------------
+
+
+def _pid_alive(pid: Any) -> bool:
+    try:
+        os.kill(int(pid), 0)
+    except (OSError, ValueError, TypeError):
+        return False
+    return True
+
+
+def list_targets(cfg: Config) -> dict[str, Any]:
+    """What the page offers to sweep: collection runs, then recordings with a manifest or a
+    validation."""
+    root = Path(cfg.recording.directory).expanduser()
+    runs = []
+    rd = root / "collect-runs"
+    if rd.is_dir():
+        for f in sorted(rd.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            recs = data.get("recordings") if isinstance(data, dict) else None
+            runs.append({"run_id": f.stem, "path": str(f), "recordings": len(recs) if isinstance(recs, list) else None, "created": (data.get("created") or data.get("started")) if isinstance(data, dict) else None})
+    recs = []
+    if root.is_dir():
+        for d in sorted((x for x in root.iterdir() if x.is_dir() and x.name not in ("sweeps", "collect-runs")), key=lambda x: x.stat().st_mtime, reverse=True)[:100]:
+            if (d / "collect.json").exists():
+                recs.append({"name": d.name, "path": str(d), "kind": "collect"})
+            elif (d / "stream.pgz1").exists() and (d / "events.jsonl").exists():
+                try:
+                    has_val = '"validate"' in (d / "events.jsonl").read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    has_val = False
+                recs.append({"name": d.name, "path": str(d), "kind": "recording" + (" with validation" if has_val else "")})
+    return {"root": str(root), "runs": runs, "recordings": recs}
+
+
+def sweep_status(out: Path, procs: dict[str, Any] | None = None) -> dict[str, Any]:
+    st: dict[str, Any] = {"name": out.name, "path": str(out)}
+    try:
+        st.update(json.loads((out / "state.json").read_text()))
+    except (OSError, ValueError):
+        st["stage"] = "unknown"
+    st.pop("conditions", None)
+    proc = (procs or {}).get(str(out))
+    running = proc.poll() is None if proc is not None else (st.get("stage") not in ("done", "failed", "interrupted", "unknown") and _pid_alive(st.get("pid")))
+    st["running"] = bool(running)
+    if not running and st.get("stage") not in ("done", "failed", "interrupted", "unknown"):
+        st["stage"] = "stopped"
+        st["message"] = "stopped before it finished; start it again to resume where it stopped"
+    st["has_report"] = (out / "leaderboard.html").exists()
+    try:
+        lines = (out / "sweep.log").read_text(encoding="utf-8", errors="replace").splitlines()
+        st["log"] = lines[-12:]
+    except OSError:
+        st["log"] = []
+    return st
+
+
+def register(app: Any, engine: Any) -> None:
+    """Add ``/api/sweep/*`` (called from ``lab.register``):
+
+    - ``GET /api/sweep/targets``: collection runs and recordings on this computer;
+    - ``GET /api/sweep/list``: sweeps under ``<recordings>/sweeps`` and their state;
+    - ``POST /api/sweep/start`` ``{"target", "minutes"?, "max_combos"?}``: start (or resume) a
+      sweep in a separate process (``python -m phonegaze sweep``), so it survives a page reload;
+    - ``GET /api/sweep/status?name=``: progress, estimated time left, the log's last lines, and
+      when done the summary and the leaderboard JSON;
+    - ``GET /api/sweep/report/{name}``: ``leaderboard.html``;
+    - ``POST /api/sweep/stop`` ``{"name"}``: stop it (start again to resume);
+    - ``POST /api/sweep/apply`` ``{"name"}``: save that sweep's winner as "best from sweep" and
+      apply it to the running engine."""
+    import asyncio
+    import signal as _signal
+    import subprocess
+
+    from aiohttp import web
+
+    procs: dict[str, Any] = {}
+    outs: dict[str, Path] = {}
+
+    def _json(data: Any, status: int = 200) -> web.Response:
+        return web.json_response(_jsonable(data), status=status, dumps=lambda d: json.dumps(d, default=str))
+
+    def root() -> Path:
+        return sweeps_dir(Path(engine.config.recording.directory).expanduser())
+
+    def find(name: str) -> Path | None:
+        if not name or "/" in name or "\\" in name or name.startswith("."):
+            return None
+        if name in outs:
+            return outs[name]
+        p = root() / name
+        return p if p.is_dir() else None
+
+    async def body(request: web.Request) -> dict[str, Any]:
+        try:
+            b = await request.json()
+        except ValueError:
+            return {}
+        return b if isinstance(b, dict) else {}
+
+    async def targets(request: web.Request) -> web.Response:
+        return _json(await asyncio.get_running_loop().run_in_executor(None, list_targets, engine.config))
+
+    async def listing(request: web.Request) -> web.Response:
+        found: dict[str, Path] = dict(outs)
+        r = root()
+        if r.is_dir():
+            for d in r.iterdir():
+                if d.is_dir() and (d / "state.json").exists():
+                    found.setdefault(d.name, d)
+        items = [sweep_status(p, procs) for p in found.values()]
+        items.sort(key=lambda s: str(s.get("updated") or ""), reverse=True)
+        return _json({"sweeps": items, "folder": str(r)})
+
+    async def start(request: web.Request) -> web.Response:
+        b = await body(request)
+        target = str(b.get("target") or "").strip()
+        try:
+            inputs = await asyncio.get_running_loop().run_in_executor(None, resolve, target, engine.config)
+        except LabError as exc:
+            return _json({"error": str(exc)}, 400)
+        out = sweeps_dir(inputs.root) / safe_name(inputs.name)
+        name = out.name
+        proc = procs.get(str(out))
+        if proc is not None and proc.poll() is None:
+            return _json({"error": "this sweep is already running", "name": name}, 409)
+        try:
+            minutes = float(b.get("minutes") or 45)
+            combos = int(b.get("max_combos") or 400)
+        except (TypeError, ValueError):
+            return _json({"error": "minutes and max_combos must be numbers"}, 400)
+        out.mkdir(parents=True, exist_ok=True)
+        cmd = [sys.executable, "-m", "phonegaze", "sweep", target, "--minutes", str(minutes), "--max-combos", str(combos)]
+        if getattr(engine, "config_path", None):
+            cmd += ["--config", str(engine.config_path)]
+        if b.get("vision") in ("auto", "real", "oracle"):
+            cmd += ["--vision", str(b["vision"])]
+        logf = open(out / "sweep.log", "a", encoding="utf-8")  # noqa: SIM115 - the child owns it
+        logf.write(f"\n--- {_dt.datetime.now().isoformat(timespec='seconds')}: {' '.join(cmd)}\n")
+        logf.flush()
+        env = dict(os.environ, PYTHONUNBUFFERED="1")
+        procs[str(out)] = subprocess.Popen(cmd, stdout=logf, stderr=subprocess.STDOUT, cwd=str(Path(__file__).resolve().parent.parent), env=env)
+        logf.close()
+        outs[name] = out
+        return _json({"started": True, "name": name, "path": str(out), "conditions": len(inputs.conditions), "notes": inputs.notes})
+
+    async def status(request: web.Request) -> web.Response:
+        out = find(request.query.get("name", ""))
+        if out is None:
+            return _json({"error": "no such sweep"}, 404)
+        st = sweep_status(out, procs)
+        if (out / "summary.txt").exists():
+            st["summary"] = (out / "summary.txt").read_text(encoding="utf-8")
+        if (out / "leaderboard.json").exists():
+            try:
+                board = json.loads((out / "leaderboard.json").read_text(encoding="utf-8"))
+                st["board"] = {k: board.get(k) for k in ("overall", "cameras", "preset", "evaluated", "elapsed_s", "stopped_by")}
+                st["board"]["conditions"] = [{k: c.get(k) for k in ("id", "label", "camera_label", "zoom", "winner", "defaults", "evaluated", "space", "space_share", "n_within_noise", "message")} for c in board.get("conditions", [])]
+                st["diagnosis"] = [{k: d.get(k) for k in ("id", "label", "verdict", "next_step", "findings")} for d in (board.get("diagnosis") or {}).get("conditions", [])]
+            except (OSError, ValueError):
+                pass
+        st["has_preset"] = (out / "best_preset.json").exists()
+        return _json(st)
+
+    async def report(request: web.Request) -> web.StreamResponse:
+        out = find(request.match_info["name"])
+        if out is None or not (out / "leaderboard.html").exists():
+            return _json({"error": "no report yet"}, 404)
+        return web.FileResponse(out / "leaderboard.html", headers={"Cache-Control": "no-cache"})
+
+    async def stop(request: web.Request) -> web.Response:
+        b = await body(request)
+        out = find(str(b.get("name") or ""))
+        if out is None:
+            return _json({"error": "no such sweep"}, 404)
+        proc = procs.get(str(out))
+        pid = proc.pid if proc is not None and proc.poll() is None else None
+        if pid is None:
+            st = sweep_status(out, procs)
+            pid = st.get("pid") if st.get("running") else None
+        if pid is None:
+            return _json({"stopped": False, "message": "it is not running"})
+        try:
+            os.kill(int(pid), _signal.SIGINT)
+        except OSError as exc:
+            return _json({"error": str(exc)}, 500)
+        return _json({"stopped": True})
+
+    async def apply(request: web.Request) -> web.Response:
+        from .presets import PresetError, changes_to_apply
+
+        b = await body(request)
+        out = find(str(b.get("name") or ""))
+        if out is None or not (out / "best_preset.json").exists():
+            return _json({"error": "this sweep has no preset yet (it is written when the sweep finishes)"}, 404)
+        try:
+            preset = json.loads((out / "best_preset.json").read_text(encoding="utf-8"))
+            saved = save_preset(preset, getattr(engine, "config_path", None))
+        except (OSError, ValueError, PresetError) as exc:
+            return _json({"error": f"cannot save the preset: {exc}"}, 400)
+        changes = changes_to_apply(saved, engine.config)
+        errors = await engine.apply_config(changes)
+        return _json({"applied": changes, "errors": errors, "preset": saved["name"], "camera_id": preset.get("camera_id"), "zoom": preset.get("zoom")})
+
+    r = app.router
+    r.add_get("/api/sweep/targets", targets)
+    r.add_get("/api/sweep/list", listing)
+    r.add_post("/api/sweep/start", start)
+    r.add_get("/api/sweep/status", status)
+    r.add_get("/api/sweep/report/{name}", report)
+    r.add_post("/api/sweep/stop", stop)
+    r.add_post("/api/sweep/apply", apply)
+
+
+# --------------------------------------------------------------------------------------------
 # Running it
 # --------------------------------------------------------------------------------------------
 

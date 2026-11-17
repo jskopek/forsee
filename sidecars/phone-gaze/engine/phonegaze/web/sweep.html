@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Sweep · Phone Gaze</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="lab.css" />
+    <link rel="stylesheet" href="sweep.css" />
+    <script type="module" src="sweep.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">Phone Gaze</div>
+      <nav aria-label="Sections">
+        <a href="/#dashboard">← Back to the app</a>
+        <a href="lab.html">Lab</a>
+        <a href="sweep.html" aria-current="page">Sweep</a>
+      </nav>
+    </header>
+    <main id="sweep" class="lab sweep">
+      <h1>Sweep</h1>
+      <p class="muted">
+        Replays your recorded setups through thousands of setting combinations with nobody at the
+        computer, and ranks them on validation dots that no fit ever saw. Then it says why each
+        setup's error is what it is. It runs in the background: you can close or reload this page.
+        It has only been tried on simulated recordings so far.
+      </p>
+
+      <section class="card wide" aria-labelledby="h-start">
+        <h2 id="h-start">Start a sweep</h2>
+        <p class="small muted" id="targets-where"></p>
+        <div class="row">
+          <label
+            >What to sweep
+            <select id="target" data-testid="sweep-target"></select>
+          </label>
+        </div>
+        <div class="row">
+          <label
+            >Or a folder or run file
+            <input id="target-path" type="text" placeholder="/path/to/recordings or run id"
+          /></label>
+        </div>
+        <div class="row">
+          <label
+            >Time budget (minutes)
+            <input id="minutes" type="number" min="1" max="1440" value="45" />
+          </label>
+          <label
+            >At most (setups per condition)
+            <input id="combos" type="number" min="10" max="20000" value="400" />
+          </label>
+          <button id="start" class="primary" data-testid="sweep-start">Start the sweep</button>
+        </div>
+        <p id="start-msg" class="small" role="status"></p>
+      </section>
+
+      <section class="card wide" aria-labelledby="h-progress">
+        <h2 id="h-progress">Sweeps</h2>
+        <div id="sweeps" data-testid="sweep-list">Loading…</div>
+        <div id="current" data-testid="sweep-current"></div>
+      </section>
+
+      <section class="card wide" aria-labelledby="h-cli">
+        <h2 id="h-cli">From the terminal</h2>
+        <pre class="cli">
+python -m phonegaze sweep RUN_ID                 # a collection run (collect-runs/RUN_ID.json)
+python -m phonegaze sweep ~/.phonegaze/recordings/SOME_RECORDING --minutes 20
+python -m phonegaze diagnose RUN_ID              # only the "why is the error what it is" part</pre>
+        <p class="small muted">How to read the results: <code>docs/SWEEP.md</code>.</p>
+      </section>
+    </main>
+  </body>
+</html>

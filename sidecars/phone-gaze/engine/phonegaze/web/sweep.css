@@ -1,0 +1,32 @@
+/* Sweep page (sweep.html). Builds on style.css and lab.css. */
+
+.sweep progress {
+  width: 100%;
+  height: 12px;
+}
+
+.sweep tr.selected td {
+  font-weight: 600;
+}
+
+.sweep .row select {
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 16em;
+}
+
+.sweep .row input[type='number'] {
+  width: 6em;
+}
+
+.sweep .why {
+  max-width: 28em;
+}
+
+.sweep pre.summary,
+.sweep pre.log {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 32em;
+  overflow-y: auto;
+}
