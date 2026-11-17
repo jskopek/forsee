@@ -550,7 +550,7 @@ def verdict(d: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
 def diagnose_condition(cond: Any, os_: Any, base: Config, vision: dict[str, Any], row: dict[str, Any] | None, fit: dict[str, Any] | None = None) -> dict[str, Any]:
     """Every part of the report for one condition; ``row`` is the held-out result of the setup
     to explain (the sweep's winner, or the defaults)."""
-    d: dict[str, Any] = {"id": cond.id, "label": cond.label, "camera_id": cond.camera_id, "zoom": cond.zoom, "vision": vision, "setup": None}
+    d: dict[str, Any] = {"id": cond.id, "label": cond.label, "camera_id": cond.camera_id, "camera_label": cond.camera_label, "zoom": cond.zoom, "vision": vision, "setup": None}
     d["notes"] = [n for n in cond.notes if not n.startswith("notes:")]
     d["availability"] = availability(cond, os_)
     d["precision_floor"] = precision_floor(cond, os_)
@@ -579,7 +579,7 @@ def format_text(diag: dict[str, Any]) -> str:
     """Plain text for a chat; every number with its unit and what it means."""
     L = []
     for d in diag.get("conditions", []):
-        L.append(f"{d['label']} [{d.get('camera_id', '?')} {d.get('zoom') or '?'}x]")
+        L.append(f"{d['label']} [{d.get('camera_label') or d.get('camera_id', '?')} {d.get('zoom') or '?'}x]")
         L.append(f"  why: {d['verdict']}")
         L.append(f"  next: {d['next_step']}")
         av = d.get("availability") or {}
@@ -598,7 +598,7 @@ def format_text(diag: dict[str, Any]) -> str:
             L.append(f"  how well {str(ss['main_signal']).replace('_', ' ')} follows the dot: the dot explains {_pct((m.get('horizontal') or {}).get('explained'))} of its sideways and {_pct((m.get('vertical') or {}).get('explained'))} of its up/down variation (100 % = all of it)" + (f"; it moves {sens} as much as the geometry predicts (1.00x = right)" if sens else ""))
         ce = d.get("ceiling") or {}
         if ce.get("ceiling_deg") is not None or d.get("achieved_deg") is not None:
-            L.append(f"  best possible with this signal (fitted on every dot, validation included) {_fmt(ce.get('ceiling_deg'))} deg; achieved on held-out validation dots {_fmt(d.get('achieved_deg'))} deg" + (f"; on head positions the fit did not see {_fmt(d.get('cross_pose_deg'))} deg" if d.get("cross_pose_deg") is not None else ""))
+            L.append(f"  rough ceiling, a plain ridge or geometric fit on every dot with validation included {_fmt(ce.get('ceiling_deg'))} deg (far below the achieved error: calibration is the limit, not the signal); achieved on held-out validation dots {_fmt(d.get('achieved_deg'))} deg" + (f"; on head positions the fit did not see {_fmt(d.get('cross_pose_deg'))} deg" if d.get("cross_pose_deg") is not None else ""))
         bi = d.get("bias") or {}
         if bi.get("accuracy_deg") is not None:
             L.append(f"  constant offset {_fmt(bi.get('offset_size_deg'))} deg ({_pct(bi.get('offset_share'))} of the error); error sideways {_fmt(bi.get('horizontal_deg'))} deg, up/down {_fmt(bi.get('vertical_deg'))} deg" + ("; pointer travel against eye travel " + ", ".join(f"{k} {_fmt(v)}x" for k, v in (bi.get("scale") or {}).items()) + " (1.00x = right)" if bi.get("scale") else ""))

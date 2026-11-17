@@ -1852,7 +1852,7 @@ def format_summary(board: dict[str, Any]) -> str:
         L.append("")
         L.append("Per camera:")
         for c in board["cameras"]:
-            L.append(f"  {c['camera_label']} ({c['camera_id']}): {c['label']} {_f(c['acc_deg'])} deg (95% {_ci(c['ci'])} deg)")
+            L.append(f"  {c['camera_label']}: {c['label']} {_f(c['acc_deg'])} deg (95% {_ci(c['ci'])} deg)")
     L.append("")
     L.append("Per condition, all in degrees (best setup | the same recording with today's default settings | error sideways (H) and up/down (V) | worst screen region | on head positions the fit did not see):")
     diag = {d["id"]: d for d in (board.get("diagnosis") or {}).get("conditions", [])}
