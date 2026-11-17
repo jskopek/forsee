@@ -13,7 +13,8 @@ Each condition can carry one injected problem:
 - ``offset``: during validation the person looks 2.5 degrees right of and 1.5 degrees below each
   dot (a constant offset the calibration never saw);
 - ``halfeyes``: the truth is missing from about half of the frames (eyes not found);
-- ``headmove``: the head wanders by several centimetres all the time.
+- ``headmove``: the head wanders by several centimetres all the time;
+- ``noface``: no frame carries the truth (no face found anywhere).
 
 Command line, to look at one by hand::
 
@@ -111,7 +112,7 @@ def make_condition(
                 state["lost"] = not state["lost"]
                 drop_until = t_engine + float(rng.uniform(0.2, 0.6))
             drop = state["lost"]
-        if not drop:
+        if not drop and problem != "noface":
             header["sim"] = cap.truth
         rec.write_message(Message(header, [data]), t_engine)
         seq += 1

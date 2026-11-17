@@ -527,7 +527,10 @@ def verdict(d: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
     findings.sort(key=lambda f: -f["size"])
     if not findings:
         acc = bi.get("accuracy_deg", ach)
-        return (f"no single dominant limit: {acc:.1f} degrees accuracy, {(bi.get('precision_deg') or 0):.1f} precision, eyes found in {(usable or 0):.0%} of frames" if acc is not None else "nothing stands out, but too little was scored to say more", "record this setup again to see whether the numbers hold; then sweep the next physical change", [])
+        if acc is None:
+            why = bi.get("error") or "too little was scored"
+            return (f"nothing could be scored on this recording's validation dots ({why}); see the notes", "check the notes below, then record this setup again", [])
+        return (f"no single dominant limit: {acc:.1f} degrees off on average, {(bi.get('precision_deg') or 0):.1f} degrees of jitter, eyes found in {(usable or 0):.0%} of frames", "record this setup again to see whether the numbers hold; then sweep the next physical change", [])
     top = findings[0]
     return top["text"][0].upper() + top["text"][1:], top["next"][0].upper() + top["next"][1:], findings
 
@@ -541,6 +544,7 @@ def diagnose_condition(cond: Any, os_: Any, base: Config, vision: dict[str, Any]
     """Every part of the report for one condition; ``row`` is the held-out result of the setup
     to explain (the sweep's winner, or the defaults)."""
     d: dict[str, Any] = {"id": cond.id, "label": cond.label, "camera_id": cond.camera_id, "zoom": cond.zoom, "vision": vision, "setup": None}
+    d["notes"] = [n for n in cond.notes if not n.startswith("notes:")]
     d["availability"] = availability(cond, os_)
     d["precision_floor"] = precision_floor(cond, os_)
     d["signal_strength"] = signal_strength(cond, os_, d["precision_floor"])
@@ -565,6 +569,7 @@ def diagnose_condition(cond: Any, os_: Any, base: Config, vision: dict[str, Any]
 
 
 def format_text(diag: dict[str, Any]) -> str:
+    """Plain text for a chat; every number with its unit and what it means."""
     L = []
     for d in diag.get("conditions", []):
         L.append(f"{d['label']} [{d.get('camera_id', '?')} {d.get('zoom') or '?'}x]")
@@ -572,30 +577,40 @@ def format_text(diag: dict[str, Any]) -> str:
         L.append(f"  next: {d['next_step']}")
         av = d.get("availability") or {}
         if av.get("frames"):
-            L.append(f"  found: face {av.get('face', 0):.0%}, left eye {av.get('left_eye', 0):.0%}, right eye {av.get('right_eye', 0):.0%}, iris {av.get('iris_fit', 0):.0%}, reflection {av.get('reflection', 0):.0%}; {_fmt(av.get('fps'), 1)} fps, {av.get('gaps', 0)} gap(s), longest {_fmt(av.get('longest_gap_s'), 2)} s")
+            L.append(f"  found in the frames: face {av.get('face', 0):.0%}, left eye {av.get('left_eye', 0):.0%}, right eye {av.get('right_eye', 0):.0%}, iris fit {av.get('iris_fit', 0):.0%}, screen reflection {av.get('reflection', 0):.0%}; {_fmt(av.get('fps'), 1)} frames per second, {av.get('gaps', 0)} gap(s) with no frames, longest {_fmt(av.get('longest_gap_s'), 2)} s")
         fl = d.get("precision_floor") or {}
         sig = fl.get("signals") or {}
         if sig:
-            L.append("  jitter within a fixation (deg of gaze): " + ", ".join(f"{k} {_fmt(v.get('deg'))}" for k, v in sig.items() if v.get("deg") is not None) + f"  [{_fmt(fl.get('px_per_deg_geometry'))} px/deg predicted]")
+            L.append("  jitter while looking at one dot, in degrees of gaze (lower is steadier): " + ", ".join(f"{k.replace('_', ' ')} {_fmt(v.get('deg'))}" for k, v in sig.items() if v.get("deg") is not None))
+            if fl.get("px_per_deg_geometry") is not None:
+                L.append(f"    (one degree of eye rotation moves the iris about {_fmt(fl.get('px_per_deg_geometry'))} pixels in this image)")
         ss = d.get("signal_strength") or {}
         m = (ss.get("signals") or {}).get(ss.get("main_signal") or "")
         if m:
-            L.append(f"  {ss['main_signal']} follows the dot: horizontal {_pct((m.get('horizontal') or {}).get('explained'))}, vertical {_pct((m.get('vertical') or {}).get('explained'))} of its variation; sensitivity vs geometry " + ", ".join(f"{k} {_fmt(v)}x" for k, v in (ss.get("sensitivity_vs_geometry") or {}).items()))
+            sens = ", ".join(f"{k} {_fmt(v)}x" for k, v in (ss.get("sensitivity_vs_geometry") or {}).items())
+            L.append(f"  how well {str(ss['main_signal']).replace('_', ' ')} follows the dot: the dot explains {_pct((m.get('horizontal') or {}).get('explained'))} of its sideways and {_pct((m.get('vertical') or {}).get('explained'))} of its up/down variation (100 % = all of it)" + (f"; it moves {sens} as much as the geometry predicts (1.00x = right)" if sens else ""))
         ce = d.get("ceiling") or {}
         if ce.get("ceiling_deg") is not None or d.get("achieved_deg") is not None:
-            L.append(f"  ceiling (fit on every dot) {_fmt(ce.get('ceiling_deg'))} vs held-out {_fmt(d.get('achieved_deg'))}" + (f", cross-pose {_fmt(d.get('cross_pose_deg'))}" if d.get("cross_pose_deg") is not None else ""))
+            L.append(f"  best possible with this signal (fitted on every dot, validation included) {_fmt(ce.get('ceiling_deg'))} deg; achieved on held-out validation dots {_fmt(d.get('achieved_deg'))} deg" + (f"; on head positions the fit did not see {_fmt(d.get('cross_pose_deg'))} deg" if d.get("cross_pose_deg") is not None else ""))
         bi = d.get("bias") or {}
         if bi.get("accuracy_deg") is not None:
-            L.append(f"  bias: offset {_fmt(bi.get('offset_size_deg'))} ({_pct(bi.get('offset_share'))} of the error), H {_fmt(bi.get('horizontal_deg'))} V {_fmt(bi.get('vertical_deg'))}, scale " + ", ".join(f"{k} {_fmt(v)}" for k, v in (bi.get("scale") or {}).items()))
+            L.append(f"  constant offset {_fmt(bi.get('offset_size_deg'))} deg ({_pct(bi.get('offset_share'))} of the error); error sideways {_fmt(bi.get('horizontal_deg'))} deg, up/down {_fmt(bi.get('vertical_deg'))} deg" + ("; pointer travel against eye travel " + ", ".join(f"{k} {_fmt(v)}x" for k, v in (bi.get("scale") or {}).items()) + " (1.00x = right)" if bi.get("scale") else ""))
+        elif bi.get("error"):
+            L.append(f"  not scored: {bi['error']}")
         hm = d.get("head") or {}
         mv = ", ".join(f"{k} {_fmt(v.get('moved_mm'), 0)} mm" for k, v in hm.items() if isinstance(v, dict) and v.get("moved_mm") is not None)
         if mv:
-            L.append(f"  head moved: {mv}")
+            L.append(f"  how far the head moved during each part: {mv}")
         ey = d.get("eyes") or {}
         if ey:
-            L.append(f"  one eye only: left {_fmt((ey.get('left') or {}).get('acc_deg'))}, right {_fmt((ey.get('right') or {}).get('acc_deg'))}")
+            L.append(f"  one eye only, held-out error: left {_fmt((ey.get('left') or {}).get('acc_deg'))} deg, right {_fmt((ey.get('right') or {}).get('acc_deg'))} deg")
         for f in (d.get("findings") or [])[1:3]:
             L.append(f"  also: {f['text']}")
+        for n in d.get("notes") or []:
+            L.append(f"  note: {n}")
+    if diag.get("notes"):
+        L.append("Notes:")
+        L += [f"  {n}" for n in diag["notes"]]
     return "\n".join(L)
 
 

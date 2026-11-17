@@ -206,3 +206,90 @@ def test_within_noise_marks_and_optimism(one: Path, tmp_path: Path, monkeypatch)
     assert other["within_noise"] is True
     assert by_model["reflection"]["within_noise"] is False
     assert board["conditions"][0]["optimism_deg"] is not None
+
+
+# --------------------------------------------------------------------------------------------
+# Bad inputs a first real recording might bring: each ends in a plain message, and the rest of
+# the run is still swept.
+# --------------------------------------------------------------------------------------------
+
+
+def _copy(one: Path, dest: Path) -> Path:
+    import shutil
+
+    shutil.copytree(one / "unit-clean", dest)
+    return dest
+
+
+def test_empty_validation_phase_holds_out_calibration_dots(tmp_path: Path, one: Path) -> None:
+    d = _copy(one, tmp_path / "emptyval")
+    m = json.loads((d / "collect.json").read_text())
+    for ph in m["phases"]:
+        if ph["name"] == "validation":
+            ph["dots"] = []
+    (d / "collect.json").write_text(json.dumps(m))
+    c = S.resolve(str(d), cfg_for(tmp_path)).conditions[0]
+    assert c.held_out_from_calibration and c.phase("validation")
+    assert any("held out" in n for n in c.notes)
+
+
+def test_truncated_stream_uses_the_dots_before_the_cut(tmp_path: Path, one: Path) -> None:
+    d = _copy(one, tmp_path / "trunc")
+    sp = d / "stream.pgz1"
+    data = sp.read_bytes()
+    sp.write_bytes(data[: int(len(data) * 0.7) + 7])  # cut in the middle of a message
+    c = S.resolve(str(d), cfg_for(tmp_path)).conditions[0]
+    assert any("cut short" in n for n in c.notes), c.notes
+    t = c.segment.times
+    assert all(d.t0 <= t[-1] + 1 for d in c.dots)
+    assert c.phase("validation")  # what is left of validation, or held-out calibration dots
+    # cut so early that most dots are gone: a plain refusal, not a traceback
+    sp.write_bytes(data[: int(len(data) * 0.15)])
+    with pytest.raises(S.SweepError, match="do not match the recorded frames|calibration dots"):
+        S.resolve(str(d), cfg_for(tmp_path))
+
+
+def test_abandoned_condition_is_named_and_left_out(tmp_path: Path, one: Path) -> None:
+    good = _copy(one, tmp_path / "unit-clean")
+    half = _copy(one, tmp_path / "unit-half")
+    m = json.loads((half / "collect.json").read_text())
+    m["phases"] = [p for p in m["phases"] if p["name"] == "calibration"]
+    m["completed"] = False
+    (half / "collect.json").write_text(json.dumps(m))
+    runs = tmp_path / "collect-runs"
+    runs.mkdir()
+    conds = [
+        {"id": "clean", "label": "rear 2x", "status": "done", "attempts": [{"outcome": "completed", "path": str(good)}]},
+        {"id": "half", "label": "front", "status": "pending", "attempts": [{"outcome": "aborted (stop)", "path": str(half)}]},
+    ]
+    run = {"run_id": "unit", "conditions": conds, "recordings": [{"condition_id": "clean", "path": str(good)}]}
+    (runs / "unit.json").write_text(json.dumps(run))
+    inp = S.resolve("unit", cfg_for(tmp_path))
+    assert [c.folder for c in inp.conditions] == [good]
+    assert any(n.startswith("front: not finished") and "not swept" in n for n in inp.notes), inp.notes
+
+
+def test_ordinary_recording_without_validate(tmp_path: Path) -> None:
+    from lab_synth import make_recording
+
+    rec = make_recording(tmp_path / "plain", validate=0)
+    c = S.resolve(str(rec), cfg_for(tmp_path)).conditions[0]
+    assert c.kind == "recording" and c.held_out_from_calibration
+    assert len(c.phase("validation")) == 3 and len(c.phase("calibration")) == 6
+
+
+def test_no_face_anywhere_is_reported_and_the_rest_is_swept(tmp_path: Path) -> None:
+    from sweep_synth import make_run
+
+    conds = [{**DEFAULT_CONDITIONS[0]}, {**DEFAULT_CONDITIONS[0], "id": "noface", "label": "no face", "problem": "noface"}]
+    run = make_run(tmp_path, "nf", conds, fps=8.0, dwell_s=1.5, validate_n=6, pose_groups=1, pursuit_s=0)
+    inp = S.resolve(str(run), cfg_for(tmp_path))
+    sw = S.Sweep(inp, Config(), tmp_path / "out", minutes=3, max_combos=3, workers=1, vision_mode="oracle", models=["ridge"])
+    board = sw.run(diagnose=True)
+    by = {c["id"]: c for c in board["conditions"]}
+    assert by["clean"].get("winner") is not None and board["overall"]["condition"] == "clean"
+    assert by["noface"].get("winner") is None and "eyes found" in by["noface"]["message"]
+    diag = {d["id"]: d for d in board["diagnosis"]["conditions"]}
+    assert "0%" in diag["noface"]["verdict"]
+    text = S.format_summary(board)
+    assert "no face" in text and "Traceback" not in text

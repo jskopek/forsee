@@ -188,6 +188,7 @@ def resolve(target: str, cfg: Config) -> Inputs:
             raise SweepError(f"{p} is a file but not a run file (.json)")
         root = p.parent.parent if p.parent.name == "collect-runs" else p.parent
         folders = _run_file_recordings(p, root)
+        notes.extend(_run_file_left_out(p))
         name = p.stem
     elif p.is_dir() and _is_recording(p):
         root, folders, name = p.parent, [p], p.name
@@ -267,6 +268,32 @@ def _run_file_recordings(path: Path, root: Path) -> list[Path]:
     if not found:
         raise SweepError(f"the run file {path} names no recording folder that exists under {root}")
     return found
+
+
+def _run_file_left_out(path: Path) -> list[str]:
+    """Plain notes for the run's conditions that have no completed recording (skipped, abandoned
+    halfway, or never recorded): they are not swept."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    conds = data.get("conditions") if isinstance(data, dict) else None
+    if not isinstance(conds, list) or not isinstance(data.get("recordings"), list) or not data["recordings"]:
+        return []
+    out = []
+    for c in conds:
+        if not isinstance(c, dict) or c.get("status") in ("done", "poor"):
+            continue
+        attempts = [a for a in c.get("attempts") or [] if isinstance(a, dict)]
+        status = str(c.get("status") or "pending")
+        if status == "skipped":
+            why = "skipped on the Collect page"
+        elif attempts:
+            why = f"not finished ({len(attempts)} attempt(s), last: {attempts[-1].get('outcome') or 'stopped'})"
+        else:
+            why = "never recorded"
+        out.append(f"{c.get('label') or c.get('id')}: {why}; not swept (finish it on the Collect page, then sweep again)")
+    return out
 
 
 def load_condition(folder: Path) -> list[Condition]:
@@ -450,6 +477,20 @@ def _from_segment(source: Any, seg: Any) -> Condition:
 
 def _finish(c: Condition) -> None:
     """Checks every condition gets: enough dots, a validation phase (or a held-out stand-in)."""
+    seg = c.segment
+    if seg is not None and seg.n_rows and c.dots:
+        t = seg.times
+        inside = [d for d in c.dots if t[0] - 1 <= d.t0 <= t[-1] + 1]
+        if len(inside) < len(c.dots) * 0.5:
+            raise SweepError(f"the dots' times ({min(d.t0 for d in c.dots):.1f}-{max(d.t1 for d in c.dots):.1f} s) do not match the recorded frames ({t[0]:.1f}-{t[-1]:.1f} s, engine clock)")
+        if len(inside) < len(c.dots):
+            late = [d for d in c.dots if d.t0 > t[-1] + 1]
+            if late and len(late) == len(c.dots) - len(inside):
+                phases = sorted({d.phase for d in late}, key=PHASES.index)
+                c.notes.append(f"the recorded stream stops {min(d.t0 for d in late) - t[-1]:.0f} s or more before the last {len(late)} dot(s) ({', '.join(phases)}): the file looks cut short (the engine or the Mac stopped while recording?); only the dots before that are used")
+            else:
+                c.notes.append(f"{len(c.dots) - len(inside)} dot(s) lie outside the recorded frames and are not used")
+            c.dots = inside
     cal = c.phase("calibration") + c.phase("poses")
     if not c.phase("validation"):
         if len(cal) < 9:
@@ -459,7 +500,7 @@ def _finish(c: Condition) -> None:
             if i % 3 == 1:
                 d.phase, d.uid, d.pose_group = "validation", VALIDATION_BASE + d.uid, 0
         c.held_out_from_calibration = True
-        c.notes.append("no validation dots were recorded: every third calibration dot is held out as validation instead (fewer dots to fit with)")
+        c.notes.append("no validation dots were recorded (or none are usable): every third calibration dot is held out as validation instead (fewer dots to fit with)")
     if len(c.phase("calibration")) + len(c.phase("poses")) < 4:
         raise SweepError(f"only {len(c.phase('calibration'))} calibration dots: at least 4 are needed to fit anything")
     if not c.phase("calibration") and c.phase("poses"):
@@ -467,14 +508,6 @@ def _finish(c: Condition) -> None:
         for d in c.phase("poses"):
             if d.pose_group == g0:
                 d.phase = "calibration"
-    seg = c.segment
-    if seg is not None and seg.n_rows:
-        t = seg.times
-        inside = sum(1 for d in c.dots if t[0] - 1 <= d.t0 <= t[-1] + 1)
-        if inside < len(c.dots) * 0.5:
-            raise SweepError(f"the dots' times ({min(d.t0 for d in c.dots):.1f}-{max(d.t1 for d in c.dots):.1f} s) do not match the recorded frames ({t[0]:.1f}-{t[-1]:.1f} s, engine clock)")
-        if inside < len(c.dots):
-            c.notes.append(f"{len(c.dots) - inside} dot(s) lie outside the recorded frames")
     if c.kind != "eye-capture" and c.folder.joinpath("stream.pgz1").exists():
         c.has_sim_truth = _stream_has_sim(c.folder)
     from .lab import _file_sig
@@ -811,7 +844,7 @@ def evaluate(cond: Condition, os_: ObsSet, base: Config, vision: dict[str, Any],
     # The rule this whole module rests on: nothing from validation reaches a fit.
     assert not any(s.kind == "validate" or s.dot_id >= VALIDATION_BASE for s in train)
     if row["train_dots"] < 4:
-        row["error"] = f"only {row['train_dots']} usable training dots"
+        row["error"] = f"only {row['train_dots']} calibration dot(s) had enough frames with the eyes found (4 needed)"
         row["seconds"] = time.perf_counter() - t_start
         return row
     merge = str(cfg.calibration.pursuit_merge)
@@ -928,10 +961,20 @@ def _fps(cond: Condition) -> float | None:
 _W: dict[str, Any] = {}
 
 
-def _worker_init(conditions: list[Condition], base: Config, cache_dir: str, every: int) -> None:
+def _worker_init(conditions: list[Condition], base: Config, cache_dir: str, every: int, own_process: bool = False) -> None:
     from .lab import quiet_native_logs
 
     quiet_native_logs()
+    if own_process and not os.environ.get("PHONEGAZE_WORKER_STDERR"):
+        # MediaPipe's native setup chatter ignores GLOG_minloglevel and would bury the progress
+        # lines in the terminal: a worker process writes its stderr to a log file instead.
+        try:
+            Path(cache_dir).mkdir(parents=True, exist_ok=True)
+            fd = os.open(str(Path(cache_dir) / "workers.log"), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+            os.dup2(fd, 2)
+            os.close(fd)
+        except OSError:
+            pass
     logging.basicConfig(level=logging.WARNING)
     _W.clear()
     _W.update(conds={c.id: c for c in conditions}, base=base, cache=Path(cache_dir), every=every, obs={})
@@ -1096,7 +1139,7 @@ class Sweep:
         # (a fit took 40 times longer that way).
         for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"):
             os.environ[var] = "1"
-        return cf.ProcessPoolExecutor(max_workers=self.workers, mp_context=mp.get_context("spawn"), initializer=_worker_init, initargs=(self.inputs.conditions, self.base, str(self.cache_dir), self.every))
+        return cf.ProcessPoolExecutor(max_workers=self.workers, mp_context=mp.get_context("spawn"), initializer=_worker_init, initargs=(self.inputs.conditions, self.base, str(self.cache_dir), self.every, True))
 
     def _map(self, fn: Any, calls: list[tuple[Any, ...]], on_result: Any) -> None:
         """Run ``fn(*call)`` for every call (in the pool, or here with one worker) and hand each
@@ -1613,8 +1656,13 @@ def build_leaderboard(sw: Sweep) -> dict[str, Any]:
     cams: dict[str, list[dict[str, Any]]] = {}
     for w in winners:
         cams.setdefault(w["camera_id"], []).append(w)
+    # A condition scored on held-out calibration dots (no validation recorded) is not comparable
+    # with one scored on real validation dots: those rank after every condition that has them.
+    def rank(w: dict[str, Any]) -> tuple[Any, ...]:
+        return (sw.conds[w["condition"]].held_out_from_calibration, w["acc_deg"], w["condition"])
+
     for cam, ws in cams.items():
-        ws.sort(key=lambda w: (w["acc_deg"], w["condition"]))
+        ws.sort(key=rank)
         best = ws[0]
         e = {k: v for k, v in best.items() if k != "_row"}
         if len(ws) > 1:
@@ -1622,7 +1670,7 @@ def build_leaderboard(sw: Sweep) -> dict[str, Any]:
             e["within_noise_of_runner_up"] = _overlap(best["ci"], ws[1]["ci"])
         board["cameras"].append(e)
     if winners:
-        ws = sorted(winners, key=lambda w: (w["acc_deg"], w["condition"]))
+        ws = sorted(winners, key=rank)
         o = {k: v for k, v in ws[0].items() if k != "_row"}
         if len(ws) > 1:
             o["runner_up"] = {"condition": ws[1]["condition"], "label": ws[1]["label"], "acc_deg": ws[1]["acc_deg"], "ci": ws[1]["ci"]}
@@ -1782,18 +1830,18 @@ def format_summary(board: dict[str, Any]) -> str:
     o = board.get("overall")
     if o:
         L.append("")
-        L.append(f"BEST OVERALL: {o['label']} [{o['camera_label']} {o.get('zoom') or '?'}x]: {_f(o['acc_deg'])} deg (95% {_ci(o['ci'])}), confirmed {_f(o['confirm_deg'])}, precision {_f(o['prec_deg'])}")
+        L.append(f"BEST OVERALL: {o['label']} [{o['camera_label']} {o.get('zoom') or '?'}x]: {_f(o['acc_deg'])} deg off on average (95% {_ci(o['ci'])} deg), confirmed {_f(o['confirm_deg'])} deg, jitter (precision) {_f(o['prec_deg'])} deg")
         L.append(f"  setup: {o['fit_name']} | {o['vision_name']}")
         if o.get("runner_up"):
             ru = o["runner_up"]
-            L.append(f"  next: {ru['label']} {_f(ru['acc_deg'])} deg (95% {_ci(ru['ci'])})" + ("  -> within noise: record both again before choosing" if o.get("within_noise_of_runner_up") else "  -> a real difference"))
+            L.append(f"  next: {ru['label']} {_f(ru['acc_deg'])} deg (95% {_ci(ru['ci'])} deg)" + ("  -> within noise: record both again before choosing" if o.get("within_noise_of_runner_up") else "  -> a real difference"))
     if len(board.get("cameras") or []) > 1:
         L.append("")
         L.append("Per camera:")
         for c in board["cameras"]:
-            L.append(f"  {c['camera_label']} ({c['camera_id']}): {c['label']} {_f(c['acc_deg'])} deg (95% {_ci(c['ci'])})")
+            L.append(f"  {c['camera_label']} ({c['camera_id']}): {c['label']} {_f(c['acc_deg'])} deg (95% {_ci(c['ci'])} deg)")
     L.append("")
-    L.append("Per condition (best setup | live defaults | horizontal/vertical | worst region):")
+    L.append("Per condition, all in degrees (best setup | the same recording with today's default settings | error sideways (H) and up/down (V) | worst screen region | on head positions the fit did not see):")
     diag = {d["id"]: d for d in (board.get("diagnosis") or {}).get("conditions", [])}
     for c in board["conditions"]:
         w = c.get("winner")
@@ -1803,11 +1851,11 @@ def format_summary(board: dict[str, Any]) -> str:
             d = c.get("defaults") or {}
             worst = max(w["regions"].items(), key=lambda kv: kv[1]) if w.get("regions") else None
             L.append(
-                f"- {c['label']} [{c['camera_label']} {c.get('zoom') or '?'}x]: {_f(w['acc_deg'])} (95% {_ci(w['ci'])}, confirmed {_f(w['confirm_deg'])}) | defaults {_f(d.get('acc_deg'))} | H {_f(w['horizontal_deg'])} V {_f(w['vertical_deg'])} | "
-                + (f"{worst[0]} {_f(worst[1])}" if worst else "-")
-                + (f" | cross-pose {_f(w['cross_pose_deg'])}" if w.get("cross_pose_deg") is not None else "")
+                f"- {c['label']} [{c['camera_label']} {c.get('zoom') or '?'}x]: {_f(w['acc_deg'])} deg (95% {_ci(w['ci'])}, confirmed {_f(w['confirm_deg'])}) | defaults {_f(d.get('acc_deg'))} deg | H {_f(w['horizontal_deg'])} V {_f(w['vertical_deg'])} deg | "
+                + (f"worst {worst[0]} {_f(worst[1])} deg" if worst else "-")
+                + (f" | other head positions {_f(w['cross_pose_deg'])} deg" if w.get("cross_pose_deg") is not None else "")
             )
-            L.append(f"    {w['fit_name']} | {w['vision_name']}; {c.get('n_within_noise', 0)} of the next 9 within noise of it")
+            L.append(f"    {w['fit_name']} | {w['vision_name']}; {c.get('n_within_noise', 0)} of the next 9 setups are within noise of it (not really worse)")
         dg = diag.get(c["id"])
         if dg:
             L.append(f"    why: {dg['verdict']}")
@@ -1819,6 +1867,10 @@ def format_summary(board: dict[str, Any]) -> str:
     if p:
         L.append("")
         L.append(f"Preset '{p['name']}' written: camera {p['camera_id']} at {p.get('zoom') or '?'}x, {len(p['changes'])} setting(s).")
+    if board.get("notes"):
+        L.append("")
+        L.append("Notes:")
+        L += [f"  {n}" for n in board["notes"]]
     L.append("")
     L.append("Untested on real recordings so far; numbers from a few validation dots are noisy (see 95% intervals).")
     return "\n".join(L)
