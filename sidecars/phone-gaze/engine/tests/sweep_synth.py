@@ -186,7 +186,8 @@ def make_run(root: Path, run_id: str = "synth", conditions: list[dict[str, Any]]
     runs = root / "collect-runs"
     runs.mkdir(parents=True, exist_ok=True)
     path = runs / f"{run_id}.json"
-    path.write_text(json.dumps({"run_id": run_id, "conditions": [{"id": c["id"], "recording": f.name} for c, f in zip(conds, folders)]}, indent=2) + "\n")
+    recs = [{"condition_id": c["id"], "label": c["label"], "recording_id": f.name, "path": str(f), "quality": None, "poor": False} for c, f in zip(conds, folders)]
+    path.write_text(json.dumps({"format": "phonegaze-collect-run-1", "run_id": run_id, "recordings": recs}, indent=2) + "\n")
     return path
 
 

@@ -253,7 +253,12 @@ def _run_file_recordings(path: Path, root: Path) -> list[Path]:
                 except OSError:
                     continue
 
-    walk(data)
+    # A collection run lists its completed recordings under "recordings" (collect.py); the
+    # queue also names abandoned attempts, which must not be swept.
+    if isinstance(data, dict) and isinstance(data.get("recordings"), list) and data["recordings"]:
+        walk(data["recordings"])
+    else:
+        walk(data)
     if not found:
         rid = str(data.get("run_id") or path.stem) if isinstance(data, dict) else path.stem
         found = [d for d in sorted(root.iterdir()) if (d / "collect.json").exists() and _manifest_run_id(d) == rid] if root.is_dir() else []
@@ -496,7 +501,7 @@ FIT_AXES: dict[str, dict[str, Any]] = {
     "models.eye": {"values": ["both", "left", "right", "auto"], "models": GEOMETRIC_LIKE},
     "calibration.sample_weighting": {"values": ["per_dot", "precision", "per_sample"], "models": None},
     "calibration.outlier_mad": {"values": [3.0, 2.0, 5.0], "models": None},
-    "calibration.discard_ms": {"values": [150, 0, 300, 600], "models": None},
+    "calibration.discard_ms": {"values": [150, 300, 500, 800], "models": None},
     "poses": {"values": [True, False], "models": None},
     "calibration.pursuit_merge": {"values": ["off", "auto", "on"], "models": None},
     "calibration.error_map": {"values": ["off", "affine", "quadratic"], "models": None},
@@ -1012,6 +1017,10 @@ class Sweep:
 
         if self.workers == 1:
             return None
+        # One thread per process: numpy's BLAS threads in every worker oversubscribe the cores
+        # (a fit took 40 times longer that way).
+        for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"):
+            os.environ[var] = "1"
         return cf.ProcessPoolExecutor(max_workers=self.workers, mp_context=mp.get_context("spawn"), initializer=_worker_init, initargs=(self.inputs.conditions, self.base, str(self.cache_dir), self.every))
 
     def _map(self, fn: Any, calls: list[tuple[Any, ...]], on_result: Any) -> None:
