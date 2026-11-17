@@ -441,6 +441,17 @@ class CalibrationRun:
             for o in obs:
                 self.samples.append(CalibSample(target=(cur["x"], cur["y"]), obs=o, kind="sweep", dot_id=SWEEP_SAMPLE_BASE + 1000 * k + min(j, 999), run_id=self.run_id, pose_group=pg, t_local=o.t_local, weight=share))
 
+    def dot_progress(self) -> dict[str, Any]:
+        """The dot being collected and how many samples with a usable eye it has so far (the page
+        keeps a dot up a little longer when a slow computer has gathered too few)."""
+        from .models.features import eye_usable
+
+        cur = self._current
+        if cur is None:
+            return {"dot_id": None, "collected": 0, "needed": int(self.min_samples)}
+        n = sum(1 for o in self._pending if eye_usable(o.left) or eye_usable(o.right))
+        return {"dot_id": cur["dot_id"], "pose_group": cur["pose_group"], "collected": n, "needed": int(self.min_samples)}
+
     def add(self, obs: Observation) -> None:
         """Store ``obs`` as a sample of the current dot (ignored between dots)."""
         cur = self._current

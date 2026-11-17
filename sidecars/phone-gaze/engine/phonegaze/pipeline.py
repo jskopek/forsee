@@ -1332,6 +1332,13 @@ class Engine:
             return
         asyncio.ensure_future(calib.sim_head_sweep(phone.request, float(self.config.calibration.sweep_s)))
 
+    def calibration_dot(self, run_id: str) -> dict[str, Any]:
+        """Samples gathered so far for the dot on screen (see ``CalibrationRun.dot_progress``)."""
+        run = self.active_run
+        if run is None or run.run_id != run_id:
+            return {"run_id": run_id, "dot_id": None, "collected": 0, "needed": 0, "active": False}
+        return {"run_id": run_id, "active": True, **run.dot_progress()}
+
     def calibration_check(self, run_id: str) -> dict[str, Any]:
         """The quality gate (``calibration.quality_gate``): dots of the active grid run worth
         showing again, worst first. The UI shows them in the same run, then finishes."""

@@ -164,6 +164,9 @@ def create_app(engine: Engine) -> web.Application:
         body = await _body(request)
         return _json(engine.calibration_check(str(body.get("run_id", ""))))
 
+    async def calib_dot(request: web.Request) -> web.Response:
+        return _json(engine.calibration_dot(str(request.query.get("run_id", ""))))
+
     async def calib_finish(request: web.Request) -> web.Response:
         body = await _body(request)
         return _json(await engine.finish_calibration(str(body.get("run_id", "")), commit=body.get("commit", True) is not False))
@@ -338,6 +341,7 @@ def create_app(engine: Engine) -> web.Application:
         ("POST", "/api/calibration/start", calib_start),
         ("POST", "/api/calibration/finish", calib_finish),
         ("POST", "/api/calibration/check", calib_check),
+        ("GET", "/api/calibration/dot", calib_dot),
         ("POST", "/api/calibration/cancel", calib_cancel),
         ("POST", "/api/model", model),
         ("POST", "/api/pause", pause),

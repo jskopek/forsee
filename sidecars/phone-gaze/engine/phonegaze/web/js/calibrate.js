@@ -213,6 +213,27 @@ class Flow {
     });
   }
 
+  /**
+   * On a slow computer few frames are processed while a dot is collected, and a dot with fewer
+   * than calibration.min_samples usable samples is thrown away (at 5 fps every dot was). Keep
+   * the dot up, by at most twice the collect time, until the engine has enough. Engines without
+   * the endpoint, or a dot it does not know yet, just end the wait.
+   */
+  async extendForSamples(plan, target, collect) {
+    const until = performance.now() + 2 * collect;
+    while (!this.closed && performance.now() < until) {
+      let p;
+      try {
+        p = await this.api.get(`/api/calibration/dot?run_id=${encodeURIComponent(plan.run_id)}`);
+      } catch {
+        return;
+      }
+      if (!p || !p.active || p.dot_id === null) return;
+      if (p.dot_id !== target.dot_id || p.collected >= p.needed + 2) return;
+      await this.wait(150);
+    }
+  }
+
   setProgress(done, total, label) {
     this.progress.style.width = `${total ? (100 * done) / total : 0}%`;
     this.counter.textContent = label || `${done} / ${total}`;
@@ -304,6 +325,7 @@ class Flow {
       rec.collect = performance.now();
       this.send(plan, t, 'collect', poseGroup);
       await this.wait(collect);
+      await this.extendForSamples(plan, t, collect);
       rec.done = performance.now();
       this.send(plan, t, 'done', poseGroup);
       this.timings.push(rec);
