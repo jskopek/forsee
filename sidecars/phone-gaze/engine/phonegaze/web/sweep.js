@@ -101,7 +101,7 @@ async function start() {
     const r = await call('POST', '/api/sweep/start', {
       target,
       minutes: Number($('minutes').value) || 45,
-      max_combos: Number($('combos').value) || 400,
+      max_combos: Number($('combos').value) || null,
     });
     msg.textContent =
       `Started "${r.name}" on ${r.conditions} setup(s).` +

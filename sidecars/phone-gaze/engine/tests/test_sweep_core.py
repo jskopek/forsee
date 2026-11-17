@@ -334,3 +334,12 @@ def test_fits_alternate_between_conditions_so_a_short_budget_reaches_all(tmp_pat
     assert order == ["a", "b", "a", "b", "a", "b"]
     board = S.build_leaderboard(sw)
     assert all("message" in c for c in board["conditions"])
+
+
+def test_the_default_cap_grows_with_the_budget_and_an_early_cap_says_how_to_raise_it() -> None:
+    assert S.auto_cap(45) == 4500 and S.auto_cap(2) == 400
+    board = {"stopped_by": "cap", "minutes_budget": 45.0, "elapsed_s": 6.2 * 60, "max_combos": 400}
+    text = S._stopped(board)
+    assert "39 of 45 minutes left" in text and "--max-combos 1200" in text
+    board["elapsed_s"] = 44 * 60  # cap reached near the end: nothing to add
+    assert S._stopped(board) == "stopped at the cap on combinations"

@@ -28,7 +28,7 @@ resumes it. When it finishes, the page shows the best setup, the per-setup table
 diagnosis, the text summary (**Copy**) and **Apply best preset**.
 
 Options: `--minutes` (time budget, default 45), `--max-combos` (setups fitted per condition,
-default 400), `--workers` (default every core), `--models auto,ridge,...` (only these model
+default 100 per minute of `--minutes`, at least 400: 4,500 for 45 minutes; when it stops a sweep with more than a quarter of the time left, the summary says so and how to raise it), `--workers` (default every core), `--models auto,ridge,...` (only these model
 setups), `--max-vision` (vision combinations per condition, default 16), `--every N` (every Nth
 frame; default every other frame, every frame below 20 fps), `--vision real|oracle` (oracle reads
 the simulator's truth), `--no-preset`, `--fresh` (forget earlier fits; caches are kept).

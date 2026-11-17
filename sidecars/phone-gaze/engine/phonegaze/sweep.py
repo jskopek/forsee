@@ -26,7 +26,7 @@ Two stages, both cached on disk so an interrupted sweep resumes where it stopped
 The search is steered only by a calibration-only score (leave-one-dot-out on the training dots,
 and the error on other head positions when the run has them): a coarse pass (every model, with
 and without poses, under every vision combination), one setting at a time around the best few,
-then greedy and random local moves around the best, within ``--max-combos`` per condition and
+then greedy and random local moves around the best, within ``--max-combos`` per condition (default: grows with ``--minutes``) and
 ``--minutes`` in all. Validation scores are only read for the report: setups are ranked on half
 of the validation dots and confirmed on the other half, with bootstrap intervals over dots.
 
@@ -38,7 +38,7 @@ Caches go to ``<recordings>/sweeps/cache/``.
 Command line::
 
     python -m phonegaze sweep <run id | run file | folder of recordings | recording>
-        [--minutes 45] [--max-combos 400] [--workers N] [--vision auto|real|oracle]
+        [--minutes 45] [--max-combos N] [--workers N] [--vision auto|real|oracle]
         [--no-preset] [--config PATH] [--out DIR]
 
 Nothing here has seen a real recording yet; it is tested on synthetic runs from the simulator
@@ -584,6 +584,17 @@ REAL_CHAINS = ["default", "landmarks+iris_edge+quality", "landmarks+iris_edge+re
 ORACLE_CHAINS = ["sim_oracle_2d", "sim_oracle"]
 
 
+AUTO_CAP_PER_MINUTE = 100
+AUTO_CAP_MIN = 400
+
+
+def auto_cap(minutes: float) -> int:
+    """The default cap on setups per condition: it grows with the time budget, so the cap does
+    not end a sweep that has most of its time left (a real 2-condition run fitted 800 setups in
+    6 of 45 minutes with a fixed 400)."""
+    return max(AUTO_CAP_MIN, int(AUTO_CAP_PER_MINUTE * float(minutes)))
+
+
 def fit_key(fit: dict[str, Any]) -> str:
     return _hash({k: v for k, v in sorted(fit.items())})
 
@@ -1033,14 +1044,14 @@ class Sweep:
     """One sweep: inputs, budgets, the result store (``results.jsonl``) and the progress file
     (``state.json``). :meth:`run` does everything and returns the leaderboard."""
 
-    def __init__(self, inputs: Inputs, base: Config, out_dir: Path, *, minutes: float = 45.0, max_combos: int = 400, workers: int | None = None, vision_mode: str = "auto", every: int | None = None, max_vision: int = 16, progress: Any = None, seed: int = 0, models: list[str] | None = None) -> None:
+    def __init__(self, inputs: Inputs, base: Config, out_dir: Path, *, minutes: float = 45.0, max_combos: int | None = None, workers: int | None = None, vision_mode: str = "auto", every: int | None = None, max_vision: int = 16, progress: Any = None, seed: int = 0, models: list[str] | None = None) -> None:
         self.inputs = inputs
         self.base = base
         self.out = Path(out_dir)
         self.out.mkdir(parents=True, exist_ok=True)
         self.cache_dir = self.out.parent / "cache"
         self.minutes = float(minutes)
-        self.max_combos = int(max_combos)
+        self.max_combos = int(max_combos) if max_combos else auto_cap(self.minutes)
         self.workers = max(1, int(workers or os.cpu_count() or 1))
         self.vision_mode = vision_mode
         if every is None:
@@ -1818,7 +1829,13 @@ def _ci(ci: Any) -> str:
 
 
 def _stopped(board: dict[str, Any]) -> str:
-    return {"time": "stopped by the time budget", "cap": "stopped at the cap on combinations", None: "finished the plan"}.get(board.get("stopped_by"), str(board.get("stopped_by")))
+    text = {"time": "stopped by the time budget", "cap": "stopped at the cap on combinations", None: "finished the plan"}.get(board.get("stopped_by"), str(board.get("stopped_by")))
+    budget = float(board.get("minutes_budget") or 0) * 60.0
+    left = budget - float(board.get("elapsed_s") or 0)
+    if board.get("stopped_by") == "cap" and budget and left > 0.25 * budget:
+        cap = int(board.get("max_combos") or 0)
+        text += f" ({cap:,} setups per condition) with {left / 60:.0f} of {budget / 60:.0f} minutes left: to use the rest, run it again with --max-combos {3 * cap} (or a larger 'At most' on the Sweep page); it resumes"
+    return text
 
 
 def _share(x: float) -> str:
@@ -2144,11 +2161,11 @@ def register(app: Any, engine: Any) -> None:
             return _json({"error": "this sweep is already running", "name": name}, 409)
         try:
             minutes = float(b.get("minutes") or 45)
-            combos = int(b.get("max_combos") or 400)
+            combos = int(b.get("max_combos") or 0) or None
         except (TypeError, ValueError):
             return _json({"error": "minutes and max_combos must be numbers"}, 400)
         out.mkdir(parents=True, exist_ok=True)
-        cmd = [sys.executable, "-m", "phonegaze", "sweep", target, "--minutes", str(minutes), "--max-combos", str(combos)]
+        cmd = [sys.executable, "-m", "phonegaze", "sweep", target, "--minutes", str(minutes)] + (["--max-combos", str(combos)] if combos else [])
         if getattr(engine, "config_path", None):
             cmd += ["--config", str(engine.config_path)]
         if b.get("vision") in ("auto", "real", "oracle"):
@@ -2248,7 +2265,7 @@ def sweeps_dir(root: Path) -> Path:
     return Path(root) / "sweeps"
 
 
-def run_sweep(target: str, base: Config, *, config_path: str | None = None, out: str | None = None, minutes: float = 45.0, max_combos: int = 400, workers: int | None = None, vision: str = "auto", every: int | None = None, write_preset: bool = True, fresh: bool = False, progress: Any = None, diagnose: bool = True, models: list[str] | None = None, max_vision: int = 16) -> dict[str, Any]:
+def run_sweep(target: str, base: Config, *, config_path: str | None = None, out: str | None = None, minutes: float = 45.0, max_combos: int | None = None, workers: int | None = None, vision: str = "auto", every: int | None = None, write_preset: bool = True, fresh: bool = False, progress: Any = None, diagnose: bool = True, models: list[str] | None = None, max_vision: int = 16) -> dict[str, Any]:
     """Resolve the inputs, sweep, diagnose, write the reports and the preset. Returns the
     leaderboard (with ``paths``)."""
     inputs = resolve(target, base)
@@ -2298,7 +2315,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="python -m phonegaze sweep", description="Replay recorded sessions through thousands of setting combinations and rank them on held-out validation dots (see docs/SWEEP.md).")
     p.add_argument("target", help="a collection run id, a run file (collect-runs/<id>.json), a folder of recordings, or one recording")
     p.add_argument("--minutes", type=float, default=45.0, help="time budget for the whole sweep (default 45)")
-    p.add_argument("--max-combos", type=int, default=400, help="at most this many setups fitted per condition (default 400)")
+    p.add_argument("--max-combos", type=int, default=None, help=f"at most this many setups fitted per condition (default: {AUTO_CAP_PER_MINUTE} per minute of --minutes, at least {AUTO_CAP_MIN}; 4,500 for 45 minutes)")
     p.add_argument("--workers", type=int, help="processes (default: every CPU core)")
     p.add_argument("--vision", choices=["auto", "real", "oracle"], default="auto", help="estimator chains: real vision, the simulator's truth (synthetic runs) or auto")
     p.add_argument("--every", type=int, help="use every Nth frame (default lab.every)")
