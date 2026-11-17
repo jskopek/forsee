@@ -598,7 +598,7 @@ def format_text(diag: dict[str, Any]) -> str:
             L.append(f"  how well {str(ss['main_signal']).replace('_', ' ')} follows the dot: the dot explains {_pct((m.get('horizontal') or {}).get('explained'))} of its sideways and {_pct((m.get('vertical') or {}).get('explained'))} of its up/down variation (100 % = all of it)" + (f"; it moves {sens} as much as the geometry predicts (1.00x = right)" if sens else ""))
         ce = d.get("ceiling") or {}
         if ce.get("ceiling_deg") is not None or d.get("achieved_deg") is not None:
-            L.append(f"  rough ceiling, a plain ridge or geometric fit on every dot with validation included {_fmt(ce.get('ceiling_deg'))} deg (far below the achieved error: calibration is the limit, not the signal); achieved on held-out validation dots {_fmt(d.get('achieved_deg'))} deg" + (f"; on head positions the fit did not see {_fmt(d.get('cross_pose_deg'))} deg" if d.get("cross_pose_deg") is not None else ""))
+            L.append(f"  rough ceiling, a plain ridge or geometric fit on every dot with validation included {_fmt(ce.get('ceiling_deg'))} deg{_ceiling_note(ce.get('ceiling_deg'), d.get('achieved_deg'))}; achieved on held-out validation dots {_fmt(d.get('achieved_deg'))} deg" + (f"; on head positions the fit did not see {_fmt(d.get('cross_pose_deg'))} deg" if d.get("cross_pose_deg") is not None else ""))
         bi = d.get("bias") or {}
         if bi.get("accuracy_deg") is not None:
             L.append(f"  constant offset {_fmt(bi.get('offset_size_deg'))} deg ({_pct(bi.get('offset_share'))} of the error); error sideways {_fmt(bi.get('horizontal_deg'))} deg, up/down {_fmt(bi.get('vertical_deg'))} deg" + ("; pointer travel against eye travel " + ", ".join(f"{k} {_fmt(v)}x" for k, v in (bi.get("scale") or {}).items()) + " (1.00x = right)" if bi.get("scale") else ""))
@@ -619,6 +619,14 @@ def format_text(diag: dict[str, Any]) -> str:
         L.append("Notes:")
         L += [f"  {n}" for n in diag["notes"]]
     return "\n".join(L)
+
+
+def _ceiling_note(ceiling: Any, achieved: Any) -> str:
+    if ceiling is None or achieved is None:
+        return ""
+    if achieved > 2 * ceiling + 0.5:
+        return " (far below the achieved error: calibration is the limit, not the signal)"
+    return " (close to the achieved error: the signal is the limit)"
 
 
 def _fmt(v: Any, nd: int = 2) -> str:
