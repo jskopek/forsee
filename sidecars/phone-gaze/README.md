@@ -4,8 +4,11 @@ An eye tracker made from an iPhone and a Mac. The phone is a remote-controlled c
 finds your eyes, learns where you look during a short calibration, and turns gaze into a cursor,
 a dwell click, and a WebSocket stream the Forsee keyboard can use.
 
-**It has never run on a real iPhone or a real Mac with a person in front of it.** Everything
-below has been checked against a simulated phone and in CI only (see [Status](#status)).
+**First real use on 2026-11-17:** the owner connected a real iPhone to the Mac, streamed,
+calibrated and recorded a collection run (two conditions: the back wide camera at 1× and 2×; one
+person). The first sweep of it found a best setup of about 2° against 9-13° with the default
+settings. Everything else below has been checked against a simulated phone and in CI only (see
+[Status](#status)).
 
 ## Start here
 
@@ -173,7 +176,8 @@ the playbook. Ideas not done yet: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Collect data, then let the machine search
 
-**Only run against the simulator so far; never on a real phone or with a real person.**
+**First used for real on 2026-11-17** (one collection run, two conditions, one person); otherwise
+tested against the simulator.
 
 Instead of trying switches one at a time, record a few short, identical sessions, one per physical
 setup, and let the computer replay them through thousands of setting combinations offline.
@@ -226,21 +230,24 @@ layout).
 
 ## Status
 
-Nothing here has run on a real iPhone or a real Mac with a person in front of it. What has been
-checked, and how:
+On 2026-11-17 the owner ran it with a real iPhone and Mac for the first time: connection,
+streaming, calibration and a collection run (back wide camera at 1× and 2×), then the sweep and
+the diagnosis (best setup about 2° against 9-13° with the defaults; two conditions, one person).
+The rows below say what else has been checked, and how:
 
-| Part                                                           | Checked how                                                                                                                                                                                                                                                    |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| iPhone app 0.2.2 (live stream, zoom, lens, ARKit)              | Compiles in CI. Runs in the iOS Simulator in CI with a synthetic test-pattern camera, streaming to the real engine. This proves the app and engine speak the same wire protocol; it says nothing about real cameras, ARKit or real eyes. Never run on a phone. |
-| Engine (Python): phone client, pipeline, models, UI, API       | Unit tests on Linux and macOS CI; end to end against the simulated phone (below).                                                                                                                                                                              |
-| Simulated phone                                                | Speaks the same protocol as the app; exact synthetic eyes, ARKit transforms and screen reflections.                                                                                                                                                            |
-| Browser UI                                                     | Driven in headless Chromium against the engine and simulator: connect, aim, calibrate, validate, refine, live, record.                                                                                                                                         |
-| Mac outputs (cursor, hotkeys, screen size)                     | CI on a macOS runner imports them, reads the screen size from macOS and runs the engine for a few seconds. Cursor never moved; shortcuts never pressed.                                                                                                        |
-| Forsee gaze source (`?gaze=phone`)                             | Unit tests against a fake server. Never connected to the real engine with a real phone.                                                                                                                                                                        |
-| Drift correction from selections (experiment, off)             | Unit tests, a simulated drifting phone (Models simulator), API tests with fake clients. Never with a real phone or person.                                                                                                                                     |
-| Doctor, diagnostics, lab, tuning switches, calibration options | Unit tests; the doctor, Tuning page and calibration options against the simulated phone; the lab on synthetic sessions only. Never with a real phone or person.                                                                                                |
-| Collection run (Collect page) and the simple Dashboard         | Unit tests and `engine/tests/ui/collect_e2e.cjs` against the simulator: two conditions recorded through the page, pause, redo and skip, the files checked. Never with a real phone or person.                                                                  |
-| Second camera (Mac webcam as anchor; experiment, off)          | Against the simulators only (see [docs/SECOND_CAMERA.md](docs/SECOND_CAMERA.md)). Never with a real MacBook camera.                                                                                                                                            |
+| Part                                                                | Checked how                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| iPhone app 0.2.2 (live stream, zoom, lens, ARKit)                   | Compiles in CI. Runs in the iOS Simulator in CI with a synthetic test-pattern camera, streaming to the real engine. This proves the app and engine speak the same wire protocol; it says nothing about real cameras, ARKit or real eyes. Never run on a phone. |
+| Engine (Python): phone client, pipeline, models, UI, API            | Unit tests on Linux and macOS CI; end to end against the simulated phone (below).                                                                                                                                                                              |
+| Simulated phone                                                     | Speaks the same protocol as the app; exact synthetic eyes, ARKit transforms and screen reflections.                                                                                                                                                            |
+| Browser UI                                                          | Driven in headless Chromium against the engine and simulator: connect, aim, calibrate, validate, refine, live, record.                                                                                                                                         |
+| Mac outputs (cursor, hotkeys, screen size)                          | CI on a macOS runner imports them, reads the screen size from macOS and runs the engine for a few seconds. Cursor never moved; shortcuts never pressed.                                                                                                        |
+| Forsee gaze source (`?gaze=phone`)                                  | Unit tests against a fake server. Never connected to the real engine with a real phone.                                                                                                                                                                        |
+| Drift correction from selections (experiment, off)                  | Unit tests, a simulated drifting phone (Models simulator), API tests with fake clients. Never with a real phone or person.                                                                                                                                     |
+| Doctor, diagnostics, lab, tuning switches, calibration options      | Unit tests; the doctor, Tuning page and calibration options against the simulated phone; the lab on synthetic sessions only. Never with a real phone or person.                                                                                                |
+| Collection run (Collect page) and the simple Dashboard              | Unit tests and `engine/tests/ui/collect_e2e.cjs` against the simulator: two conditions recorded through the page, pause, redo and skip, the files checked. One real run by the owner (2 conditions) on 2026-11-17.                                             |
+| Sweep and diagnosis (Sweep page, `run.sh sweep`, `run.sh diagnose`) | Unit tests on synthetic runs and bad inputs, `engine/tests/ui/sweep_e2e.cjs` against the simulator. One real run (above): best setup about 2° against 9-13° with the defaults.                                                                                 |
+| Second camera (Mac webcam as anchor; experiment, off)               | Against the simulators only (see [docs/SECOND_CAMERA.md](docs/SECOND_CAMERA.md)). Never with a real MacBook camera.                                                                                                                                            |
 
 Accuracy against the simulator, measured by
 [`engine/tests/ui/accuracy_e2e.cjs`](engine/tests/ui/accuracy_e2e.cjs): a 3×3 grid calibration
