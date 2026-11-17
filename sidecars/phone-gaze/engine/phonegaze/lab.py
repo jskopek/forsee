@@ -798,9 +798,11 @@ def obs_key(seg: Segment, cfg: Config, combo: list[str], fkey: dict[str, Any]) -
     return {"frames": fkey, "combo": combo, "estimators": d["estimators"], "stream": d["stream"], "stream_file": _file_sig(seg.folder / STREAM_FILE) if seg.source_kind == "recording" else None}
 
 
-LAB_ESTIMATORS = ("sim_oracle",)
+LAB_ESTIMATORS = ("sim_oracle", "sim_oracle_2d")
 """Estimators only the lab offers: ``sim_oracle`` reads the simulator's ground truth that
-synthetic sessions carry (for testing the scoring without vision)."""
+synthetic sessions carry (for testing the scoring without vision); ``sim_oracle_2d`` gives only
+what a camera-only tracker measures (iris, eye corners, reflection, head pose; no eyeball
+centre or gaze direction)."""
 
 
 def make_estimators(names: list[str], cfg: Config) -> list[Any]:
@@ -815,6 +817,10 @@ def make_estimators(names: list[str], cfg: Config) -> list[Any]:
             from .sim.oracle import OracleEstimator
 
             out.append(OracleEstimator())
+        elif n == "sim_oracle_2d":
+            from .sim.oracle import OracleEstimator
+
+            out.append(OracleEstimator(fields=("iris", "corners", "reflection", "openness", "head")))
         else:
             ecfg = EstimatorsConfig(**{**cfg.to_dict()["estimators"], "order": [n]})
             out.extend(build_estimators(ecfg))
