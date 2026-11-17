@@ -57,8 +57,13 @@ def test_sweep_ranks_sensibly(swept: dict) -> None:
     assert win["offset"] > 2.0  # 2.9 degrees were injected; no calibration can see it
     assert b["overall"]["condition"] in ("clean", "headmove")
     assert {c["camera_id"] for c in b["cameras"]} == {"back-wide", "front"}
+    # "clean" and "noisy" share camera, zoom and settings: repeats of one setup, so each one's
+    # winner is also scored on the other
+    rep = {r["ranked_on"]: r for r in b["repeats"]}
+    assert set(rep) >= {"clean", "noisy"}
+    assert rep["clean"]["on_repeats"][0]["condition"] == "noisy" and rep["clean"]["on_repeats"][0]["acc_deg"] is not None
     for c in b["conditions"]:
-        assert c["evaluated"] <= 14  # the cap (plus the repeat confirmations, none here)
+        assert c["evaluated"] <= 14 + 3  # the cap, plus confirming the other repeat's top three
         assert 0 < c["space_share"] < 0.01  # it says how little of the space was covered
         if c.get("top"):
             w = c["top"][0]

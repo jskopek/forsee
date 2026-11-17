@@ -125,6 +125,7 @@ class Condition:
     held_out_from_calibration: bool = False
     has_sim_truth: bool = False
     signature: str = ""  # changes when the recording or its manifest changes (old fits are then redone)
+    settle_ms: int | None = None  # collection runs: how long each dot was shown before collecting
 
     @property
     def setup_key(self) -> str:
@@ -381,8 +382,26 @@ def _load_collect(folder: Path) -> Condition:
     )
     if str(cond.get("notes") or "").strip():
         c.notes.append("notes: " + str(cond.get("notes")).strip())
+    c.settle_ms = _protocol_settle(folder, m)
     _finish(c)
     return c
+
+
+def _protocol_settle(folder: Path, manifest: dict[str, Any]) -> int | None:
+    """How long the Collect page showed each dot before collecting (its protocol, recorded in the
+    ``collect.start`` event)."""
+    proto = manifest.get("protocol") if isinstance(manifest.get("protocol"), dict) else None
+    if proto is None:
+        try:
+            with open(folder / "events.jsonl", encoding="utf-8") as f:
+                for line in f:
+                    if '"collect.start"' in line:
+                        ev = json.loads(line)
+                        proto = ev.get("protocol") if isinstance(ev.get("protocol"), dict) else proto
+        except (OSError, ValueError):
+            proto = None
+    v = (proto or {}).get("settle_ms")
+    return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v <= 5000 else None
 
 
 def _seg_zoom(seg: Any) -> float | None:
@@ -505,7 +524,7 @@ FIT_AXES: dict[str, dict[str, Any]] = {
     "models.eye": {"values": ["both", "left", "right", "auto"], "models": GEOMETRIC_LIKE},
     "calibration.sample_weighting": {"values": ["per_dot", "precision", "per_sample"], "models": None},
     "calibration.outlier_mad": {"values": [3.0, 2.0, 5.0], "models": None},
-    "calibration.settle_ms": {"values": [600, 400], "models": None},
+    "calibration.settle_ms": {"values": ["protocol", 300, 450], "models": None},
     "calibration.discard_ms": {"values": [150, 300, 500, 800], "models": None},
     "poses": {"values": [True, False], "models": None},
     "calibration.pursuit_merge": {"values": ["off", "auto", "on"], "models": None},
@@ -590,6 +609,8 @@ def fit_changes(fit: dict[str, Any]) -> dict[str, Any]:
     for k, v in fit.items():
         if k in ("model", "poses"):
             continue
+        if k == "calibration.settle_ms" and v == "protocol":
+            continue
         if k == "regularisation":
             if v == "auto":
                 ch["models.auto_alpha"] = True
@@ -670,6 +691,8 @@ def condition_config(base: Config, cond: Condition, vision: dict[str, Any] | Non
                 cfg = apply_changes(cfg, {k: v})
             except LabError:
                 continue
+    if cond.kind == "collect" and cond.settle_ms is not None and not (fit and isinstance(fit.get("calibration.settle_ms"), (int, float))):
+        cfg.calibration.settle_ms = int(cond.settle_ms)  # the wait the Collect page used
     if cache_dir is not None:
         cfg.lab.output_dir = str(cache_dir)
     if every is not None:

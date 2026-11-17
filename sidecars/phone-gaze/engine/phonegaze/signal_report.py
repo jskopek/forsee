@@ -187,7 +187,7 @@ def _dot_frames(cond: Any, os_: Any, phases: tuple[str, ...]) -> list[tuple[Any,
     from .sweep import _window
 
     # a collection run's dot times start when the dot appeared: wait for the eyes as live does
-    settle = COLLECT_SETTLE_S if getattr(cond, "kind", "") == "collect" else SETTLE_S
+    settle = ((getattr(cond, "settle_ms", None) or COLLECT_SETTLE_S * 1000.0) / 1000.0) if getattr(cond, "kind", "") == "collect" else SETTLE_S
     return [(d, _window(os_, d.t0 + settle, d.t1)) for d in cond.dots if d.phase in phases]
 
 
