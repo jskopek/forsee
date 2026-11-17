@@ -7,6 +7,8 @@
 #   sidecars/phone-gaze/run.sh --install-only  # set up and exit
 #   sidecars/phone-gaze/run.sh doctor --phone http://192.168.1.20:8080   # checklist with fixes
 #   sidecars/phone-gaze/run.sh bundle          # diagnostics folder to share
+#   sidecars/phone-gaze/run.sh sweep RUN_ID    # replay a collection run through many settings
+#   sidecars/phone-gaze/run.sh diagnose RUN_ID # why each setup's error is what it is
 #
 # Uses uv when it is installed (it can fetch a suitable Python by itself); otherwise the newest
 # python3.x (3.10 or later) on the PATH with "python3 -m venv". The virtualenv lives in
@@ -74,11 +76,11 @@ if [ "$install_only" = 1 ]; then
   exit 0
 fi
 
-# Subcommands (doctor, bundle, lab, tune, ab) go straight through: they take their own options and
+# Subcommands (doctor, bundle, lab, tune, ab, sweep, diagnose) go straight through: they take their own options and
 # start no global shortcuts, so --no-hotkeys below must not be added to them.
 subcommand=0
 case "${args[0]-}" in
-  doctor | bundle | lab | tune | ab) subcommand=1 ;;
+  doctor | bundle | lab | tune | ab | sweep | diagnose) subcommand=1 ;;
 esac
 
 # pynput (global shortcuts) can crash Python 3.14 on macOS 26: turn shortcuts off there.
