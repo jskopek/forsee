@@ -870,3 +870,1013 @@ def _error_map_from_training(result: Any, name: str, model: Any, train: list[Cal
     emap, info = fit_error_map(pred, target, size, str(cfg.calibration.error_map), float(cfg.calibration.error_map_smoothing), float(cfg.calibration.error_map_min_gain))
     model.error_map = emap
     return {"kept": emap is not None, **{k: v for k, v in info.items() if isinstance(v, (int, float, str, bool)) or v is None}}
+
+
+# --------------------------------------------------------------------------------------------
+# Workers (separate processes: all CPU cores)
+# --------------------------------------------------------------------------------------------
+
+_W: dict[str, Any] = {}
+
+
+def _worker_init(conditions: list[Condition], base: Config, cache_dir: str, every: int) -> None:
+    from .lab import quiet_native_logs
+
+    quiet_native_logs()
+    logging.basicConfig(level=logging.WARNING)
+    _W.clear()
+    _W.update(conds={c.id: c for c in conditions}, base=base, cache=Path(cache_dir), every=every, obs={})
+
+
+def _obsset(cond_id: str, vision: dict[str, Any]) -> ObsSet:
+    key = (cond_id, vision_id(vision))
+    memo: dict[Any, ObsSet] = _W["obs"]
+    if key not in memo:
+        if len(memo) >= 8:
+            memo.pop(next(iter(memo)))
+        memo[key] = observe(_W["conds"][cond_id], vision, _W["base"], _W["cache"], _W["every"])
+    return memo[key]
+
+
+def _job_observe(cond_id: str, vision: dict[str, Any]) -> dict[str, Any]:
+    try:
+        os_ = _obsset(cond_id, vision)
+        return {"cond": cond_id, "vision": vision_id(vision), "ok": True, **os_.stats}
+    except Exception as exc:  # noqa: BLE001 - reported, the sweep goes on
+        return {"cond": cond_id, "vision": vision_id(vision), "ok": False, "error": f"{type(exc).__name__}: {exc}" if not isinstance(exc, LabError) else str(exc)}
+
+
+def _job_fit(cond_id: str, vision: dict[str, Any], fit: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return evaluate(_W["conds"][cond_id], _obsset(cond_id, vision), _W["base"], vision, fit)
+    except Exception as exc:  # noqa: BLE001
+        return {"cond": cond_id, "vision": vision_id(vision), "fit": fit, "key": fit_key(fit), "v": SWEEP_VERSION, "error": f"{type(exc).__name__}: {exc}"}
+
+
+# --------------------------------------------------------------------------------------------
+# The search
+# --------------------------------------------------------------------------------------------
+
+
+def _score(row: dict[str, Any] | None) -> float:
+    v = None if row is None or row.get("error") else row.get("search_deg")
+    return float(v) if v is not None and math.isfinite(v) else float("inf")
+
+
+class Sweep:
+    """One sweep: inputs, budgets, the result store (``results.jsonl``) and the progress file
+    (``state.json``). :meth:`run` does everything and returns the leaderboard."""
+
+    def __init__(self, inputs: Inputs, base: Config, out_dir: Path, *, minutes: float = 45.0, max_combos: int = 400, workers: int | None = None, vision_mode: str = "auto", every: int | None = None, max_vision: int = 16, progress: Any = None, seed: int = 0) -> None:
+        self.inputs = inputs
+        self.base = base
+        self.out = Path(out_dir)
+        self.out.mkdir(parents=True, exist_ok=True)
+        self.cache_dir = self.out.parent / "cache"
+        self.minutes = float(minutes)
+        self.max_combos = int(max_combos)
+        self.workers = max(1, int(workers or os.cpu_count() or 1))
+        self.vision_mode = vision_mode
+        self.every = int(every if every is not None else base.lab.every)
+        self.max_vision = int(max_vision)
+        self.progress = progress or (lambda s: None)
+        self.rng = random.Random(seed)
+        self.conds = {c.id: c for c in inputs.conditions}
+        self.has = {c.id: {"poses": bool(c.phase("poses")), "pursuit": c.pursuit is not None} for c in inputs.conditions}
+        self.visions: dict[str, dict[str, dict[str, Any]]] = {c.id: {} for c in inputs.conditions}
+        self.obs_stats: dict[tuple[str, str], dict[str, Any]] = {}
+        self.results: dict[tuple[str, str, str], dict[str, Any]] = {}
+        self.t_start = time.time()
+        self.deadline = self.t_start + self.minutes * 60.0
+        self.stopped_by: str | None = None
+        self.done = 0
+        self.fit_seconds: list[float] = []
+        self.resumed = 0
+        self._load()
+
+    # -- persistence ----------------------------------------------------------------------
+
+    @property
+    def results_path(self) -> Path:
+        return self.out / "results.jsonl"
+
+    def _load(self) -> None:
+        if not self.results_path.exists():
+            return
+        with open(self.results_path, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue  # a line cut short by an interruption
+                if r.get("v") != SWEEP_VERSION or r.get("cond") not in self.conds:
+                    continue
+                self.results[(r["cond"], r["vision"], r["key"])] = r
+        self.resumed = len(self.results)
+
+    def _append(self, row: dict[str, Any]) -> None:
+        with open(self.results_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(_jsonable(row)) + "\n")
+
+    def state(self, **kw: Any) -> None:
+        path = self.out / "state.json"
+        try:
+            cur = json.loads(path.read_text()) if path.exists() else {}
+        except (OSError, ValueError):
+            cur = {}
+        cur.update(kw)
+        cur.update(updated=_dt.datetime.now().isoformat(timespec="seconds"), pid=os.getpid(), name=self.inputs.name, elapsed_s=round(time.time() - self.t_start, 1))
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_jsonable(cur), indent=2))
+        tmp.replace(path)
+
+    # -- budgets --------------------------------------------------------------------------
+
+    def n_evaluated(self, cond_id: str) -> int:
+        return sum(1 for k in self.results if k[0] == cond_id)
+
+    def out_of_time(self) -> bool:
+        return time.time() >= self.deadline
+
+    def _eta(self, remaining: int) -> float | None:
+        if not self.fit_seconds:
+            return None
+        per = float(np.mean(self.fit_seconds[-200:])) / self.workers
+        return min(max(0.0, self.deadline - time.time()), per * remaining)
+
+    # -- execution ------------------------------------------------------------------------
+
+    def _executor(self) -> Any:
+        import concurrent.futures as cf
+        import multiprocessing as mp
+
+        if self.workers == 1:
+            return None
+        return cf.ProcessPoolExecutor(max_workers=self.workers, mp_context=mp.get_context("spawn"), initializer=_worker_init, initargs=(self.inputs.conditions, self.base, str(self.cache_dir), self.every))
+
+    def _map(self, fn: Any, calls: list[tuple[Any, ...]], on_result: Any) -> None:
+        """Run ``fn(*call)`` for every call (in the pool, or here with one worker) and hand each
+        result to ``on_result`` as it arrives. Stops submitting once out of time."""
+        if not calls:
+            return
+        if self._pool is None:
+            if not _W:
+                _worker_init(self.inputs.conditions, self.base, str(self.cache_dir), self.every)
+            for c in calls:
+                if self.out_of_time():
+                    self.stopped_by = "time"
+                    break
+                on_result(fn(*c))
+            return
+        import concurrent.futures as cf
+
+        pending = set()
+        it = iter(calls)
+        for c in it:
+            pending.add(self._pool.submit(fn, *c))
+            if len(pending) >= self.workers * 3:
+                break
+        while pending:
+            done, pending = cf.wait(pending, timeout=5.0, return_when=cf.FIRST_COMPLETED)
+            for f in done:
+                on_result(f.result())
+            if self.out_of_time():
+                self.stopped_by = "time"
+                for f in pending:
+                    f.cancel()
+                for f in pending:
+                    if not f.cancelled():
+                        try:
+                            on_result(f.result())
+                        except Exception:  # noqa: BLE001
+                            pass
+                return
+            for c in it:
+                pending.add(self._pool.submit(fn, *c))
+                if len(pending) >= self.workers * 3:
+                    break
+
+    def observe_all(self, wanted: list[tuple[str, dict[str, Any]]]) -> None:
+        todo = []
+        for cid, v in wanted:
+            vid = vision_id(v)
+            self.visions[cid].setdefault(vid, v)
+            if (cid, vid) not in self.obs_stats:
+                todo.append((cid, v))
+        total = len(todo)
+        count = [0]
+
+        def got(r: dict[str, Any]) -> None:
+            count[0] += 1
+            self.obs_stats[(r["cond"], r["vision"])] = r
+            if not r.get("ok"):
+                self.progress(f"  {r['cond']}: {vision_name(self.visions[r['cond']][r['vision']])}: {r.get('error')}")
+            self.state(stage="observations", done=count[0], total=total, message=f"observations: {count[0]} of {total} (condition, vision) sets")
+
+        self.progress(f"Stage 1: {total} observation set(s) to read ({sum(1 for _ in wanted) - total} known)")
+        self._map(_job_observe, todo, got)
+
+    def usable_visions(self, cid: str) -> list[dict[str, Any]]:
+        return [self.visions[cid][vid] for (c, vid), s in self.obs_stats.items() if c == cid and s.get("ok") and s.get("frames")]
+
+    def fit_batch(self, tasks: list[tuple[str, dict[str, Any], dict[str, Any]]], label: str) -> list[dict[str, Any]]:
+        """Evaluate (condition, vision, fit) tasks not done yet, within each condition's cap."""
+        seen: set[tuple[str, str, str]] = set()
+        todo: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+        count = {cid: self.n_evaluated(cid) for cid in self.conds}
+        out: list[dict[str, Any]] = []
+        for cid, v, fit in tasks:
+            fit = normalise_fit(fit, self.has[cid])
+            k = (cid, vision_id(v), fit_key(fit))
+            if k in seen:
+                continue
+            seen.add(k)
+            if k in self.results:
+                out.append(self.results[k])
+                continue
+            if count[cid] >= self.max_combos:
+                self.stopped_by = self.stopped_by or "cap"
+                continue
+            count[cid] += 1
+            todo.append((cid, v, fit))
+        if not todo or self.out_of_time():
+            if todo:
+                self.stopped_by = "time"
+            return out
+        total = len(todo)
+        n = [0]
+
+        def got(r: dict[str, Any]) -> None:
+            n[0] += 1
+            self.done += 1
+            r["vision_def"] = self.visions[r["cond"]].get(r["vision"])
+            self.results[(r["cond"], r["vision"], r["key"])] = r
+            self._append(r)
+            out.append(r)
+            if r.get("seconds"):
+                self.fit_seconds.append(float(r["seconds"]))
+            eta = self._eta(total - n[0])
+            self.state(stage="fitting", phase=label, done=n[0], total=total, evaluated=len(self.results), eta_s=None if eta is None else round(eta), message=f"{label}: {n[0]} of {total}")
+
+        self.progress(f"  {label}: {total} setup(s) to fit")
+        self._map(_job_fit, todo, got)
+        return out
+
+    def best(self, cid: str, k: int = 1, vid: str | None = None) -> list[dict[str, Any]]:
+        rows = [r for (c, v, _), r in self.results.items() if c == cid and (vid is None or v == vid) and _score(r) < float("inf")]
+        rows.sort(key=lambda r: (_score(r), r["key"]))
+        return rows[:k]
+
+    # -- the plan -------------------------------------------------------------------------
+
+    def run(self) -> dict[str, Any]:
+        self._pool = self._executor()
+        self.state(stage="starting", started=_dt.datetime.now().isoformat(timespec="seconds"), finished=None, error=None, minutes=self.minutes, max_combos=self.max_combos, workers=self.workers, conditions=[c.describe() for c in self.inputs.conditions], resumed=self.resumed)
+        try:
+            self._search()
+        finally:
+            if self._pool is not None:
+                self._pool.shutdown(wait=True, cancel_futures=True)
+                self._pool = None
+        self.state(stage="reports", message="writing the leaderboard and the diagnosis")
+        board = build_leaderboard(self)
+        return board
+
+    def _search(self) -> None:
+        conds = list(self.conds.values())
+        # Stage 1, coarse: every chain and one vision setting at a time.
+        wanted = []
+        for c in conds:
+            for v in vision_space(c, self.vision_mode)[: self.max_vision]:
+                wanted.append((c.id, v))
+        self.observe_all(wanted)
+        # Stage 2, A: every model, with and without poses, under every vision combination.
+        models = list(MODEL_SETUPS)
+        tasks = []
+        for c in conds:
+            for v in self.usable_visions(c.id):
+                for m in models:
+                    for poses in ([True, False] if self.has[c.id]["poses"] else [True]):
+                        tasks.append((c.id, v, {"model": m, "poses": poses}))
+        self.progress("Stage 2: fitting on calibration, scoring on validation")
+        self.fit_batch(tasks, "coarse: models x poses x vision")
+        # Vision refinement: combine the single vision changes that helped.
+        self._refine_vision(conds)
+        # B: one setting at a time around the best three.
+        tasks = []
+        for c in conds:
+            for anchor in self.best(c.id, 3):
+                v = anchor["vision_def"] or self.visions[c.id][anchor["vision"]]
+                for axis, ax in FIT_AXES.items():
+                    if axis == "poses":
+                        continue
+                    for val in ax["values"][1:]:
+                        tasks.append((c.id, v, {**anchor["fit"], axis: val}))
+        self.fit_batch(tasks, "one setting at a time")
+        # C: greedy combination, then random local moves, until the cap, the time or no gain.
+        stale = {c.id: 0 for c in conds}
+        for rnd in range(200):
+            if self.out_of_time():
+                self.stopped_by = "time"
+                break
+            tasks = []
+            for c in conds:
+                if stale[c.id] >= 3 or self.n_evaluated(c.id) >= self.max_combos:
+                    continue
+                tasks += self._neighbours(c.id, greedy=(rnd == 0))
+            if not tasks:
+                break
+            before = {c.id: _score((self.best(c.id) or [None])[0]) for c in conds}
+            self.fit_batch(tasks, f"refine round {rnd + 1}")
+            for c in conds:
+                after = _score((self.best(c.id) or [None])[0])
+                stale[c.id] = 0 if after < before[c.id] - 1e-6 else stale[c.id] + 1
+        # Confirmation across repeats: each condition's top setups on its repeats.
+        groups: dict[str, list[str]] = {}
+        for c in conds:
+            groups.setdefault(c.setup_key, []).append(c.id)
+        tasks = []
+        for ids in groups.values():
+            if len(ids) < 2:
+                continue
+            for cid in ids:
+                for r in top_by_validation(self, cid, 3):
+                    for other in ids:
+                        if other != cid and (other, r["vision"], r["key"]) not in self.results:
+                            v = r["vision_def"] or self.visions[cid][r["vision"]]
+                            self.visions[other].setdefault(r["vision"], v)
+                            if (other, r["vision"]) not in self.obs_stats:
+                                self.observe_all([(other, v)])
+                            tasks.append((other, v, r["fit"]))
+        if tasks:
+            saved, self.max_combos = self.max_combos, self.max_combos + len(tasks)
+            self.fit_batch(tasks, "confirm on repeats")
+            self.max_combos = saved
+
+    def _refine_vision(self, conds: list[Condition]) -> None:
+        for c in conds:
+            per_v: dict[str, float] = {}
+            for vid in self.visions[c.id]:
+                b = self.best(c.id, 1, vid)
+                if b:
+                    per_v[vid] = _score(b[0])
+            base_vid = next((vid for vid, v in self.visions[c.id].items() if not v.get("changes")), None)
+            if base_vid is None or base_vid not in per_v:
+                continue
+            base_chain = self.visions[c.id][base_vid].get("chain", "default")
+            better = sorted((s, vid) for vid, s in per_v.items() if self.visions[c.id][vid].get("changes") and self.visions[c.id][vid].get("chain", "default") == base_chain and s < per_v[base_vid] * 0.98)
+            if len(better) < 2:
+                continue
+            merged: dict[str, Any] = {}
+            for _, vid in better[:3]:
+                for k, v in self.visions[c.id][vid]["changes"].items():
+                    merged.setdefault(k, v)
+            nv = {"chain": base_chain, "changes": merged}
+            self.observe_all([(c.id, nv)])
+            if (c.id, vision_id(nv)) in self.obs_stats and self.obs_stats[(c.id, vision_id(nv))].get("ok"):
+                tasks = [(c.id, nv, r["fit"]) for r in self.best(c.id, 4)]
+                self.fit_batch(tasks, "combined vision settings")
+
+    def _neighbours(self, cid: str, greedy: bool) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
+        best = self.best(cid, 1)
+        if not best:
+            return []
+        b = best[0]
+        v = b["vision_def"] or self.visions[cid][b["vision"]]
+        base_fit = dict(b["fit"])
+        model = base_fit.get("model", "auto")
+        out = []
+        if greedy:
+            # every single change that helped this (vision, model), all together
+            helped: dict[str, Any] = {}
+            for (c, vid, _), r in self.results.items():
+                if c != cid or vid != b["vision"] or r["fit"].get("model") != model or _score(r) >= _score(b):
+                    continue
+                diff = {k: x for k, x in r["fit"].items() if base_fit.get(k) != x}
+                if len(diff) == 1:
+                    helped.update(diff)
+            if helped:
+                out.append((cid, v, {**base_fit, **helped}))
+        axes = [a for a, ax in FIT_AXES.items() if ax["models"] is None or model in ax["models"]]
+        if not self.has[cid]["poses"]:
+            axes = [a for a in axes if a != "poses"]
+        if not self.has[cid]["pursuit"]:
+            axes = [a for a in axes if a != "calibration.pursuit_merge"]
+        tries = 0
+        while len(out) < self.workers * 2 and tries < 60:
+            tries += 1
+            fit = dict(base_fit)
+            for a in self.rng.sample(axes, k=min(len(axes), self.rng.choice([1, 2, 2, 3]))):
+                fit[a] = self.rng.choice(FIT_AXES[a]["values"])
+            if self.rng.random() < 0.15:
+                fit["model"] = self.rng.choice(list(MODEL_SETUPS))
+            nf = normalise_fit(fit, self.has[cid])
+            if (cid, vision_id(v), fit_key(nf)) not in self.results and nf != normalise_fit(base_fit, self.has[cid]):
+                out.append((cid, v, nf))
+        return out
+
+
+# --------------------------------------------------------------------------------------------
+# Honest scoring: split validation dots, bootstrap intervals, "within noise"
+# --------------------------------------------------------------------------------------------
+
+
+def bootstrap_ci(values: list[float] | np.ndarray, n_boot: int = 2000, seed: int = 0, level: float = 0.95) -> tuple[float, float] | None:
+    """Percentile bootstrap interval of the mean (resampling dots)."""
+    v = np.asarray([x for x in values if x is not None and math.isfinite(x)], float)
+    if len(v) < 2:
+        return None
+    rng = np.random.default_rng(seed)
+    means = v[rng.integers(0, len(v), size=(n_boot, len(v)))].mean(axis=1)
+    a = (1 - level) / 2 * 100
+    lo, hi = np.percentile(means, [a, 100 - a])
+    return float(lo), float(hi)
+
+
+def split_dots(cond: Condition) -> tuple[set[int], set[int]]:
+    """Validation dots in time order, alternately to the ranking half (A) and the confirmation
+    half (B), so both halves span the session and the screen."""
+    v = sorted(cond.phase("validation"), key=lambda d: d.t0)
+    return {d.uid for i, d in enumerate(v) if i % 2 == 0}, {d.uid for i, d in enumerate(v) if i % 2 == 1}
+
+
+def _mean_over(row: dict[str, Any], uids: set[int]) -> float | None:
+    vals = [p[1] for p in row.get("per_dot") or [] if p[0] in uids]
+    return float(np.mean(vals)) if vals else None
+
+
+def eligible(row: dict[str, Any]) -> bool:
+    return not row.get("error") and row.get("acc_deg") is not None and (row.get("coverage") or 0) >= MIN_COVERAGE
+
+
+def top_by_validation(sw: Sweep, cid: str, k: int = 10) -> list[dict[str, Any]]:
+    a, _ = split_dots(sw.conds[cid])
+    rows = [r for (c, _, _), r in sw.results.items() if c == cid and eligible(r)]
+    rows.sort(key=lambda r: (_mean_over(r, a) if _mean_over(r, a) is not None else float("inf"), r["acc_deg"], r["key"]))
+    return rows[:k]
+
+
+REGIONS = [["top left", "top", "top right"], ["left", "middle", "right"], ["bottom left", "bottom", "bottom right"]]
+
+
+def breakdown(row: dict[str, Any], screen: ScreenInfo) -> dict[str, Any]:
+    """Horizontal versus vertical, and error by screen region, from the per-dot results."""
+    per = row.get("per_dot") or []
+    out: dict[str, Any] = {"horizontal_deg": None, "vertical_deg": None, "offset_deg": None, "regions": {}}
+    if not per:
+        return out
+    dx = np.array([p[2] for p in per], float)
+    dy = np.array([p[3] for p in per], float)
+    out["horizontal_deg"] = float(np.nanmean(np.abs(dx)))
+    out["vertical_deg"] = float(np.nanmean(np.abs(dy)))
+    out["offset_deg"] = [float(np.nanmean(dx)), float(np.nanmean(dy))]
+    reg: dict[str, list[float]] = {}
+    for p in per:
+        c = min(2, max(0, int(p[4] / max(screen.width, 1) * 3)))
+        r = min(2, max(0, int(p[5] / max(screen.height, 1) * 3)))
+        reg.setdefault(REGIONS[r][c], []).append(p[1])
+    out["regions"] = {k: round(float(np.mean(v)), 3) for k, v in reg.items()}
+    return out
+
+
+def _paired(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
+    from .tune import paired
+
+    ea = {str(p[0]): float(p[1]) for p in a.get("per_dot") or []}
+    eb = {str(p[0]): float(p[1]) for p in b.get("per_dot") or []}
+    return paired(ea, eb, n_boot=2000)
+
+
+def _row_summary(sw: Sweep, row: dict[str, Any], a: set[int], b: set[int]) -> dict[str, Any]:
+    cond = sw.conds[row["cond"]]
+    vals = [p[1] for p in row.get("per_dot") or []]
+    ci = bootstrap_ci(vals)
+    v = row.get("vision_def") or sw.visions[row["cond"]].get(row["vision"]) or {}
+    return {
+        "cond": row["cond"],
+        "vision": v,
+        "vision_name": vision_name(v),
+        "fit": row["fit"],
+        "fit_name": fit_name(row["fit"]),
+        "model_used": row.get("model_used"),
+        "acc_deg": row.get("acc_deg"),
+        "ci": list(ci) if ci else None,
+        "rank_deg": _mean_over(row, a),
+        "confirm_deg": _mean_over(row, b),
+        "prec_deg": row.get("prec_deg"),
+        "sample_deg": row.get("sample_deg"),
+        "search_deg": row.get("search_deg"),
+        "loo_deg": row.get("loo_deg"),
+        "cross_pose_deg": row.get("cross_pose_deg"),
+        "coverage": row.get("coverage"),
+        "n_dots": len(vals),
+        **breakdown(row, cond.screen),
+    }
+
+
+def build_leaderboard(sw: Sweep) -> dict[str, Any]:
+    board: dict[str, Any] = {
+        "format": "phonegaze-sweep-1",
+        "name": sw.inputs.name,
+        "root": str(sw.inputs.root),
+        "output_dir": str(sw.out),
+        "created": _dt.datetime.now().isoformat(timespec="seconds"),
+        "minutes_budget": sw.minutes,
+        "max_combos": sw.max_combos,
+        "elapsed_s": round(time.time() - sw.t_start, 1),
+        "stopped_by": sw.stopped_by,
+        "workers": sw.workers,
+        "evaluated": len(sw.results),
+        "resumed": sw.resumed,
+        "notes": list(sw.inputs.notes),
+        "conditions": [],
+        "cameras": [],
+        "overall": None,
+        "repeats": [],
+    }
+    winners: list[dict[str, Any]] = []
+    for cid, cond in sw.conds.items():
+        a, b = split_dots(cond)
+        rows = [r for (c, _, _), r in sw.results.items() if c == cid]
+        n_vis = len([1 for (c, _), s in sw.obs_stats.items() if c == cid and s.get("ok")]) or len({r["vision"] for r in rows})
+        space = full_space_size(sw.has[cid], n_vis)
+        tried: dict[str, set[str]] = {}
+        for r in rows:
+            for k, x in r["fit"].items():
+                tried.setdefault(k, set()).add(json.dumps(_jsonable(x)))
+        entry: dict[str, Any] = {
+            **cond.describe(),
+            "evaluated": len(rows),
+            "failed": sum(1 for r in rows if r.get("error")),
+            "not_ranked": sum(1 for r in rows if not r.get("error") and not eligible(r)),
+            "space": space,
+            "space_share": len(rows) / space if space else None,
+            "visions_tried": n_vis,
+            "values_tried": {k: sorted(v) for k, v in tried.items()},
+            "errors": sorted({str(r.get("error"))[:160] for r in rows if r.get("error")})[:8],
+            "split": {"rank_dots": len(a), "confirm_dots": len(b)},
+            "top": [],
+        }
+        board["conditions"].append(entry)
+        top = top_by_validation(sw, cid, 10)
+        if not top:
+            entry["message"] = "no setup could be scored on this condition's validation dots" + (f" ({entry['errors'][0]})" if entry["errors"] else "")
+            continue
+        win = top[0]
+        for i, r in enumerate(top):
+            s = _row_summary(sw, r, a, b)
+            s["rank"] = i + 1
+            if i:
+                d = _paired(win, r)
+                s["vs_best"] = {"mean": d.get("mean"), "ci": d.get("ci"), "p": d.get("p")}
+                s["within_noise"] = d.get("ci") is None or d["ci"][0] <= 0.0
+            entry["top"].append(s)
+        w = entry["top"][0]
+        entry["winner"] = w
+        entry["optimism_deg"] = (w["confirm_deg"] - w["rank_deg"]) if w["confirm_deg"] is not None and w["rank_deg"] is not None else None
+        entry["n_within_noise"] = sum(1 for s in entry["top"][1:] if s.get("within_noise"))
+        # what the defaults give, and what the calibration-only search alone would have picked
+        defaults = [r for r in rows if eligible(r) and r["fit"] == {"model": "auto"} and not (r.get("vision_def") or {}).get("changes") and (r.get("vision_def") or {}).get("chain") in ("default", ORACLE_CHAINS[0])]
+        if defaults:
+            entry["defaults"] = _row_summary(sw, defaults[0], a, b)
+        by_search = sorted([r for r in rows if eligible(r) and r.get("search_deg") is not None], key=lambda r: (r["search_deg"], r["key"]))
+        if by_search:
+            entry["search_pick"] = _row_summary(sw, by_search[0], a, b)
+        winners.append({**w, "condition": cid, "label": cond.label, "camera_id": cond.camera_id, "camera_label": cond.camera_label, "zoom": cond.zoom, "_row": win})
+    # per camera and overall: the condition whose winner holds up best on all its dots
+    cams: dict[str, list[dict[str, Any]]] = {}
+    for w in winners:
+        cams.setdefault(w["camera_id"], []).append(w)
+    for cam, ws in cams.items():
+        ws.sort(key=lambda w: (w["acc_deg"], w["condition"]))
+        best = ws[0]
+        e = {k: v for k, v in best.items() if k != "_row"}
+        if len(ws) > 1:
+            e["runner_up"] = {"condition": ws[1]["condition"], "acc_deg": ws[1]["acc_deg"], "ci": ws[1]["ci"]}
+            e["within_noise_of_runner_up"] = _overlap(best["ci"], ws[1]["ci"])
+        board["cameras"].append(e)
+    if winners:
+        ws = sorted(winners, key=lambda w: (w["acc_deg"], w["condition"]))
+        o = {k: v for k, v in ws[0].items() if k != "_row"}
+        if len(ws) > 1:
+            o["runner_up"] = {"condition": ws[1]["condition"], "label": ws[1]["label"], "acc_deg": ws[1]["acc_deg"], "ci": ws[1]["ci"]}
+            o["within_noise_of_runner_up"] = _overlap(ws[0]["ci"], ws[1]["ci"])
+        board["overall"] = o
+        board["_overall_row"] = ws[0]["_row"]
+    # repeats: a winner ranked on one recording, scored on the others of the same setup
+    groups: dict[str, list[str]] = {}
+    for c in sw.conds.values():
+        groups.setdefault(c.setup_key, []).append(c.id)
+    for ids in groups.values():
+        if len(ids) < 2:
+            continue
+        for cid in ids:
+            t = top_by_validation(sw, cid, 1)
+            if not t:
+                continue
+            others = []
+            for o in ids:
+                if o == cid:
+                    continue
+                r = sw.results.get((o, t[0]["vision"], t[0]["key"]))
+                best_o = top_by_validation(sw, o, 1)
+                others.append({"condition": o, "acc_deg": r.get("acc_deg") if r else None, "best_there_deg": best_o[0]["acc_deg"] if best_o else None})
+            board["repeats"].append({"ranked_on": cid, "setup": fit_name(t[0]["fit"]) + " / " + vision_name(t[0].get("vision_def") or {}), "acc_deg": t[0]["acc_deg"], "on_repeats": others})
+    return board
+
+
+def _overlap(a: list[float] | None, b: list[float] | None) -> bool:
+    if not a or not b:
+        return True
+    return a[0] <= b[1] and b[0] <= a[1]
+
+
+# --------------------------------------------------------------------------------------------
+# The preset
+# --------------------------------------------------------------------------------------------
+
+
+def _camera_prefer(cond: Condition) -> str | None:
+    mode = str((cond.segment.info or {}).get("mode") or "") if cond.segment is not None else ""
+    text = f"{cond.camera_id} {cond.camera_label}".lower()
+    if mode == "arkit" or "arkit" in text or "truedepth" in text:
+        return "arkit"
+    if "front" in text:
+        return "front"
+    if any(w in text for w in ("back", "rear", "wide", "tele")):
+        return "back"
+    return None
+
+
+def make_preset(board: dict[str, Any], sw: Sweep) -> dict[str, Any] | None:
+    """The overall winner as a ``replace`` preset (physical settings of its condition, the camera
+    and zoom, the vision settings and the fit), plus where it applies."""
+    from .presets import PresetError, preset_settings, validate
+
+    row = board.get("_overall_row")
+    if not row:
+        return None
+    cond = sw.conds[row["cond"]]
+    allowed = {s.path: s for s in preset_settings()}
+    notes: list[str] = []
+    ch: dict[str, Any] = {k: v for k, v in cond.settings.items() if k in allowed}
+    v = row.get("vision_def") or {}
+    ch.update(v.get("changes") or {})
+    chain = str(v.get("chain") or "default")
+    if chain.startswith("sim_oracle"):
+        notes.append("the winning estimator chain reads the simulator's truth and is not a live setting; the estimators stay at their defaults")
+    elif chain != "default":
+        ch["estimators.order"] = [n for n in chain.split("+") if n]
+    ch.update(fit_changes(row["fit"]))
+    if cond.phase("poses"):
+        ch["calibration.pose_rounds"] = max(1, min(5, len(cond.pose_groups))) if row["fit"].get("poses", True) else 1
+    if row["fit"].get("calibration.pursuit_merge", "off") != "off":
+        ch["calibration.moving_dot"] = True
+    if cond.zoom:
+        ch["lens.zoom"] = float(cond.zoom)
+        ch["lens.auto_zoom"] = False
+    prefer = _camera_prefer(cond)
+    if prefer:
+        ch["lens.camera_prefer"] = prefer
+    dropped = sorted(k for k in ch if k not in allowed)
+    ch = {k: x for k, x in ch.items() if k in allowed and x != allowed[k].default}
+    if dropped:
+        notes.append("not preset settings, left out: " + ", ".join(dropped))
+    o = board.get("overall") or {}
+    ci = o.get("ci")
+    desc = (
+        f"From the sweep '{sw.inputs.name}' ({board['created'][:10]}): {cond.camera_label} at {cond.zoom or '?'}x, setup '{cond.label}'. "
+        f"Validation {o.get('acc_deg', 0):.2f} deg" + (f" (95% {ci[0]:.2f}-{ci[1]:.2f})" if ci else "") + (f", {o['confirm_deg']:.2f} deg on held-back dots" if o.get("confirm_deg") is not None else "") + ". "
+        f"Applies to camera {cond.camera_id} at zoom {cond.zoom or '?'}x; on another camera, sweep that one."
+    )
+    try:
+        preset = validate({"name": PRESET_NAME, "description": desc, "mode": "replace", "changes": ch})
+    except PresetError as exc:
+        notes.append(f"some settings were refused: {exc}")
+        clean = {}
+        for k, x in ch.items():
+            try:
+                validate({"name": PRESET_NAME, "changes": {k: x}})
+                clean[k] = x
+            except PresetError:
+                continue
+        preset = validate({"name": PRESET_NAME, "description": desc, "mode": "replace", "changes": clean})
+    return {**preset, "camera_id": cond.camera_id, "camera_label": cond.camera_label, "zoom": cond.zoom, "condition": cond.id, "condition_label": cond.label, "sweep": sw.inputs.name, "acc_deg": o.get("acc_deg"), "ci": ci, "confirm_deg": o.get("confirm_deg"), "notes": notes}
+
+
+def save_preset(preset: dict[str, Any], config_path: str | os.PathLike[str] | None) -> dict[str, Any]:
+    """Save through the presets store (``presets.json`` next to the config), replacing an older
+    "best from sweep"."""
+    from .presets import PresetStore, store_path
+
+    store = PresetStore(store_path(config_path))
+    return store.save({k: preset[k] for k in ("name", "description", "mode", "changes")})
+
+
+# --------------------------------------------------------------------------------------------
+# Reports
+# --------------------------------------------------------------------------------------------
+
+
+def _f(v: Any, nd: int = 2) -> str:
+    if v is None or (isinstance(v, float) and not math.isfinite(v)):
+        return "-"
+    if isinstance(v, (int, float)):
+        return f"{v:.{nd}f}"
+    return str(v)
+
+
+def _ci(ci: Any) -> str:
+    return f"{ci[0]:.2f}-{ci[1]:.2f}" if ci else "-"
+
+
+def _stopped(board: dict[str, Any]) -> str:
+    return {"time": "stopped by the time budget", "cap": "stopped at the cap on combinations", None: "finished the plan"}.get(board.get("stopped_by"), str(board.get("stopped_by")))
+
+
+def _coverage_line(board: dict[str, Any]) -> str:
+    ev = sum(c.get("evaluated", 0) for c in board["conditions"])
+    sp = sum(c.get("space", 0) or 0 for c in board["conditions"])
+    share = f"{ev / sp:.2%}" if sp else "-"
+    return f"{ev} setups fitted ({share} of {sp:,} possible combinations) in {board['elapsed_s'] / 60:.1f} min on {board['workers']} core(s); {_stopped(board)}"
+
+
+def format_summary(board: dict[str, Any]) -> str:
+    """Compact plain text for a chat: no images, a few lines per condition."""
+    L = [f"Phone Gaze sweep '{board['name']}' ({board['created'][:16].replace('T', ' ')})", _coverage_line(board)]
+    L.append("Errors are degrees of gaze on VALIDATION dots no fit ever saw; 95% intervals over dots. 'Confirmed' = the same setup on the half of the validation dots it was not ranked on.")
+    o = board.get("overall")
+    if o:
+        L.append("")
+        L.append(f"BEST OVERALL: {o['label']} [{o['camera_label']} {o.get('zoom') or '?'}x]: {_f(o['acc_deg'])} deg (95% {_ci(o['ci'])}), confirmed {_f(o['confirm_deg'])}, precision {_f(o['prec_deg'])}")
+        L.append(f"  setup: {o['fit_name']} | {o['vision_name']}")
+        if o.get("runner_up"):
+            ru = o["runner_up"]
+            L.append(f"  next: {ru['label']} {_f(ru['acc_deg'])} deg (95% {_ci(ru['ci'])})" + ("  -> within noise: record both again before choosing" if o.get("within_noise_of_runner_up") else "  -> a real difference"))
+    if len(board.get("cameras") or []) > 1:
+        L.append("")
+        L.append("Per camera:")
+        for c in board["cameras"]:
+            L.append(f"  {c['camera_label']} ({c['camera_id']}): {c['label']} {_f(c['acc_deg'])} deg (95% {_ci(c['ci'])})")
+    L.append("")
+    L.append("Per condition (best setup | live defaults | horizontal/vertical | worst region):")
+    diag = {d["id"]: d for d in (board.get("diagnosis") or {}).get("conditions", [])}
+    for c in board["conditions"]:
+        w = c.get("winner")
+        if not w:
+            L.append(f"- {c['label']}: {c.get('message', 'nothing scored')}")
+        else:
+            d = c.get("defaults") or {}
+            worst = max(w["regions"].items(), key=lambda kv: kv[1]) if w.get("regions") else None
+            L.append(
+                f"- {c['label']} [{c['camera_label']} {c.get('zoom') or '?'}x]: {_f(w['acc_deg'])} (95% {_ci(w['ci'])}, confirmed {_f(w['confirm_deg'])}) | defaults {_f(d.get('acc_deg'))} | H {_f(w['horizontal_deg'])} V {_f(w['vertical_deg'])} | "
+                + (f"{worst[0]} {_f(worst[1])}" if worst else "-")
+                + (f" | cross-pose {_f(w['cross_pose_deg'])}" if w.get("cross_pose_deg") is not None else "")
+            )
+            L.append(f"    {w['fit_name']} | {w['vision_name']}; {c.get('n_within_noise', 0)} of the next 9 within noise of it")
+        dg = diag.get(c["id"])
+        if dg:
+            L.append(f"    why: {dg['verdict']}")
+            L.append(f"    next: {dg['next_step']}")
+        for n in c.get("notes") or []:
+            if not n.startswith("notes:"):
+                L.append(f"    note: {n}")
+    p = board.get("preset")
+    if p:
+        L.append("")
+        L.append(f"Preset '{p['name']}' written: camera {p['camera_id']} at {p.get('zoom') or '?'}x, {len(p['changes'])} setting(s).")
+    L.append("")
+    L.append("Untested on real recordings so far; numbers from a few validation dots are noisy (see 95% intervals).")
+    return "\n".join(L)
+
+
+def write_markdown(board: dict[str, Any]) -> str:
+    L = [f"# Sweep: {board['name']}", "", f"{_coverage_line(board)}. Created {board['created']}.", ""]
+    L.append("Errors are degrees of gaze on validation dots no fit saw. **Ranked** on half the validation dots, **confirmed** on the other half; 95 % intervals are bootstrap over dots. Rows marked *noise* are not distinguishable from the best.")
+    L.append("")
+    o = board.get("overall")
+    if o:
+        L += ["## Best overall", "", f"**{o['label']}** ({o['camera_label']}, {o.get('zoom') or '?'}x): {_f(o['acc_deg'])} deg (95 % {_ci(o['ci'])}), confirmed {_f(o['confirm_deg'])} deg, precision {_f(o['prec_deg'])} deg.", "", f"Setup: `{o['fit_name']}` with `{o['vision_name']}`.", ""]
+    if board.get("cameras"):
+        L += ["## Best per camera", "", "| Camera | Condition | Accuracy | 95 % | Confirmed | Precision | Setup |", "| --- | --- | --- | --- | --- | --- | --- |"]
+        for c in board["cameras"]:
+            L.append(f"| {c['camera_label']} | {c['label']} | {_f(c['acc_deg'])} | {_ci(c['ci'])} | {_f(c['confirm_deg'])} | {_f(c['prec_deg'])} | {c['fit_name']}; {c['vision_name']} |")
+        L.append("")
+    diag = {d["id"]: d for d in (board.get("diagnosis") or {}).get("conditions", [])}
+    for c in board["conditions"]:
+        L += [f"## {c['label']}", "", f"Camera {c['camera_label']} ({c['camera_id']}), zoom {c.get('zoom') or '?'}; dots: {c['dots']}; {c['evaluated']} setups fitted ({_f((c.get('space_share') or 0) * 100, 2)} % of {c['space']:,}), {c['failed']} failed, {c['not_ranked']} predicted too few validation dots.", ""]
+        dg = diag.get(c["id"])
+        if dg:
+            L += [f"**Why:** {dg['verdict']}", "", f"**Next:** {dg['next_step']}", ""]
+        if not c.get("top"):
+            L += [c.get("message", "Nothing could be scored."), ""]
+            continue
+        L += ["| # | Accuracy | 95 % | Ranked | Confirmed | Precision | Horiz. | Vert. | Cross-pose | Calib. score | Model | Setup |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+        for s in c["top"]:
+            mark = " (noise)" if s.get("within_noise") else ""
+            L.append(f"| {s['rank']}{mark} | {_f(s['acc_deg'])} | {_ci(s['ci'])} | {_f(s['rank_deg'])} | {_f(s['confirm_deg'])} | {_f(s['prec_deg'])} | {_f(s['horizontal_deg'])} | {_f(s['vertical_deg'])} | {_f(s['cross_pose_deg'])} | {_f(s['search_deg'])} | {s.get('model_used') or '-'} | {s['fit_name']}; {s['vision_name']} |")
+        L.append("")
+        w = c["winner"]
+        if w.get("regions"):
+            L.append("Error by screen region (best setup): " + ", ".join(f"{k} {_f(v)}" for k, v in sorted(w["regions"].items(), key=lambda kv: -kv[1])) + ".")
+        if c.get("defaults"):
+            L.append(f"Live defaults on the same data: {_f(c['defaults']['acc_deg'])} deg (95 % {_ci(c['defaults']['ci'])}).")
+        if c.get("search_pick"):
+            sp = c["search_pick"]
+            L.append(f"Picked by calibration data alone (no validation): {_f(sp['acc_deg'])} deg ({sp['fit_name']}).")
+        if c.get("optimism_deg") is not None:
+            L.append(f"Optimism of picking the best of {c['evaluated']}: confirmed minus ranked = {c['optimism_deg']:+.2f} deg.")
+        for n in c.get("notes") or []:
+            L.append(f"- Note: {n}")
+        if c.get("errors"):
+            L.append("- Failures seen: " + "; ".join(c["errors"][:3]))
+        L.append("")
+    if board.get("repeats"):
+        L += ["## Repeats", ""]
+        for r in board["repeats"]:
+            L.append(f"- Ranked on {r['ranked_on']} ({_f(r['acc_deg'])} deg): " + ", ".join(f"{x['condition']} {_f(x['acc_deg'])} (best there {_f(x['best_there_deg'])})" for x in r["on_repeats"]))
+        L.append("")
+    p = board.get("preset")
+    if p:
+        L += ["## Preset", "", f"Saved as **{p['name']}** (Experiments page, Presets): camera {p['camera_id']} at {p.get('zoom') or '?'}x.", ""]
+        L += [f"- `{k}` = `{json.dumps(_jsonable(v))}`" for k, v in sorted(p["changes"].items())]
+        L += [f"- Note: {n}" for n in p.get("notes") or []]
+    for n in board.get("notes") or []:
+        L.append(f"- Input note: {n}")
+    return "\n".join(L) + "\n"
+
+
+def write_html(board: dict[str, Any]) -> str:
+    import html as H
+
+    from .lab import HTML_STYLE
+
+    def esc(x: Any) -> str:
+        return H.escape(str(x))
+
+    parts = [f"<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Sweep {esc(board['name'])}</title><style>{HTML_STYLE} td.noise{{opacity:.75}} .verdict{{font-weight:600}}</style></head><body>"]
+    parts.append(f"<h1>Sweep: {esc(board['name'])}</h1><p>{esc(_coverage_line(board))}.</p>")
+    parts.append("<p>Degrees of gaze on validation dots no fit saw. Ranked on half of them, confirmed on the other half; 95 % intervals are bootstrap over dots. Rows marked <em>noise</em> are not distinguishable from the best.</p>")
+    o = board.get("overall")
+    if o:
+        parts.append(f"<h2>Best overall</h2><p><b>{esc(o['label'])}</b> ({esc(o['camera_label'])}, {esc(o.get('zoom') or '?')}x): {_f(o['acc_deg'])}&deg; (95&nbsp;% {_ci(o['ci'])}), confirmed {_f(o['confirm_deg'])}&deg;, precision {_f(o['prec_deg'])}&deg;.<br>Setup: <code>{esc(o['fit_name'])}</code> with <code>{esc(o['vision_name'])}</code></p>")
+    if board.get("cameras"):
+        parts.append("<h2>Best per camera</h2><table><tr><th>Camera</th><th>Condition</th><th>Accuracy</th><th>95 %</th><th>Confirmed</th><th>Precision</th><th>Setup</th></tr>")
+        for c in board["cameras"]:
+            parts.append(f"<tr><td>{esc(c['camera_label'])}</td><td>{esc(c['label'])}</td><td>{_f(c['acc_deg'])}</td><td>{_ci(c['ci'])}</td><td>{_f(c['confirm_deg'])}</td><td>{_f(c['prec_deg'])}</td><td>{esc(c['fit_name'])}; {esc(c['vision_name'])}</td></tr>")
+        parts.append("</table>")
+    diag = {d["id"]: d for d in (board.get("diagnosis") or {}).get("conditions", [])}
+    for c in board["conditions"]:
+        parts.append(f"<h2>{esc(c['label'])}</h2><p>Camera {esc(c['camera_label'])}, zoom {esc(c.get('zoom') or '?')}; {c['evaluated']} setups fitted ({_f((c.get('space_share') or 0) * 100, 2)} % of {c['space']:,}), {c['failed']} failed.</p>")
+        dg = diag.get(c["id"])
+        if dg:
+            parts.append(f"<p class='verdict'>Why: {esc(dg['verdict'])}</p><p>Next: {esc(dg['next_step'])}</p>")
+        if not c.get("top"):
+            parts.append(f"<p>{esc(c.get('message', 'Nothing could be scored.'))}</p>")
+            continue
+        parts.append("<table><tr><th>#</th><th>Accuracy</th><th>95 %</th><th>Ranked</th><th>Confirmed</th><th>Precision</th><th>Horiz.</th><th>Vert.</th><th>Cross-pose</th><th>Calib. score</th><th>Model</th><th>Setup</th></tr>")
+        for s in c["top"]:
+            cls = " class='noise'" if s.get("within_noise") else ""
+            parts.append(f"<tr{cls}><td>{s['rank']}{' noise' if s.get('within_noise') else ''}</td><td>{_f(s['acc_deg'])}</td><td>{_ci(s['ci'])}</td><td>{_f(s['rank_deg'])}</td><td>{_f(s['confirm_deg'])}</td><td>{_f(s['prec_deg'])}</td><td>{_f(s['horizontal_deg'])}</td><td>{_f(s['vertical_deg'])}</td><td>{_f(s['cross_pose_deg'])}</td><td>{_f(s['search_deg'])}</td><td>{esc(s.get('model_used') or '-')}</td><td>{esc(s['fit_name'])}; {esc(s['vision_name'])}</td></tr>")
+        parts.append("</table>")
+        w = c["winner"]
+        extra = []
+        if w.get("regions"):
+            extra.append("Error by region: " + ", ".join(f"{esc(k)} {_f(v)}" for k, v in sorted(w["regions"].items(), key=lambda kv: -kv[1])))
+        if c.get("defaults"):
+            extra.append(f"Live defaults: {_f(c['defaults']['acc_deg'])}&deg;")
+        if c.get("search_pick"):
+            extra.append(f"Picked by calibration data alone: {_f(c['search_pick']['acc_deg'])}&deg;")
+        if c.get("optimism_deg") is not None:
+            extra.append(f"Confirmed minus ranked: {c['optimism_deg']:+.2f}&deg;")
+        extra += [f"Note: {esc(n)}" for n in c.get("notes") or []]
+        parts.append("<ul>" + "".join(f"<li>{x}</li>" for x in extra) + "</ul>")
+    p = board.get("preset")
+    if p:
+        parts.append(f"<h2>Preset</h2><p>Saved as <b>{esc(p['name'])}</b>: camera {esc(p['camera_id'])} at {esc(p.get('zoom') or '?')}x.</p><ul>" + "".join(f"<li><code>{esc(k)}</code> = <code>{esc(json.dumps(_jsonable(v)))}</code></li>" for k, v in sorted(p["changes"].items())) + "</ul>")
+    parts.append("</body></html>")
+    return "".join(parts)
+
+
+def write_outputs(board: dict[str, Any], out: Path) -> dict[str, Path]:
+    out.mkdir(parents=True, exist_ok=True)
+    clean = {k: v for k, v in board.items() if not k.startswith("_")}
+    paths = {"json": out / "leaderboard.json", "md": out / "leaderboard.md", "html": out / "leaderboard.html", "summary": out / "summary.txt"}
+    for key, text in (("json", json.dumps(_jsonable(clean), indent=2)), ("md", write_markdown(clean)), ("html", write_html(clean)), ("summary", format_summary(clean) + "\n")):
+        tmp = paths[key].with_suffix(".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(paths[key])
+    return paths
+
+
+# --------------------------------------------------------------------------------------------
+# Running it
+# --------------------------------------------------------------------------------------------
+
+
+def safe_name(name: str) -> str:
+    return "".join(c if c.isalnum() or c in "-_." else "-" for c in str(name)).strip("-.") or "sweep"
+
+
+def sweeps_dir(root: Path) -> Path:
+    return Path(root) / "sweeps"
+
+
+def run_sweep(target: str, base: Config, *, config_path: str | None = None, out: str | None = None, minutes: float = 45.0, max_combos: int = 400, workers: int | None = None, vision: str = "auto", every: int | None = None, write_preset: bool = True, fresh: bool = False, progress: Any = None, diagnose: bool = True) -> dict[str, Any]:
+    """Resolve the inputs, sweep, diagnose, write the reports and the preset. Returns the
+    leaderboard (with ``paths``)."""
+    inputs = resolve(target, base)
+    out_dir = Path(out).expanduser() if out else sweeps_dir(inputs.root) / safe_name(inputs.name)
+    if fresh and (out_dir / "results.jsonl").exists():
+        (out_dir / "results.jsonl").unlink()
+    progress = progress or (lambda s: None)
+    progress(f"Sweeping {len(inputs.conditions)} condition(s) from {inputs.root} into {out_dir}")
+    for n in inputs.notes:
+        progress(f"  note: {n}")
+    sw = Sweep(inputs, base, out_dir, minutes=minutes, max_combos=max_combos, workers=workers, vision_mode=vision, every=every, progress=progress)
+    if sw.resumed:
+        progress(f"Resuming: {sw.resumed} setup(s) already fitted")
+    try:
+        board = sw.run()
+        if diagnose:
+            try:
+                from .signal_report import diagnose_sweep
+
+                sw.state(stage="reports", message="diagnosing each condition")
+                board["diagnosis"] = diagnose_sweep(sw, board)
+            except ImportError:
+                pass
+            except Exception as exc:  # noqa: BLE001 - the leaderboard is still worth writing
+                log.exception("diagnosis failed")
+                board["diagnosis_error"] = f"{type(exc).__name__}: {exc}"
+        if write_preset:
+            preset = make_preset(board, sw)
+            if preset is not None:
+                (out_dir / "best_preset.json").write_text(json.dumps(_jsonable(preset), indent=2) + "\n")
+                try:
+                    save_preset(preset, config_path)
+                    board["preset"] = preset
+                except Exception as exc:  # noqa: BLE001
+                    board["preset_error"] = str(exc)
+                    board["preset"] = preset
+        paths = write_outputs(board, out_dir)
+        if board.get("diagnosis"):
+            (out_dir / "diagnosis.json").write_text(json.dumps(_jsonable(board["diagnosis"]), indent=2) + "\n")
+        sw.state(stage="done", finished=_dt.datetime.now().isoformat(timespec="seconds"), message=_coverage_line(board), eta_s=0, best=(board.get("overall") or {}).get("acc_deg"))
+    except KeyboardInterrupt:
+        sw.state(stage="interrupted", message="interrupted; start it again to resume")
+        raise
+    except Exception as exc:
+        sw.state(stage="failed", error=f"{type(exc).__name__}: {exc}", message=str(exc))
+        raise
+    board["paths"] = {k: str(v) for k, v in paths.items()}
+    return board
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``python -m phonegaze sweep TARGET ...``"""
+    from .lab import build_config, quiet_native_logs
+
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "sweep":
+        argv = argv[1:]
+    p = argparse.ArgumentParser(prog="python -m phonegaze sweep", description="Replay recorded sessions through thousands of setting combinations and rank them on held-out validation dots (see docs/SWEEP.md).")
+    p.add_argument("target", help="a collection run id, a run file (collect-runs/<id>.json), a folder of recordings, or one recording")
+    p.add_argument("--minutes", type=float, default=45.0, help="time budget for the whole sweep (default 45)")
+    p.add_argument("--max-combos", type=int, default=400, help="at most this many setups fitted per condition (default 400)")
+    p.add_argument("--workers", type=int, help="processes (default: every CPU core)")
+    p.add_argument("--vision", choices=["auto", "real", "oracle"], default="auto", help="estimator chains: real vision, the simulator's truth (synthetic runs) or auto")
+    p.add_argument("--every", type=int, help="use every Nth frame (default lab.every)")
+    p.add_argument("--config", help="config file (default ~/.phonegaze/config.json); the preset is saved next to it")
+    p.add_argument("--out", help="output folder (default <recordings>/sweeps/<name>)")
+    p.add_argument("--no-preset", action="store_true", help="do not save the winner as the preset 'best from sweep'")
+    p.add_argument("--fresh", action="store_true", help="forget earlier fits of this sweep (observation caches are kept)")
+    p.add_argument("--json", action="store_true", help="print the leaderboard as JSON")
+    p.add_argument("--log-level", default="WARNING")
+    args = p.parse_args(argv)
+    quiet_native_logs()
+    logging.basicConfig(level=getattr(logging, str(args.log_level).upper(), logging.WARNING), format="%(levelname)s %(name)s: %(message)s")
+    try:
+        cfg, _ = build_config(args.config, None, None)
+        from .config import DEFAULT_PATH
+
+        board = run_sweep(args.target, cfg, config_path=args.config or str(DEFAULT_PATH), out=args.out, minutes=args.minutes, max_combos=args.max_combos, workers=args.workers, vision=args.vision, every=args.every, write_preset=not args.no_preset, fresh=args.fresh, progress=None if args.json else (lambda s: print(s, file=sys.stderr, flush=True)))
+    except LabError as exc:
+        print(f"sweep: {exc}", file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        print("sweep: interrupted; run the same command again to resume", file=sys.stderr)
+        return 130
+    except OSError as exc:
+        print(f"sweep: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(_jsonable({k: v for k, v in board.items() if not k.startswith("_")}), indent=2))
+    else:
+        print(format_summary(board))
+        print(f"\nLeaderboard: {board['paths']['html']}\n             {board['paths']['md']}\nSummary:     {board['paths']['summary']}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

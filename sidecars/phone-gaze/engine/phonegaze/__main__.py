@@ -138,6 +138,14 @@ def main(argv: list[str] | None = None) -> int:
         from .tune import ab_main, tune_main
 
         return {"lab": lab_main, "tune": tune_main, "ab": ab_main}[argv[0]](argv[1:])
+    if argv and argv[0] in ("sweep", "diagnose"):  # offline sweep and error diagnosis (sweep.py, signal_report.py)
+        if argv[0] == "sweep":
+            from .sweep import main as sweep_main
+
+            return sweep_main(argv[1:])
+        from .signal_report import main as diagnose_main
+
+        return diagnose_main(argv[1:])
     args = parse_args(argv)
     logging.basicConfig(level=getattr(logging, str(args.log_level).upper(), logging.INFO), format="%(asctime)s %(levelname)s %(name)s: %(message)s", datefmt="%H:%M:%S")
     logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
