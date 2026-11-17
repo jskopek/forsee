@@ -293,3 +293,21 @@ def test_no_face_anywhere_is_reported_and_the_rest_is_swept(tmp_path: Path) -> N
     assert "0%" in diag["noface"]["verdict"]
     text = S.format_summary(board)
     assert "no face" in text and "Traceback" not in text
+
+
+def test_verdict_does_not_blame_jitter_or_one_eye_when_the_error_is_small() -> None:
+    from phonegaze import signal_report as R
+
+    d = {
+        "availability": {"usable": 1.0, "either_eye": 1.0},
+        "precision_floor": {"main_deg": 2.0, "main_signal": "iris_minus_corners"},
+        "achieved_deg": 0.2,
+        "bias": {"accuracy_deg": 0.2},
+        "eyes": {"left": {"acc_deg": 0.6}, "right": {"acc_deg": 2.7}},
+    }
+    v, _next, findings = R.verdict(d)
+    assert v.startswith("already good: 0.20 degrees") and all(f["kind"] != "noise" for f in findings)
+    assert any(f["kind"] == "eye" for f in findings)  # still listed under "also"
+    d["achieved_deg"] = d["bias"]["accuracy_deg"] = 4.0
+    v, _next, findings = R.verdict(d)
+    assert findings[0]["kind"] == "noise" and findings[0]["size"] == 2.0 and "too noisy" in v

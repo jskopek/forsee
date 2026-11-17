@@ -535,6 +535,10 @@ def verdict(d: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
             return (f"nothing could be scored on this recording's validation dots ({why}); see the notes", "check the notes below, then record this setup again", [])
         return (f"no single dominant limit: {acc:.1f} degrees off on average, {(bi.get('precision_deg') or 0):.1f} degrees of jitter, eyes found in {(usable or 0):.0%} of frames", "record this setup again to see whether the numbers hold; then sweep the next physical change", [])
     top = findings[0]
+    if ach is not None and ach < 0.5 * T["noise_deg"] and top["kind"] not in ("availability", "head"):
+        # Already good on held-out dots: what was found is listed under "also", not the verdict
+        # (eyes not found and a moving head stay the verdict: they matter live whatever the score).
+        return (f"already good: {ach:.2f} degrees off on average on held-out dots; nothing found limits it much", "record this setup again to see whether the numbers hold; the notes below are what is left", [{"kind": "good", "size": 0.0, "text": "already good"}] + findings)
     return top["text"][0].upper() + top["text"][1:], top["next"][0].upper() + top["next"][1:], findings
 
 
