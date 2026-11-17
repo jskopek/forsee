@@ -10,6 +10,11 @@ from reading. The iPhone app has run in the iOS Simulator (synthetic test-patter
 the engine in CI, which proves the wire protocol and nothing about real cameras or eyes. It has
 never run on a phone. Expect to move things.
 
+**Before tuning by hand**, record a collection run (Collect tab: the same short protocol once per
+camera setup) and let the sweep search the settings offline; see
+[README: Collect data, then let the machine search](../README.md#collect-data-then-let-the-machine-search).
+Only run against the simulator so far.
+
 The pages: **Dashboard** (Calibrate, Quick refine, Validate, the model table), **Aim** (camera,
 zoom, focus, distance), **Tuning** (both eye crops large with the iris fit, edge points,
 reflection, corners and lid mask drawn on, live numbers, **Freeze frame**), **Live**,

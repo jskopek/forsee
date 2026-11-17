@@ -68,6 +68,11 @@ jobs:
           PG_PYTHON: python
           PG_RESULTS: ${{ runner.temp }}/second-camera.json
         run: node tests/ui/second_camera_e2e.cjs
+      - name: Collection run (Collect page) end-to-end against the simulator
+        env:
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+          PG_PYTHON: python
+        run: node tests/ui/collect_e2e.cjs
       - name: Keep the accuracy numbers
         if: always()
         uses: actions/upload-artifact@v4

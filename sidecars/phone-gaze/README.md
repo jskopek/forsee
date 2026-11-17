@@ -10,7 +10,9 @@ below has been checked against a simulated phone and in CI only (see [Status](#s
 ## Start here
 
 The first morning with the real phone and Mac, in order. Each step says what you should see.
-All commands run from the repository root unless a step says otherwise.
+All commands run from the repository root unless a step says otherwise. Once it runs and the
+accuracy is not good enough, do not tune switches by hand: [collect data, then let the machine
+search](#collect-data-then-let-the-machine-search).
 
 ### 1. Pull the branch
 
@@ -160,6 +162,57 @@ Also useful: the Validate numbers, which camera and zoom, and the distance on th
 **When it does not work well enough, or to make it better: [docs/TUNING.md](docs/TUNING.md)**,
 the playbook. Ideas not done yet: [docs/ROADMAP.md](docs/ROADMAP.md).
 
+## Collect data, then let the machine search
+
+**Only run against the simulator so far; never on a real phone or with a real person.**
+
+Instead of trying switches one at a time, record a few short, identical sessions, one per physical
+setup, and let the computer replay them through thousands of setting combinations offline.
+
+1. Start the engine with the phone connected and press **Collect data** on the Dashboard (or open
+   the **Collect** tab).
+2. Tick a ready-made set and a protocol length (about 1, 2 or 3 minutes of dots per condition;
+   the page shows the estimate for the whole run):
+
+   | Set                  | Conditions                                                                                          | With the 2-minute protocol |
+   | -------------------- | --------------------------------------------------------------------------------------------------- | -------------------------- |
+   | Quick comparison     | front ARKit; back wide 1×; back wide 2×                                                             | about 7 min                |
+   | Rear camera in depth | back wide 1× and 2×, each with and without the reflection helper, each at a normal and 8 ms shutter | about 18 min               |
+   | Everything           | the above plus front plain, ultra wide and telephoto (12 conditions)                                | about 28 min               |
+
+   (1-minute protocol: about 5½, 15 and 22 min; 3-minute: about 10, 27 and 40 min. Each
+   estimate includes about 30 s per condition to switch camera and settle.) Add, remove,
+   reorder or repeat conditions, and type notes for each (distance, lighting, glasses).
+
+3. **Record the next condition.** The engine switches the phone to that camera, zoom, frame rate,
+   shutter and focus, and the page says what to do ("Turn the phone round so its back cameras face
+   you") beside a live preview. It starts only when focus and exposure have settled and both eyes
+   are found; with no face it refuses and says why.
+4. **Start recording this condition.** Full screen, the same for every condition: a calibration
+   grid; the same few dots with your head moved left, right and nearer (plain prompts; press
+   Space when in place); check dots at other places; a short moving dot. **Esc** pauses:
+   continue, redo the condition, skip it, or stop for now (resume the run later from the Collect
+   tab). No model is fitted and the cursor does not move while you collect.
+5. After each condition the page shows face found %, both eyes found % and frames received, and
+   flags **poor data** (both eyes in fewer than 80 % of frames, `collect.poor_eyes_pct`) with a
+   **Redo** button.
+6. At the end: a table of the conditions, where the data is, and the command to analyse it:
+
+   ```sh
+   cd sidecars/phone-gaze/engine
+   .venv/bin/python -m phonegaze sweep <run id>
+   ```
+
+   Then press **Apply best preset** on the Dashboard: it applies the newest preset named
+   **best from sweep** and says which camera and zoom it was found for.
+
+Each condition is an ordinary recording in `~/.phonegaze/recordings/` (raw stream with images:
+**pictures of your face**) plus `collect.json` (which camera and settings, and when each dot was
+on screen); the run is listed in `~/.phonegaze/recordings/collect-runs/<run id>.json`. Settings
+are in the `collect` section of the Experiments page. The Dashboard now shows only the main
+actions; everything else is under **Advanced** (`ui.simple_mode` off brings back the old
+layout).
+
 ## Status
 
 Nothing here has run on a real iPhone or a real Mac with a person in front of it. What has been
@@ -175,6 +228,7 @@ checked, and how:
 | Forsee gaze source (`?gaze=phone`)                             | Unit tests against a fake server. Never connected to the real engine with a real phone.                                                                                                                                                                        |
 | Drift correction from selections (experiment, off)             | Unit tests, a simulated drifting phone (Models simulator), API tests with fake clients. Never with a real phone or person.                                                                                                                                     |
 | Doctor, diagnostics, lab, tuning switches, calibration options | Unit tests; the doctor, Tuning page and calibration options against the simulated phone; the lab on synthetic sessions only. Never with a real phone or person.                                                                                                |
+| Collection run (Collect page) and the simple Dashboard         | Unit tests and `engine/tests/ui/collect_e2e.cjs` against the simulator: two conditions recorded through the page, pause, redo and skip, the files checked. Never with a real phone or person.                                                                  |
 | Second camera (Mac webcam as anchor; experiment, off)          | Against the simulators only (see [docs/SECOND_CAMERA.md](docs/SECOND_CAMERA.md)). Never with a real MacBook camera.                                                                                                                                            |
 
 Accuracy against the simulator, measured by
@@ -230,9 +284,9 @@ All of these are run with `.venv/bin/python -m phonegaze ...` from `sidecars/pho
 
 ## Pages and settings
 
-The browser UI has the tabs **Dashboard**, **Aim**, **Tuning**, **Live**, **Experiments**,
-**Recordings** and **Second camera**, plus the **Diagnostics** and **Lab** pages linked from the
-Dashboard.
+The browser UI has the tabs **Dashboard**, **Collect** and **Live**, then under **Advanced**
+**Aim**, **Tuning**, **Experiments**, **Recordings** and **Second camera**, plus the
+**Diagnostics** and **Lab** pages linked from the Dashboard's Advanced section.
 
 ### Permissions on the Mac
 
@@ -398,6 +452,7 @@ cd sidecars/phone-gaze/engine
 node tests/ui/ui_e2e.cjs                         # browser UI against the simulator
 node tests/ui/accuracy_e2e.cjs arkit camera      # accuracy against the simulator (about 6 min)
 node tests/ui/second_camera_e2e.cjs              # the second camera against the simulator (about 4 min)
+node tests/ui/collect_e2e.cjs                    # a short collection run against the simulator (about 3 min)
 .venv/bin/python -m phonegaze.sim --mode camera  # the simulated phone on its own, port 8081
 ```
 
