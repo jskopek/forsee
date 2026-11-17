@@ -1030,6 +1030,17 @@ class Collector:
             self.engine._sim_restore_pose()
         return {"summary": summary, "quality": self.quality.to_dict(frames)}
 
+    async def wait_for_last_frames(self, n: int = 2, timeout_s: float = 1.0) -> None:
+        """Frames reach the engine later than the page's last moving-dot sample (more so on a
+        slow computer); keep recording until a couple more have arrived, so the recording covers
+        every sample in the manifest (CI saw the last samples fall after the last frame)."""
+        rec = self.engine.recorder
+        if self.recording is None or rec is None:
+            return
+        n0, t_end = rec.frames, time.monotonic() + timeout_s
+        while rec.frames < n0 + n and time.monotonic() < t_end and self.engine.recorder is rec:
+            await asyncio.sleep(0.05)
+
     def finish(self) -> dict[str, Any]:
         run = self._need_run()
         m = self._need_recording()
@@ -1234,6 +1245,7 @@ def register(app: Any, engine: Any) -> Collector:
         return col.status()
 
     async def finish(request: web.Request) -> Any:
+        await col.wait_for_last_frames()
         return col.finish()
 
     async def abort(request: web.Request) -> Any:
