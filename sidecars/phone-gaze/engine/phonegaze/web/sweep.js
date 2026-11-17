@@ -273,7 +273,11 @@ function resultView(s) {
           h('td', { text: c.winner ? `${fmt(w.acc_deg, 2)}°` : c.message || '–' }),
           h('td', { text: ci(w.ci) }),
           h('td', { text: c.winner ? `${fmt(w.confirm_deg, 2)}°` : '–' }),
-          h('td', { text: c.defaults ? `${fmt(c.defaults.acc_deg, 2)}°` : '–' }),
+          h('td', {
+            text: c.defaults
+              ? `${fmt(c.defaults.acc_deg, 2)}°${c.defaults.note ? ` (${c.defaults.note})` : ''}`
+              : c.defaults_message || 'not fitted',
+          }),
           h('td', { class: 'why', text: d.verdict || '–' }),
           h('td', { class: 'small', text: d.next_step || '' }),
         );

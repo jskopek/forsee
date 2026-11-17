@@ -376,7 +376,8 @@ def bias(cond: Any, row: dict[str, Any] | None) -> dict[str, Any]:
     out: dict[str, Any] = {}
     per = (row or {}).get("per_dot") or []
     if len(per) < 3:
-        return {"error": "too few validation dots were predicted"}
+        n_val = len(cond.phase("validation")) if cond is not None else len(per)
+        return {"error": f"only {len(per)} of {n_val} validation dots could be predicted (the others had too few usable frames): too few to split the error into offset, scale and regions"}
     err = np.array([p[1] for p in per], float)
     dx = np.array([p[2] for p in per], float)
     dy = np.array([p[3] for p in per], float)
@@ -565,6 +566,7 @@ def diagnose_condition(cond: Any, os_: Any, base: Config, vision: dict[str, Any]
 
         d["setup"] = fit_name(row.get("fit") or {})
         d["achieved_deg"] = row.get("acc_deg")
+        d["achieved_dots"] = [len(row.get("per_dot") or []), len(cond.phase("validation"))]
         d["cross_pose_deg"] = row.get("cross_pose_deg")
         d["bias"] = bias(cond, row)
         if fit is not None:
@@ -598,7 +600,7 @@ def format_text(diag: dict[str, Any]) -> str:
             L.append(f"  how well {str(ss['main_signal']).replace('_', ' ')} follows the dot: the dot explains {_pct((m.get('horizontal') or {}).get('explained'))} of its sideways and {_pct((m.get('vertical') or {}).get('explained'))} of its up/down variation (100 % = all of it)" + (f"; it moves {sens} as much as the geometry predicts (1.00x = right)" if sens else ""))
         ce = d.get("ceiling") or {}
         if ce.get("ceiling_deg") is not None or d.get("achieved_deg") is not None:
-            L.append(f"  rough ceiling, a plain ridge or geometric fit on every dot with validation included {_fmt(ce.get('ceiling_deg'))} deg{_ceiling_note(ce.get('ceiling_deg'), d.get('achieved_deg'))}; achieved on held-out validation dots {_fmt(d.get('achieved_deg'))} deg" + (f"; on head positions the fit did not see {_fmt(d.get('cross_pose_deg'))} deg" if d.get("cross_pose_deg") is not None else ""))
+            L.append(f"  rough ceiling, a plain ridge or geometric fit on every dot with validation included {_fmt(ce.get('ceiling_deg'))} deg{_ceiling_note(ce.get('ceiling_deg'), d.get('achieved_deg'))}; achieved on held-out validation dots {_fmt(d.get('achieved_deg'))} deg{_dots_note(d.get('achieved_dots'))}" + (f"; on head positions the fit did not see {_fmt(d.get('cross_pose_deg'))} deg" if d.get("cross_pose_deg") is not None else ""))
         bi = d.get("bias") or {}
         if bi.get("accuracy_deg") is not None:
             L.append(f"  constant offset {_fmt(bi.get('offset_size_deg'))} deg ({_pct(bi.get('offset_share'))} of the error); error sideways {_fmt(bi.get('horizontal_deg'))} deg, up/down {_fmt(bi.get('vertical_deg'))} deg" + ("; pointer travel against eye travel " + ", ".join(f"{k} {_fmt(v)}x" for k, v in (bi.get("scale") or {}).items()) + " (1.00x = right)" if bi.get("scale") else ""))
@@ -619,6 +621,12 @@ def format_text(diag: dict[str, Any]) -> str:
         L.append("Notes:")
         L += [f"  {n}" for n in diag["notes"]]
     return "\n".join(L)
+
+
+def _dots_note(nd: Any) -> str:
+    if not nd or nd[0] >= nd[1]:
+        return ""
+    return f" (on only {nd[0]} of {nd[1]} dots: treat it as rough)"
 
 
 def _ceiling_note(ceiling: Any, achieved: Any) -> str:

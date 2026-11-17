@@ -343,3 +343,26 @@ def test_the_default_cap_grows_with_the_budget_and_an_early_cap_says_how_to_rais
     assert "39 of 45 minutes left" in text and "--max-combos 1200" in text
     board["elapsed_s"] = 44 * 60  # cap reached near the end: nothing to add
     assert S._stopped(board) == "stopped at the cap on combinations"
+
+
+def test_defaults_are_always_shown_even_on_few_dots(one: Path, tmp_path: Path, monkeypatch) -> None:
+    inp = S.resolve(str(one / "unit-clean"), cfg_for(one))
+    cond = inp.conditions[0]
+    val = cond.phase("validation")
+
+    def fake_fit(cid, vision, fit):
+        dots = val[:2] if fit.get("model") == "auto" else val  # the defaults predict 2 of 6 dots
+        e = 9.0 if fit.get("model") == "auto" else 2.0
+        per = [[d.uid, e, 0.0, 0.0, d.x, d.y, d.t0] for d in dots]
+        return {"cond": cid, "vision": S.vision_id(vision), "fit": fit, "key": S.fit_key(fit), "v": S.SWEEP_VERSION, "rec": cond.signature, "search_deg": e, "acc_deg": e, "coverage": len(dots) / len(val), "per_dot": per, "seconds": 0.0}
+
+    monkeypatch.setattr(S, "_job_fit", fake_fit)
+    monkeypatch.setattr(S, "_job_observe", lambda cid, v: {"cond": cid, "vision": S.vision_id(v), "ok": True, "frames": 10, "cached": True})
+    # --models without auto: the defaults are fitted all the same
+    sw = S.Sweep(inp, Config(), tmp_path / "o", minutes=1, max_combos=6, workers=1, vision_mode="oracle", models=["ridge"])
+    board = sw.run(diagnose=False)
+    c = board["conditions"][0]
+    assert c["defaults"]["acc_deg"] == 9.0 and "2 of 6" in c["defaults"]["note"]
+    assert "defaults 9.00 deg (on 2 of 6 validation dots only" in S.format_summary(board)
+    # never fitted: words, not a dash
+    assert S.defaults_text({"defaults_message": "not fitted in this sweep (the time ran out first)"}).startswith("not fitted")

@@ -1347,6 +1347,12 @@ class Sweep:
                 for m in models:
                     for poses in ([True, False] if self.has[c.id]["poses"] else [True]):
                         tasks.append((c.id, v, {"model": m, "poses": poses}))
+        # Today's defaults on every condition come first, whatever --models says: the comparison
+        # every winner is measured against.
+        for c in conds:
+            v0 = vision_space(c, self.vision_mode)[0]
+            if (c.id, vision_id(v0)) in self.obs_stats:
+                tasks.insert(0, (c.id, self.visions[c.id].get(vision_id(v0), v0), {"model": "auto"}))
         self.progress("Stage 2: fitting on calibration, scoring on validation")
         self.fit_batch(tasks, "coarse: models x poses x vision")
         # Vision refinement: combine the single vision changes that helped.
@@ -1598,6 +1604,35 @@ def _row_summary(sw: Sweep, row: dict[str, Any], a: set[int], b: set[int]) -> di
     }
 
 
+def is_defaults_row(r: dict[str, Any]) -> bool:
+    v = r.get("vision_def") or {}
+    return r.get("fit") == {"model": "auto"} and not v.get("changes") and v.get("chain") in ("default", ORACLE_CHAINS[0])
+
+
+def _defaults_entry(sw: Sweep, cid: str, rows: list[dict[str, Any]], entry: dict[str, Any], a: set[int], b: set[int]) -> None:
+    """Today's default settings on this condition: the comparison that matters most, so it is
+    always shown, on fewer dots if need be, or with the reason in words."""
+    cands = [r for r in rows if is_defaults_row(r)]
+    n_val = len(sw.conds[cid].phase("validation"))
+    scored = sorted([r for r in cands if not r.get("error") and r.get("acc_deg") is not None], key=lambda r: -(r.get("coverage") or 0))
+    if scored:
+        r = scored[0]
+        entry["defaults"] = _row_summary(sw, r, a, b)
+        if not eligible(r):
+            entry["defaults"]["note"] = f"on {len(r.get('per_dot') or [])} of {n_val} validation dots only: the others had too few usable frames for these settings"
+    elif cands:
+        entry["defaults_message"] = f"could not be scored: {cands[0].get('error') or 'no validation dot could be predicted'}"
+    else:
+        entry["defaults_message"] = "not fitted in this sweep (the time ran out first)"
+
+
+def defaults_text(c: dict[str, Any]) -> str:
+    d = c.get("defaults")
+    if d and d.get("acc_deg") is not None:
+        return f"{_f(d['acc_deg'])} deg" + (f" ({d['note']})" if d.get("note") else "")
+    return c.get("defaults_message") or "not fitted in this sweep"
+
+
 def build_leaderboard(sw: Sweep) -> dict[str, Any]:
     board: dict[str, Any] = {
         "format": "phonegaze-sweep-1",
@@ -1642,6 +1677,7 @@ def build_leaderboard(sw: Sweep) -> dict[str, Any]:
             "top": [],
         }
         board["conditions"].append(entry)
+        _defaults_entry(sw, cid, rows, entry, a, b)
         top = top_by_validation(sw, cid, 10)
         if not top and not rows:
             entry["message"] = "not reached: the time budget ran out before any setup of this condition was fitted; run the sweep again with more --minutes (it resumes)"
@@ -1669,9 +1705,6 @@ def build_leaderboard(sw: Sweep) -> dict[str, Any]:
         entry["optimism_deg"] = (chk["confirmed_deg"] - chk["ranked_deg"]) if chk else None
         entry["n_within_noise"] = sum(1 for s in entry["top"][1:] if s.get("within_noise"))
         # what the defaults give, and what the calibration-only search alone would have picked
-        defaults = [r for r in rows if eligible(r) and r["fit"] == {"model": "auto"} and not (r.get("vision_def") or {}).get("changes") and (r.get("vision_def") or {}).get("chain") in ("default", ORACLE_CHAINS[0])]
-        if defaults:
-            entry["defaults"] = _row_summary(sw, defaults[0], a, b)
         by_search = sorted([r for r in rows if eligible(r) and r.get("search_deg") is not None], key=lambda r: (r["search_deg"], r["key"]))
         if by_search:
             entry["search_pick"] = _row_summary(sw, by_search[0], a, b)
@@ -1876,12 +1909,12 @@ def format_summary(board: dict[str, Any]) -> str:
     for c in board["conditions"]:
         w = c.get("winner")
         if not w:
-            L.append(f"- {c['label']}: {c.get('message', 'nothing scored')}")
+            L.append(f"- {c['label']}: {c.get('message', 'nothing scored')} | defaults {defaults_text(c)}")
         else:
             d = c.get("defaults") or {}
             worst = max(w["regions"].items(), key=lambda kv: kv[1]) if w.get("regions") else None
             L.append(
-                f"- {c['label']} [{c['camera_label']} {c.get('zoom') or '?'}x]: {_f(w['acc_deg'])} deg (95% {_ci(w['ci'])}, confirmed {_f(w['confirm_deg'])}) | defaults {_f(d.get('acc_deg'))} deg | H {_f(w['horizontal_deg'])} V {_f(w['vertical_deg'])} deg | "
+                f"- {c['label']} [{c['camera_label']} {c.get('zoom') or '?'}x]: {_f(w['acc_deg'])} deg (95% {_ci(w['ci'])}, confirmed {_f(w['confirm_deg'])}) | defaults {defaults_text(c)} | H {_f(w['horizontal_deg'])} V {_f(w['vertical_deg'])} deg | "
                 + (f"worst {worst[0]} {_f(worst[1])} deg" if worst else "-")
                 + (f" | other head positions {_f(w['cross_pose_deg'])} deg" if w.get("cross_pose_deg") is not None else "")
             )
@@ -1936,8 +1969,7 @@ def write_markdown(board: dict[str, Any]) -> str:
         w = c["winner"]
         if w.get("regions"):
             L.append("Error by screen region (best setup): " + ", ".join(f"{k} {_f(v)}" for k, v in sorted(w["regions"].items(), key=lambda kv: -kv[1])) + ".")
-        if c.get("defaults"):
-            L.append(f"Live defaults on the same data: {_f(c['defaults']['acc_deg'])} deg (95 % {_ci(c['defaults']['ci'])}).")
+        L.append(f"Today's default settings on the same data: {defaults_text(c)}" + (f" (95 % {_ci(c['defaults']['ci'])})." if c.get("defaults") and c["defaults"].get("ci") else "."))
         if c.get("search_pick"):
             sp = c["search_pick"]
             L.append(f"Picked by calibration data alone (no validation): {_f(sp['acc_deg'])} deg ({sp['fit_name']}).")
@@ -2001,8 +2033,7 @@ def write_html(board: dict[str, Any]) -> str:
         extra = []
         if w.get("regions"):
             extra.append("Error by region: " + ", ".join(f"{esc(k)} {_f(v)}" for k, v in sorted(w["regions"].items(), key=lambda kv: -kv[1])))
-        if c.get("defaults"):
-            extra.append(f"Live defaults: {_f(c['defaults']['acc_deg'])}&deg;")
+        extra.append(f"Today's defaults: {esc(defaults_text(c))}")
         if c.get("search_pick"):
             extra.append(f"Picked by calibration data alone: {_f(c['search_pick']['acc_deg'])}&deg;")
         if c.get("check"):
@@ -2195,7 +2226,7 @@ def register(app: Any, engine: Any) -> None:
             try:
                 board = json.loads((out / "leaderboard.json").read_text(encoding="utf-8"))
                 st["board"] = {k: board.get(k) for k in ("overall", "cameras", "preset", "evaluated", "elapsed_s", "stopped_by")}
-                st["board"]["conditions"] = [{k: c.get(k) for k in ("id", "label", "camera_label", "zoom", "winner", "defaults", "evaluated", "space", "space_share", "n_within_noise", "message")} for c in board.get("conditions", [])]
+                st["board"]["conditions"] = [{k: c.get(k) for k in ("id", "label", "camera_label", "zoom", "winner", "defaults", "defaults_message", "evaluated", "space", "space_share", "n_within_noise", "message")} for c in board.get("conditions", [])]
                 st["diagnosis"] = [{k: d.get(k) for k in ("id", "label", "verdict", "next_step", "findings")} for d in (board.get("diagnosis") or {}).get("conditions", [])]
             except (OSError, ValueError):
                 pass
