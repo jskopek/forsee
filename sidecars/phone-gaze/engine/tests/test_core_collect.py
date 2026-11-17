@@ -192,3 +192,28 @@ def test_settings_are_in_the_config_tree_and_not_in_presets():
     for s in settings():
         if s.path.startswith("collect.") or s.path == "ui.simple_mode":
             assert not in_presets(s)
+
+
+def test_best_preset_is_the_newest_from_the_sweep(tmp_path):
+    from types import SimpleNamespace
+
+    from phonegaze.presets import PresetStore
+
+    path = tmp_path / "presets.json"
+    store = PresetStore(path)
+    engine = SimpleNamespace(presets=store, config_path=tmp_path / "config.json")
+    col = C.Collector(engine)
+    assert col.best_preset() is None
+
+    def write(*presets):
+        path.write_text(json.dumps({"version": 1, "presets": list(presets)}))
+
+    new = {"name": "best from sweep", "description": "From the sweep: Back Camera at 2x", "mode": "replace", "changes": {"lens.camera_prefer": "back"}, "saved": "2026-11-17T10:00:00"}
+    old = {"name": "best from sweep (old)", "description": "", "mode": "replace", "changes": {"lens.camera_prefer": "arkit", "lens.zoom": 1.0}, "saved": "2026-11-16T10:00:00"}
+    other = {"name": "mine", "description": "", "mode": "replace", "changes": {}, "saved": "2026-11-18T10:00:00"}
+    write(old, new, other)
+    best = col.best_preset()
+    assert best["name"] == "best from sweep" and best["camera"] == "back camera" and best["zoom"] == 2.0
+    write(old, other)
+    best = col.best_preset()
+    assert best["camera"] == "front ARKit camera" and best["zoom"] == 1.0

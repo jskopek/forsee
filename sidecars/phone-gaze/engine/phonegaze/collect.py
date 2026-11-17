@@ -1128,6 +1128,10 @@ class Collector:
         prefer = ch.get("lens.camera_prefer")
         camera = {"arkit": "front ARKit camera", "front": "front camera", "back": "back camera"}.get(prefer or "", "")
         zoom = ch.get("lens.zoom")
+        if zoom is None and best.get("mode", "replace") == "replace":
+            from .config import settings
+
+            zoom = next((s.default for s in settings() if s.path == "lens.zoom"), None)  # a replace preset sets the default
         return {"name": best["name"], "description": best.get("description", ""), "saved": best.get("saved"), "camera": camera or None, "zoom": zoom, "changes": ch}
 
 
