@@ -242,7 +242,9 @@ async function main() {
     await page.getByTestId('report-done').click();
     await page.getByTestId('calib').waitFor({ state: 'detached' });
 
-    // 6. Quick refine.
+    // 6. Quick refine (under Advanced on the simple dashboard; the open state is remembered).
+    if (!(await page.getByTestId('refine').isVisible()))
+      await page.locator('[data-testid="advanced"] > summary').click();
     await page.getByTestId('refine').click();
     await page.getByTestId('calib-go').click();
     const ref = await runCalibrationReport(page, 60000);
